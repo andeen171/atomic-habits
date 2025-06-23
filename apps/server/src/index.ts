@@ -11,6 +11,8 @@ import { handle } from "hono/vercel";
 import { auth } from "./lib/auth";
 import { createContext } from "./lib/context";
 
+export const runtime = "edge";
+
 const app = new Hono();
 
 app.use(logger());
@@ -55,4 +57,5 @@ app.get("/", (c) => {
 	return c.text("OK");
 });
 
-export default handle(app);
+export const GET = handle(app);
+export const POST = handle(app);

@@ -1,16 +1,18 @@
 {
-	"version": 2,
-	"buildCommand": "bun build ./src/index.ts --outdir ./dist --target bun",
-	"outputDirectory": "dist",
+	"$schema": "https://openapi.vercel.sh/vercel.json",
 	"functions": {
-		"dist/index.js": {
-			"runtime": "experimental-edge"
+		"api/index.ts": {
+			"runtime": "nodejs20.x",
+			"memory": 1024,
+			"maxDuration": 10
 		}
 	},
-	"routes": [
+	"rewrites": [
 		{
-			"src": "/api/(.*)",
-			"dest": "/dist/index.js"
+			"source": "/(.*)",
+			"destination": "/api/index.ts"
 		}
-	]
+	],
+	"installCommand": "curl -fsSL https://bun.sh/install | bash && ~/.bun/bin/bun install",
+	"buildCommand": "~/.bun/bin/bun run build"
 }
