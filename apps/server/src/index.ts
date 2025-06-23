@@ -17,7 +17,7 @@ app.use(
 	"/*",
 	cors({
 		origin: (process.env.CORS_ORIGINS || "").split(",").filter(Boolean),
-		allowMethods: ["GET", "POST", "OPTIONS"],
+		allowMethods: ["GET", "POST", "OPTIONS", "PUT"],
 		allowHeaders: ["Content-Type", "Authorization"],
 		credentials: true,
 	}),
