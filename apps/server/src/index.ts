@@ -7,8 +7,11 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { stream } from "hono/streaming";
+import { handle } from "hono/vercel";
 import { auth } from "./lib/auth";
 import { createContext } from "./lib/context";
+
+export const runtime = "edge";
 
 const app = new Hono();
 
@@ -54,4 +57,5 @@ app.get("/", (c) => {
 	return c.text("OK");
 });
 
-export default app;
+export const GET = handle(app);
+export const POST = handle(app);

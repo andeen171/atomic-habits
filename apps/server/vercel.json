@@ -1,15 +1,18 @@
 {
-	"version": 2,
-	"builds": [
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"functions": {
+		"api/index.ts": {
+			"runtime": "nodejs20.x",
+			"memory": 1024,
+			"maxDuration": 10
+		}
+	},
+	"rewrites": [
 		{
-			"src": "apps/api/src/index.ts",
-			"use": "@vercel/node"
+			"source": "/(.*)",
+			"destination": "/api/index.ts"
 		}
 	],
-	"routes": [
-		{
-			"src": "/api/(.*)",
-			"dest": "apps/api/src/index.ts"
-		}
-	]
+	"installCommand": "curl -fsSL https://bun.sh/install | bash && ~/.bun/bin/bun install",
+	"buildCommand": "~/.bun/bin/bun run build"
 }
