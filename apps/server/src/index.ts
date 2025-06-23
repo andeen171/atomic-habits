@@ -13,16 +13,11 @@ import { createContext } from "./lib/context";
 const app = new Hono();
 
 app.use(logger());
-
-const allowedOrigins = (process.env.CORS_ORIGINS || "")
-	.split(",")
-	.filter(Boolean);
-
 app.use(
 	"/*",
 	cors({
-		origin: (origin, c) => (allowedOrigins.includes(origin) ? origin : null),
-		allowMethods: ["GET", "POST", "OPTIONS", "PUT"],
+		origin: (process.env.CORS_ORIGINS || "").split(",").filter(Boolean),
+		allowMethods: ["GET", "POST", "OPTIONS"],
 		allowHeaders: ["Content-Type", "Authorization"],
 		credentials: true,
 	}),
