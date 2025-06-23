@@ -1,15 +1,16 @@
 {
 	"version": 2,
-	"builds": [
-		{
-			"src": "apps/api/src/index.ts",
-			"use": "@vercel/node"
+	"buildCommand": "bun build ./src/index.ts --outdir ./dist --target bun",
+	"outputDirectory": "dist",
+	"functions": {
+		"dist/index.js": {
+			"runtime": "experimental-edge"
 		}
-	],
+	},
 	"routes": [
 		{
 			"src": "/api/(.*)",
-			"dest": "apps/api/src/index.ts"
+			"dest": "/dist/index.js"
 		}
 	]
 }
