@@ -1,15 +1,11 @@
 import { Link } from "@tanstack/react-router";
 
+import { Button } from "@/components/ui/button";
 import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
 
 export default function Header() {
-	const links = [
-		{ to: "/", label: "Home" },
-		{ to: "/dashboard", label: "Dashboard" },
-		{ to: "/todos", label: "Todos" },
-		{ to: "/ai", label: "AI Chat" },
-	];
+	const links = [{ to: "/", label: "Todos" }];
 
 	return (
 		<div>
@@ -25,6 +21,11 @@ export default function Header() {
 				</nav>
 				<div className="flex items-center gap-2">
 					<ModeToggle />
+					<Button variant={"outline"}>
+						<Link key={"/checkhealth"} to={"/checkhealth"}>
+							Check health
+						</Link>
+					</Button>
 					<UserMenu />
 				</div>
 			</div>

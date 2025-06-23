@@ -13,8 +13,7 @@
 import { Route as rootRoute } from './routes/__root'
 import { Route as TodosImport } from './routes/todos'
 import { Route as LoginImport } from './routes/login'
-import { Route as DashboardImport } from './routes/dashboard'
-import { Route as AiImport } from './routes/ai'
+import { Route as CheckhealthImport } from './routes/checkhealth'
 import { Route as IndexImport } from './routes/index'
 
 // Create/Update Routes
@@ -31,15 +30,9 @@ const LoginRoute = LoginImport.update({
   getParentRoute: () => rootRoute,
 } as any)
 
-const DashboardRoute = DashboardImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRoute,
-} as any)
-
-const AiRoute = AiImport.update({
-  id: '/ai',
-  path: '/ai',
+const CheckhealthRoute = CheckhealthImport.update({
+  id: '/checkhealth',
+  path: '/checkhealth',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -60,18 +53,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexImport
       parentRoute: typeof rootRoute
     }
-    '/ai': {
-      id: '/ai'
-      path: '/ai'
-      fullPath: '/ai'
-      preLoaderRoute: typeof AiImport
-      parentRoute: typeof rootRoute
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardImport
+    '/checkhealth': {
+      id: '/checkhealth'
+      path: '/checkhealth'
+      fullPath: '/checkhealth'
+      preLoaderRoute: typeof CheckhealthImport
       parentRoute: typeof rootRoute
     }
     '/login': {
@@ -95,16 +81,14 @@ declare module '@tanstack/react-router' {
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
-  '/dashboard': typeof DashboardRoute
+  '/checkhealth': typeof CheckhealthRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
 
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
-  '/dashboard': typeof DashboardRoute
+  '/checkhealth': typeof CheckhealthRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
@@ -112,33 +96,30 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRoute
   '/': typeof IndexRoute
-  '/ai': typeof AiRoute
-  '/dashboard': typeof DashboardRoute
+  '/checkhealth': typeof CheckhealthRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
 
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ai' | '/dashboard' | '/login' | '/todos'
+  fullPaths: '/' | '/checkhealth' | '/login' | '/todos'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ai' | '/dashboard' | '/login' | '/todos'
-  id: '__root__' | '/' | '/ai' | '/dashboard' | '/login' | '/todos'
+  to: '/' | '/checkhealth' | '/login' | '/todos'
+  id: '__root__' | '/' | '/checkhealth' | '/login' | '/todos'
   fileRoutesById: FileRoutesById
 }
 
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AiRoute: typeof AiRoute
-  DashboardRoute: typeof DashboardRoute
+  CheckhealthRoute: typeof CheckhealthRoute
   LoginRoute: typeof LoginRoute
   TodosRoute: typeof TodosRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AiRoute: AiRoute,
-  DashboardRoute: DashboardRoute,
+  CheckhealthRoute: CheckhealthRoute,
   LoginRoute: LoginRoute,
   TodosRoute: TodosRoute,
 }
@@ -154,8 +135,7 @@ export const routeTree = rootRoute
       "filePath": "__root.tsx",
       "children": [
         "/",
-        "/ai",
-        "/dashboard",
+        "/checkhealth",
         "/login",
         "/todos"
       ]
@@ -163,11 +143,8 @@ export const routeTree = rootRoute
     "/": {
       "filePath": "index.tsx"
     },
-    "/ai": {
-      "filePath": "ai.tsx"
-    },
-    "/dashboard": {
-      "filePath": "dashboard.tsx"
+    "/checkhealth": {
+      "filePath": "checkhealth.tsx"
     },
     "/login": {
       "filePath": "login.tsx"
