@@ -5,7 +5,10 @@ import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
 
 export default function Navigation() {
-	const links = [{ to: "/", label: "Todos" }];
+	const links = [
+		{ to: "/", label: "Todos" },
+		{ to: "/habits", label: "WIP" },
+	];
 
 	return (
 		<div className="fixed bottom-0 left-0 z-50 w-full sm:static sm:top-auto sm:bottom-auto">

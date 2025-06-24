@@ -13,6 +13,7 @@
 import { Route as rootRoute } from './routes/__root'
 import { Route as TodosImport } from './routes/todos'
 import { Route as LoginImport } from './routes/login'
+import { Route as HabitsImport } from './routes/habits'
 import { Route as CheckhealthImport } from './routes/checkhealth'
 import { Route as IndexImport } from './routes/index'
 
@@ -27,6 +28,12 @@ const TodosRoute = TodosImport.update({
 const LoginRoute = LoginImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const HabitsRoute = HabitsImport.update({
+  id: '/habits',
+  path: '/habits',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -60,6 +67,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckhealthImport
       parentRoute: typeof rootRoute
     }
+    '/habits': {
+      id: '/habits'
+      path: '/habits'
+      fullPath: '/habits'
+      preLoaderRoute: typeof HabitsImport
+      parentRoute: typeof rootRoute
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -82,6 +96,7 @@ declare module '@tanstack/react-router' {
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/checkhealth': typeof CheckhealthRoute
+  '/habits': typeof HabitsRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
@@ -89,6 +104,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/checkhealth': typeof CheckhealthRoute
+  '/habits': typeof HabitsRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
@@ -97,22 +113,24 @@ export interface FileRoutesById {
   __root__: typeof rootRoute
   '/': typeof IndexRoute
   '/checkhealth': typeof CheckhealthRoute
+  '/habits': typeof HabitsRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
 
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/checkhealth' | '/login' | '/todos'
+  fullPaths: '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/checkhealth' | '/login' | '/todos'
-  id: '__root__' | '/' | '/checkhealth' | '/login' | '/todos'
+  to: '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
+  id: '__root__' | '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
   fileRoutesById: FileRoutesById
 }
 
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CheckhealthRoute: typeof CheckhealthRoute
+  HabitsRoute: typeof HabitsRoute
   LoginRoute: typeof LoginRoute
   TodosRoute: typeof TodosRoute
 }
@@ -120,6 +138,7 @@ export interface RootRouteChildren {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CheckhealthRoute: CheckhealthRoute,
+  HabitsRoute: HabitsRoute,
   LoginRoute: LoginRoute,
   TodosRoute: TodosRoute,
 }
@@ -136,6 +155,7 @@ export const routeTree = rootRoute
       "children": [
         "/",
         "/checkhealth",
+        "/habits",
         "/login",
         "/todos"
       ]
@@ -145,6 +165,9 @@ export const routeTree = rootRoute
     },
     "/checkhealth": {
       "filePath": "checkhealth.tsx"
+    },
+    "/habits": {
+      "filePath": "habits.tsx"
     },
     "/login": {
       "filePath": "login.tsx"
