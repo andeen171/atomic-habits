@@ -13,7 +13,6 @@ import { Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { trpc } from "@/utils/trpc";
-import { useMutation, useQuery } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/todos")({
 	component: TodosRoute,
@@ -22,25 +21,19 @@ export const Route = createFileRoute("/todos")({
 function TodosRoute() {
 	const [newTodoText, setNewTodoText] = useState("");
 
-	const todos = useQuery(trpc.todo.getAll.queryOptions());
-	const createMutation = useMutation(
-		trpc.todo.create.mutationOptions({
-			onSuccess: () => {
-				todos.refetch();
-				setNewTodoText("");
-			},
-		}),
-	);
-	const toggleMutation = useMutation(
-		trpc.todo.toggle.mutationOptions({
-			onSuccess: () => todos.refetch(),
-		}),
-	);
-	const deleteMutation = useMutation(
-		trpc.todo.delete.mutationOptions({
-			onSuccess: () => todos.refetch(),
-		}),
-	);
+	const todos = trpc.todo.getAll.useQuery();
+	const createMutation = trpc.todo.create.useMutation({
+		onSuccess: () => {
+			todos.refetch();
+			setNewTodoText("");
+		},
+	});
+	const toggleMutation = trpc.todo.toggle.useMutation({
+		onSuccess: () => todos.refetch(),
+	});
+	const deleteMutation = trpc.todo.delete.useMutation({
+		onSuccess: () => todos.refetch(),
+	});
 
 	const handleAddTodo = (e: React.FormEvent) => {
 		e.preventDefault();

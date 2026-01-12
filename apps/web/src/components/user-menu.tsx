@@ -27,6 +27,7 @@ export default function UserMenu() {
 			</Button>
 		);
 	}
+	console.log(session);
 
 	return (
 		<DropdownMenu>

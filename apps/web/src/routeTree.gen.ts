@@ -8,90 +8,38 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-// Import Routes
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as TodosRouteImport } from './routes/todos'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as HabitsRouteImport } from './routes/habits'
+import { Route as CheckhealthRouteImport } from './routes/checkhealth'
+import { Route as IndexRouteImport } from './routes/index'
 
-import { Route as rootRoute } from './routes/__root'
-import { Route as TodosImport } from './routes/todos'
-import { Route as LoginImport } from './routes/login'
-import { Route as HabitsImport } from './routes/habits'
-import { Route as CheckhealthImport } from './routes/checkhealth'
-import { Route as IndexImport } from './routes/index'
-
-// Create/Update Routes
-
-const TodosRoute = TodosImport.update({
+const TodosRoute = TodosRouteImport.update({
   id: '/todos',
   path: '/todos',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const LoginRoute = LoginImport.update({
+const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const HabitsRoute = HabitsImport.update({
+const HabitsRoute = HabitsRouteImport.update({
   id: '/habits',
   path: '/habits',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const CheckhealthRoute = CheckhealthImport.update({
+const CheckhealthRoute = CheckhealthRouteImport.update({
   id: '/checkhealth',
   path: '/checkhealth',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-const IndexRoute = IndexImport.update({
+const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-
-// Populate the FileRoutesByPath interface
-
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexImport
-      parentRoute: typeof rootRoute
-    }
-    '/checkhealth': {
-      id: '/checkhealth'
-      path: '/checkhealth'
-      fullPath: '/checkhealth'
-      preLoaderRoute: typeof CheckhealthImport
-      parentRoute: typeof rootRoute
-    }
-    '/habits': {
-      id: '/habits'
-      path: '/habits'
-      fullPath: '/habits'
-      preLoaderRoute: typeof HabitsImport
-      parentRoute: typeof rootRoute
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginImport
-      parentRoute: typeof rootRoute
-    }
-    '/todos': {
-      id: '/todos'
-      path: '/todos'
-      fullPath: '/todos'
-      preLoaderRoute: typeof TodosImport
-      parentRoute: typeof rootRoute
-    }
-  }
-}
-
-// Create and export the route tree
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -100,7 +48,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
-
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/checkhealth': typeof CheckhealthRoute
@@ -108,16 +55,14 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
-
 export interface FileRoutesById {
-  __root__: typeof rootRoute
+  __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/checkhealth': typeof CheckhealthRoute
   '/habits': typeof HabitsRoute
   '/login': typeof LoginRoute
   '/todos': typeof TodosRoute
 }
-
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths: '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
@@ -126,13 +71,52 @@ export interface FileRouteTypes {
   id: '__root__' | '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
   fileRoutesById: FileRoutesById
 }
-
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CheckhealthRoute: typeof CheckhealthRoute
   HabitsRoute: typeof HabitsRoute
   LoginRoute: typeof LoginRoute
   TodosRoute: typeof TodosRoute
+}
+
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/todos': {
+      id: '/todos'
+      path: '/todos'
+      fullPath: '/todos'
+      preLoaderRoute: typeof TodosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/habits': {
+      id: '/habits'
+      path: '/habits'
+      fullPath: '/habits'
+      preLoaderRoute: typeof HabitsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/checkhealth': {
+      id: '/checkhealth'
+      path: '/checkhealth'
+      fullPath: '/checkhealth'
+      preLoaderRoute: typeof CheckhealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
 }
 
 const rootRouteChildren: RootRouteChildren = {
@@ -142,39 +126,6 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   TodosRoute: TodosRoute,
 }
-
-export const routeTree = rootRoute
+export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-/* ROUTE_MANIFEST_START
-{
-  "routes": {
-    "__root__": {
-      "filePath": "__root.tsx",
-      "children": [
-        "/",
-        "/checkhealth",
-        "/habits",
-        "/login",
-        "/todos"
-      ]
-    },
-    "/": {
-      "filePath": "index.tsx"
-    },
-    "/checkhealth": {
-      "filePath": "checkhealth.tsx"
-    },
-    "/habits": {
-      "filePath": "habits.tsx"
-    },
-    "/login": {
-      "filePath": "login.tsx"
-    },
-    "/todos": {
-      "filePath": "todos.tsx"
-    }
-  }
-}
-ROUTE_MANIFEST_END */
