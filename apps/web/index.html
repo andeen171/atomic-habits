@@ -1,12 +1,69 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  </head>
-
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+		<title>Atomic</title>
+		<meta name="description" content="Tiny habits. Remarkable results." />
+		<link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+		<link rel="icon" href="./favicon.ico" sizes="any" />
+		<link rel="apple-touch-icon" href="./apple-touch-icon-180x180.png" />
+		<script>
+			// Apply the saved theme before first paint to avoid a flash of the wrong colors.
+			(function () {
+				var theme = "system";
+				try {
+					theme = localStorage.getItem("atomic-theme") || "system";
+				} catch (e) {}
+				var dark =
+					theme === "dark" ||
+					(theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+				document.documentElement.classList.toggle("dark", dark);
+			})();
+		</script>
+		<style>
+			html,
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+			}
+			.boot-splash {
+				position: fixed;
+				inset: 0;
+				display: grid;
+				place-items: center;
+			}
+			.boot-splash svg {
+				width: 56px;
+				height: 56px;
+				color: var(--text);
+				animation: boot-pulse 1.4s ease-in-out infinite;
+			}
+			@keyframes boot-pulse {
+				50% {
+					opacity: 0.55;
+					transform: scale(0.96);
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.boot-splash svg {
+					animation: none;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div id="app">
+			<div class="boot-splash" aria-hidden="true">
+				<svg viewBox="0 0 100 100" fill="none">
+					<ellipse cx="50" cy="50" rx="40" ry="15.5" stroke="currentColor" stroke-width="6.5" opacity=".42" transform="rotate(45 50 50)" />
+					<ellipse cx="50" cy="50" rx="40" ry="15.5" stroke="currentColor" stroke-width="6.5" transform="rotate(-45 50 50)" />
+					<circle cx="50" cy="50" r="10" fill="var(--accent)" />
+					<circle cx="78.3" cy="21.7" r="6" fill="var(--accent)" />
+				</svg>
+			</div>
+		</div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
 </html>
