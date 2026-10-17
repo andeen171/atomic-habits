@@ -1,0 +1,35 @@
+/* Atomic palette: warm paper and ink with an ember accent. */
+:root {
+	--sl-color-accent-low: #3a1e14;
+	--sl-color-accent: #ff6b3d;
+	--sl-color-accent-high: #fce5dc;
+	--sl-color-white: #f5f1ea;
+	--sl-color-gray-1: #e9e3da;
+	--sl-color-gray-2: #c9c0b5;
+	--sl-color-gray-3: #a79e93;
+	--sl-color-gray-4: #71695f;
+	--sl-color-gray-5: #3b3631;
+	--sl-color-gray-6: #221f1c;
+	--sl-color-black: #0f0e0c;
+}
+
+:root[data-theme="light"] {
+	--sl-color-accent-low: #fce5dc;
+	--sl-color-accent: #c8431c;
+	--sl-color-accent-high: #5a1f0d;
+	--sl-color-white: #1b1814;
+	--sl-color-gray-1: #2b2723;
+	--sl-color-gray-2: #4a443e;
+	--sl-color-gray-3: #6a6259;
+	--sl-color-gray-4: #9b9288;
+	--sl-color-gray-5: #d3cbbf;
+	--sl-color-gray-6: #eeeae3;
+	--sl-color-gray-7: #f6f3ee;
+	--sl-color-black: #fffdf9;
+}
+
+.hero h1 {
+	font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+	font-weight: 400;
+	letter-spacing: -0.02em;
+}

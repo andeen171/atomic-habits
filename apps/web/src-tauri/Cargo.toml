@@ -1,5 +1,5 @@
 [package]
-name = "atomic"
+name = "app"
 version = "1.0.0"
 description = "Atomic — tiny habits, remarkable results"
 authors = ["andeen"]

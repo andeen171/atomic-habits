@@ -1,29 +1,42 @@
-import starlight from "@astrojs/starlight";
 // @ts-check
+import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 
-// https://astro.build/config
 export default defineConfig({
+	site: "https://atomic-habits-docs.vercel.app",
 	integrations: [
 		starlight({
-			title: "My Docs",
+			title: "Atomic",
+			description:
+				"Tiny habits. Remarkable results. A local-first habit app inspired by Atomic Habits.",
+			logo: { src: "./src/assets/logo.svg", alt: "Atomic" },
+			favicon: "/favicon.svg",
+			customCss: ["./src/styles/theme.css"],
+			defaultLocale: "root",
+			locales: {
+				root: { label: "English", lang: "en" },
+				"pt-br": { label: "Português", lang: "pt-BR" },
+			},
 			social: [
 				{
 					icon: "github",
 					label: "GitHub",
-					href: "https://github.com/withastro/starlight",
+					href: "https://github.com/andeen171/atomic-habits",
 				},
 			],
 			sidebar: [
 				{
 					label: "Guides",
+					translations: { "pt-BR": "Guias" },
 					items: [
-						// Each item here is one entry in the navigation menu.
-						{ label: "Example Guide", slug: "guides/example" },
+						{ slug: "guides/getting-started" },
+						{ slug: "guides/method" },
+						{ slug: "guides/self-hosting" },
 					],
 				},
 				{
 					label: "Reference",
+					translations: { "pt-BR": "Referência" },
 					autogenerate: { directory: "reference" },
 				},
 			],
