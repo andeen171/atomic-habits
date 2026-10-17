@@ -4,29 +4,33 @@
 	"workspaces": ["apps/*", "packages/*"],
 	"scripts": {
 		"check": "biome check --write .",
+		"lint": "biome check .",
 		"prepare": "husky",
 		"dev": "turbo dev",
 		"build": "turbo build",
+		"test": "turbo test",
 		"check-types": "turbo check-types",
 		"dev:native": "turbo -F native dev",
 		"dev:web": "turbo -F web dev",
 		"dev:server": "turbo -F server dev",
+		"build:web": "turbo -F web build",
+		"build:artifact": "turbo -F web build:artifact",
 		"db:push": "turbo -F server db:push",
 		"db:studio": "turbo -F server db:studio",
 		"db:generate": "turbo -F server db:generate",
 		"db:migrate": "turbo -F server db:migrate"
 	},
-	"dependencies": {},
 	"devDependencies": {
-		"turbo": "^2.7.4",
 		"@biomejs/biome": "1.9.4",
 		"husky": "^9.1.7",
-		"lint-staged": "^15.5.2"
+		"lint-staged": "^15.5.2",
+		"turbo": "^2.7.4",
+		"typescript": "~5.9.3"
 	},
 	"lint-staged": {
 		"*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}": [
-			"biome check --write ."
+			"biome check --write --no-errors-on-unmatched"
 		]
 	},
-	"packageManager": "bun@1.2.13"
+	"packageManager": "bun@1.4.2"
 }

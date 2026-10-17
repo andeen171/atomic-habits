@@ -1,22 +1,26 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "atomic-habits",
-  "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "productName": "Atomic",
+  "version": "1.0.0",
+  "identifier": "dev.andeen.atomic",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:3002",
+    "devUrl": "http://localhost:3001",
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build"
   },
   "app": {
     "windows": [
       {
-        "title": "atomic-habits",
-        "width": 800,
-        "height": 600,
+        "title": "Atomic",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 420,
+        "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true,
+        "backgroundColor": "#F6F3EE"
       }
     ],
     "security": {
@@ -26,6 +30,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Tiny habits. Remarkable results.",
+    "longDescription": "Build good habits and break bad ones with the four laws of behavior change.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
