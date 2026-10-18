@@ -46,12 +46,13 @@ that rule:
 - Two misses in a row end the streak.
 - **Skipped** days (an intentional rest day) are neutral.
 - Weekly habits ("3 times a week") count streaks in weeks.
+- **Break habits** count clean days instead: a slip restarts the count.
 
 ## Habit strength
 
 Streaks are fragile; habits are about repetitions. **Habit strength** is an exponential moving
 average of your recent outcomes with a half-life of 14 scheduled days (3 weeks for weekly
-habits). Around 66 consistent days gets you to ~96% — a nod to research on how long habits take
+habits; break habits count every calendar day). Around 66 consistent days gets you to ~96% — a nod to research on how long habits take
 to become automatic.
 
 ## 1% better every day

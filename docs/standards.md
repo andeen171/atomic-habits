@@ -6,8 +6,9 @@
   schemas from `@atomic/core`.
 - Logic that must behave the same on web and native lives in `packages/core` with tests. Apps
   contain UI and platform glue only.
-- Never hard-code user-facing strings: use `t()` / `tp()` from `useI18n()`; app-specific strings
-  go in the app's `lib/messages.ts` with both `en` and `pt-BR`.
+- Never hard-code user-facing strings: use `useT()` (`t()` / `tp()` for core keys). App-specific
+  strings go in the app's `lib/messages.ts` with both `en` and `pt-BR`, read with `at()` on the
+  web and `x()` on native.
 - Never hard-code colors: use the tokens from `@atomic/core/theme` (CSS variables on web, theme
   context on native).
 - zustand selectors return stable references; derive collections with `useMemo` or core hooks.

@@ -2,7 +2,8 @@
 
 Astro Starlight site deployed at https://atomic-habits-docs.vercel.app. English pages live in
 `src/content/docs/`, Brazilian Portuguese translations in `src/content/docs/pt-br/`. Brand colors
-are set in `src/styles/theme.css`.
+are set in `src/styles/theme.css`. The **Development** section (`development/`) documents the
+codebase for contributors.
 
 | Command | |
 | --- | --- |

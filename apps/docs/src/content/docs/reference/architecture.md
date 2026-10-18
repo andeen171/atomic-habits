@@ -23,4 +23,4 @@ packages/
 - the sync protocol, sync engine and HTTP client.
 
 The apps are thin, platform-native UIs on top of it. Run `bun test` in `packages/core` for the
-logic test suite.
+logic test suite. For a file-by-file walk through, see [Codebase tour](/development/tour/).

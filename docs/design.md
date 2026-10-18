@@ -39,10 +39,10 @@ All colors come from `@atomic/core/theme`:
 
 - `palettes.light` / `palettes.dark` — semantic tokens (`bg`, `surface`,
   `sunken`, `hover`, `border`, `borderStrong`, `text`, `textMuted`,
-  `textSubtle`, `accent`, `accentHover`, `accentSoft`, `onAccent`, `success`,
+  `textSubtle`, `accent`, `accentHover`, `accentSoft`, `accentText`, `onAccent`, `success`,
   `successSoft`, `warning`, `warningSoft`, `danger`, `dangerSoft`, `ring`,
   `scrim`, `heat0`).
-- `habitColor(color, scheme)` → `{ fill, text, soft, softer }` for each of the
+- `habitColor(color, scheme)` → `{ fill, text, soft, softer, on, onText }` for each of the
   10 habit hues (`ember amber lime emerald teal sky indigo violet rose stone`).
 - `heatColor(color, level, scheme)` for heatmap cells (level 0–4).
 
@@ -110,7 +110,7 @@ Tablet / mid widths (768–1023px) on web: collapsed icon sidebar.
 
 - **HabitRing** — circular progress ring (stroke ~3px at 44px) in the habit's
   `fill` color over a `soft` track, emoji centered. Done → filled disc in habit
-  color with a white check; partial → arc; skipped → dashed track; break
+  color with a check in its readable `on` color (white or ink); partial → arc; skipped → dashed track; break
   habits → shield style (clean = soft fill, slipped = danger outline).
   Accessible label: "Read 10 pages, 3 of 10 pages" / role checkbox|button.
 - **HabitRow** (Today) — ring (tap = log), name, secondary line (progress

@@ -55,7 +55,7 @@ Key rules encoded in core:
 | Command | Scope |
 | --- | --- |
 | `bun dev` / `bun run build` | all apps (turbo) |
-| `bun check-types` | `tsc --noEmit` in every workspace |
+| `bun check-types` | `tsc --noEmit` in core, web, native and server |
 | `bun run test` | `bun test` in core and server |
 | `bun check` | Biome with fixes |
 | `turbo -F <app> <task>` | one app |

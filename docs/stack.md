@@ -11,4 +11,4 @@
 | Fonts | Geist (UI) and Instrument Serif (display) via Fontsource / @expo-google-fonts |
 | Server | Hono, tRPC 11 (plain HTTP), Better Auth (email + bearer), Drizzle ORM on libSQL / Turso |
 | Docs | Astro Starlight |
-| Quality | Biome, `bun test`, Playwright for visual QA, GitHub Actions |
+| Quality | Biome, `bun test`, GitHub Actions; manual Playwright screenshots for visual QA (not a repo dependency) |

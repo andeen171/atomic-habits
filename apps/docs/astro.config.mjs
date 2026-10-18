@@ -35,6 +35,11 @@ export default defineConfig({
 					],
 				},
 				{
+					label: "Development",
+					translations: { "pt-BR": "Desenvolvimento" },
+					autogenerate: { directory: "development" },
+				},
+				{
 					label: "Reference",
 					translations: { "pt-BR": "Referência" },
 					autogenerate: { directory: "reference" },

@@ -30,12 +30,22 @@ fontes desconhecidas.
 
 ## Seu primeiro hábito
 
-1. Na primeira abertura, escolha quem você quer se tornar (por exemplo, *Sou uma pessoa que lê
-   todos os dias*).
-2. Escolha um ou dois hábitos iniciais — eles vêm com **versões de dois minutos** para que
-   começar seja fácil.
+1. Na primeira abertura, escolha quem você quer se tornar (por exemplo, *Eu sou um leitor*).
+2. Escolha até três hábitos iniciais — eles vêm com **versões de dois minutos** para que começar
+   seja fácil.
 3. Em **Hoje**, toque no anel de um hábito para registrá-lo. Hábitos com contagem (8 copos de
    água) aumentam a cada toque; pressione e segure (ou clique com o botão direito) para mais ações,
-   como pular, notas e desfazer.
+   como pular o dia, adicionar uma nota ou zerar o dia.
 
 Quer explorar antes? Escolha **Explorar com dados de exemplo** na tela de boas-vindas.
+
+## Atalhos de teclado (web e desktop)
+
+| Atalho | Ação |
+| --- | --- |
+| `⌘K` / `Ctrl K` | Paleta de comandos |
+| `H` | Novo hábito |
+| `N` | Nova tarefa |
+| `G` e depois `T` / `H` / `K` | Ir para Hoje / Hábitos / Tarefas |
+| `←` / `→` | Dia anterior / próximo dia em Hoje |
+| `?` | Mostrar todos os atalhos |

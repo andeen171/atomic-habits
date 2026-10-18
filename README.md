@@ -87,11 +87,20 @@ design tokens, and the sync protocol, engine and HTTP client. The apps are thin 
 of it. See [docs/design.md](docs/design.md) for the product and design spec and
 [docs/monorepo.md](docs/monorepo.md) for the architecture.
 
+New to the codebase? The **Development** section of the docs walks through it: the
+[review guide](https://atomic-habits-docs.vercel.app/development/review-guide/), a
+[codebase tour](https://atomic-habits-docs.vercel.app/development/tour/), the
+[core engine](https://atomic-habits-docs.vercel.app/development/core/), the
+[sync protocol](https://atomic-habits-docs.vercel.app/development/sync/) and
+[workflow, CI and releases](https://atomic-habits-docs.vercel.app/development/workflow/)
+(also in Portuguese).
+
 ## Builds and releases
 
 GitHub Actions (`.github/workflows/`):
 
-- **CI** — Biome, type checks for every workspace, core and server tests, web builds.
+- **CI** — Biome, type checks for core, server, web and native, core and server tests, web
+  and artifact builds.
 - **Android APK** — `expo prebuild` + Gradle. Publishes a rolling
   [`android-preview`](https://github.com/andeen171/atomic-habits/releases/tag/android-preview)
   pre-release with a standalone APK and a development-client APK (arm64, debug-signed).

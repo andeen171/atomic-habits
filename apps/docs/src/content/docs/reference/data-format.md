@@ -29,11 +29,11 @@ All entities share `id`, `createdAt`, `updatedAt` (epoch ms) and `deletedAt` (to
 
 - **Habit** — `name`, `emoji`, `color`, `kind` (`build` | `break`), `identityId`, `target`,
   `unit`, `schedule` (`{ type: "daily" }`, `{ type: "weekdays", days: [1,3,5] }` or
-  `{ type: "weekly", times: 3 }`), `timeOfDay`, `cueTime`, `cueLocation`, `stackAfter`,
-  `bundle`, `twoMinute`, `reward`, `environment`, `why`, `reminder`, `startDate`, `archivedAt`,
-  `order`.
-- **HabitLog** — one per habit and day, id `"<habitId>:<YYYY-MM-DD>"`: `count` (repetitions, or
-  slips for break habits), `skipped`, `note`.
+  `{ type: "weekly", times: 3 }`; weekdays are 0 = Sunday … 6 = Saturday), `timeOfDay`,
+  `cueTime`, `cueLocation`, `stackAfter`, `bundle`, `twoMinute`, `reward`, `environment`, `why`,
+  `reminder`, `startDate` (required day key), `archivedAt`, `order`.
+- **HabitLog** — one per habit and day, id `"<habitId>:<YYYY-MM-DD>"`: `habitId`, `date`,
+  `count` (repetitions, or slips for break habits), `skipped`, `note`.
 - **Task** — `title`, `notes`, `date` (or `null` for someday), `priority` 0–3, `completedAt`,
   `identityId`, `order`.
 - **Identity** — `statement`, `emoji`, `color`, `order`.

@@ -30,10 +30,10 @@ Both are signed with a debug key, so Android will ask you to allow installs from
 ## Your first habit
 
 1. On first launch, pick who you want to become (for example *I am a reader*).
-2. Choose one or two starter habits — they come with **two-minute versions** so starting is
+2. Choose up to three starter habits — they come with **two-minute versions** so starting is
    effortless.
 3. On **Today**, tap a habit's ring to log it. Count habits (8 glasses of water) increment with
-   each tap; long-press (or right-click) for more actions such as skip, notes and undo.
+   each tap; long-press (or right-click) for more actions such as skip, add a note or reset the day.
 
 Want to look around first? Choose **Explore with sample data** on the welcome screen.
 
