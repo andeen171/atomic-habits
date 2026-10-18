@@ -1,7 +1,7 @@
+import { useT } from "@/lib/messages";
 import type { Identity } from "@atomic/core";
 import { useActions } from "@atomic/core/react";
 import { type FormEvent, useState } from "react";
-import { useT } from "@/lib/messages";
 import { ColorPicker, EmojiPicker } from "../editor/editor-fields";
 import { Button } from "../ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "../ui/dialog";

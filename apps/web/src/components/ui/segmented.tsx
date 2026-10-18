@@ -1,6 +1,6 @@
+import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { type KeyboardEvent, type ReactNode, useId, useRef } from "react";
-import { cn } from "@/lib/utils";
 
 export interface SegmentOption<T extends string | number> {
 	value: T;
@@ -46,7 +46,7 @@ export function SegmentedControl<T extends string | number>({
 			role="radiogroup"
 			aria-label={label}
 			className={cn(
-				"inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-sunken p-1 scrollbar-none",
+				"scrollbar-none inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-sunken p-1",
 				fullWidth && "flex w-full",
 				className,
 			)}
@@ -60,6 +60,7 @@ export function SegmentedControl<T extends string | number>({
 							refs.current[index] = el;
 						}}
 						type="button"
+						// biome-ignore lint/a11y/useSemanticElements: styled control with full ARIA state and keyboard support.
 						role="radio"
 						aria-checked={selected}
 						tabIndex={selected ? 0 : -1}
@@ -67,7 +68,7 @@ export function SegmentedControl<T extends string | number>({
 						onKeyDown={(event) => onKeyDown(event, index)}
 						className={cn(
 							"relative inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium transition-colors duration-(--atomic-duration-fast) [&_svg]:size-4",
-							size === "sm" ? "h-7 px-3 text-small" : "h-8 px-3.5 text-small",
+							size === "sm" ? "h-7 px-3 text-small" : "h-8 px-2 text-small sm:px-3.5",
 							fullWidth && "flex-1",
 							selected ? "text-ink" : "text-ink-muted hover:text-ink",
 						)}

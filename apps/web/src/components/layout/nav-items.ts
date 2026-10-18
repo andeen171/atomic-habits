@@ -11,7 +11,15 @@ import {
 	Sun,
 } from "lucide-react";
 
-export type NavKey = "today" | "habits" | "tasks" | "identity" | "insights" | "scorecard" | "settings" | "you";
+export type NavKey =
+	| "today"
+	| "habits"
+	| "tasks"
+	| "identity"
+	| "insights"
+	| "scorecard"
+	| "settings"
+	| "you";
 
 export interface NavItem {
 	key: NavKey;
@@ -31,5 +39,12 @@ export const NAV: Record<NavKey, NavItem> = {
 	you: { key: "you", to: "/you", icon: CircleUserRound },
 };
 
-export const SIDEBAR_ITEMS: NavKey[] = ["today", "habits", "tasks", "identity", "insights", "scorecard"];
+export const SIDEBAR_ITEMS: NavKey[] = [
+	"today",
+	"habits",
+	"tasks",
+	"identity",
+	"insights",
+	"scorecard",
+];
 export const YOU_ITEMS: NavKey[] = ["identity", "insights", "scorecard", "settings"];

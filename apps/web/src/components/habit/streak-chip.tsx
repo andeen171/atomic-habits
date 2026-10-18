@@ -1,7 +1,7 @@
-import { type Habit, type StreakInfo, streakLabel } from "@atomic/core";
-import { Flame, ShieldCheck, TriangleAlert } from "lucide-react";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { type Habit, type StreakInfo, streakLabel } from "@atomic/core";
+import { Flame, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Tip } from "../ui/tooltip";
 
 interface StreakChipProps {
@@ -21,7 +21,9 @@ export function StreakChip({ habit, streak, compact, className }: StreakChipProp
 	const full = streakLabel(habit, streak, t);
 	const short = isBreak
 		? t("streak.short.days", { count: streak.current })
-		: t(streak.unit === "weeks" ? "streak.short.weeks" : "streak.short.days", { count: streak.current });
+		: t(streak.unit === "weeks" ? "streak.short.weeks" : "streak.short.days", {
+				count: streak.current,
+			});
 	const atRisk = !isBreak && streak.atRisk;
 	const hot = !isBreak && streak.current >= 3;
 	const label = atRisk ? `${full} · ${t("streak.atRisk")}` : full;
@@ -34,19 +36,31 @@ export function StreakChip({ habit, streak, compact, className }: StreakChipProp
 				aria-label={label}
 				className={cn(
 					"inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 font-semibold text-ink text-tiny tabular-nums",
-					atRisk ? "bg-warning-soft" : isBreak ? "bg-success-soft" : hot ? "bg-accent-soft" : "bg-sunken text-ink-muted",
+					atRisk
+						? "bg-warning-soft"
+						: isBreak
+							? "bg-success-soft"
+							: hot
+								? "bg-accent-soft"
+								: "bg-sunken text-ink-muted",
 					className,
 				)}
 			>
 				<Icon
-					aria-hidden
+					aria-hidden="true"
 					strokeWidth={2.25}
 					className={cn(
 						"size-3.5",
-						atRisk ? "text-warning" : isBreak ? "text-success" : hot ? "fill-accent/25 text-accent" : "text-ink-subtle",
+						atRisk
+							? "text-warning"
+							: isBreak
+								? "text-success"
+								: hot
+									? "fill-accent/25 text-accent"
+									: "text-ink-subtle",
 					)}
 				/>
-				<span aria-hidden>{compact ? short : full}</span>
+				<span aria-hidden="true">{compact ? short : full}</span>
 			</span>
 		</Tip>
 	);

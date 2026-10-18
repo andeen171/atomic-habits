@@ -1,8 +1,8 @@
+import { useT } from "@/lib/messages";
+import { cn } from "@/lib/utils";
 import { principleOfTheDay } from "@atomic/core";
 import { useLocale, useToday } from "@atomic/core/react";
 import { Quote } from "lucide-react";
-import { useT } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 
 export function PrincipleCard({ className }: { className?: string }) {
 	const { t } = useT();
@@ -14,9 +14,12 @@ export function PrincipleCard({ className }: { className?: string }) {
 	return (
 		<section
 			aria-label={t("today.principle")}
-			className={cn("relative overflow-hidden rounded-xl border border-line bg-surface p-5 shadow-card md:p-6", className)}
+			className={cn(
+				"relative overflow-hidden rounded-xl border border-line bg-surface p-5 shadow-card md:p-6",
+				className,
+			)}
 		>
-			<Quote aria-hidden className="absolute top-4 right-4 size-10 text-accent/15" />
+			<Quote aria-hidden="true" className="absolute top-4 right-4 size-10 text-accent/15" />
 			<div className="mb-3 flex items-center gap-2">
 				<span className="section-label">{t("today.principle")}</span>
 				{law ? (

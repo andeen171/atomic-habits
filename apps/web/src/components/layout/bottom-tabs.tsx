@@ -1,8 +1,8 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { NAV, type NavItem, YOU_ITEMS } from "./nav-items";
 import { useNavBadges } from "./use-nav-badges";
 
@@ -12,7 +12,8 @@ export function BottomTabs() {
 	const badges = useNavBadges();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const setCreateOpen = useUI((s) => s.setCreateSheetOpen);
-	const youActive = pathname === "/you" || YOU_ITEMS.some((key) => pathname.startsWith(NAV[key].to));
+	const youActive =
+		pathname === "/you" || YOU_ITEMS.some((key) => pathname.startsWith(NAV[key].to));
 
 	return (
 		<nav
@@ -67,7 +68,7 @@ function TabLink({ item, label, badge = 0, forceActive }: TabLinkProps) {
 					strokeWidth={1.9}
 				/>
 				{badge > 0 ? (
-					<span className="absolute -top-1.5 -right-2.5 min-w-4 rounded-full bg-accent px-1 text-center font-semibold text-[10px] text-on-accent leading-4 tabular-nums">
+					<span className="-top-1.5 -right-2.5 absolute min-w-4 rounded-full bg-accent px-1 text-center font-semibold text-[10px] text-on-accent tabular-nums leading-4">
 						{badge}
 					</span>
 				) : null}

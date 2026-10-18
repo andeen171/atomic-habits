@@ -1,5 +1,5 @@
-import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import type { ComponentProps, ReactNode } from "react";
 
 interface PageProps extends ComponentProps<"div"> {
 	width?: "narrow" | "default" | "wide";

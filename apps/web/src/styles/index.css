@@ -4,19 +4,12 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Every value below points at a CSS variable generated from
- * `@atomic/core/theme` (see build/atomic-tokens.ts). Default Tailwind colors
- * are removed so nothing off-palette sneaks in.
+ * Every color, radius, type size and duration below points at a CSS variable
+ * generated from `@atomic/core/theme` (see plugins/atomic-tokens.ts). Only use
+ * these semantic tokens in components — never Tailwind's default palette.
  */
 @theme {
-	--color-*: initial;
-	--color-transparent: transparent;
-	--color-current: currentColor;
-	--color-white: #fff;
-	--color-black: #000;
-
-	--font-sans:
-		"Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif,
+	--font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif,
 		"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
 	--font-display: "Instrument Serif", ui-serif, Georgia, "Times New Roman", serif;
 	--font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;

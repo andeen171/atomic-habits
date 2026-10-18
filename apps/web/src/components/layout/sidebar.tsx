@@ -1,9 +1,9 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { ListPlus, Plus, Search } from "lucide-react";
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { useIsDesktop } from "@/lib/use-media-query";
 import { cn, isMac } from "@/lib/utils";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ListPlus, Plus, Search } from "lucide-react";
 import { LogoMark, Wordmark } from "../brand/logo";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
@@ -30,7 +30,11 @@ export function Sidebar() {
 				expanded ? "w-(--sidebar-width) px-3" : "w-[72px] items-center px-2",
 			)}
 		>
-			<Link to="/" className={cn("mb-6 rounded-md", expanded ? "px-2.5" : "")} aria-label={t("app.name")}>
+			<Link
+				to="/"
+				className={cn("mb-6 rounded-md", expanded ? "px-2.5" : "")}
+				aria-label={t("app.name")}
+			>
 				{expanded ? <Wordmark label={t("app.name")} /> : <LogoMark className="size-8" />}
 			</Link>
 
@@ -73,7 +77,11 @@ export function Sidebar() {
 					<Kbd>{isMac ? "⌘K" : "Ctrl K"}</Kbd>
 				</button>
 			) : (
-				<IconButton label={t("common.search")} className="mb-4" onClick={() => setPaletteOpen(true)}>
+				<IconButton
+					label={t("common.search")}
+					className="mb-4"
+					onClick={() => setPaletteOpen(true)}
+				>
 					<Search />
 				</IconButton>
 			)}
@@ -117,7 +125,10 @@ function SidebarLink({ item, label, expanded, badge = 0 }: SidebarLinkProps) {
 				expanded ? "h-10 gap-3 px-3" : "size-11 justify-center",
 			)}
 		>
-			<Icon className="size-[18px] shrink-0 transition-colors group-data-[status=active]:text-accent" strokeWidth={1.9} />
+			<Icon
+				className="size-[18px] shrink-0 transition-colors group-data-[status=active]:text-accent"
+				strokeWidth={1.9}
+			/>
 			{expanded ? <span className="flex-1 truncate">{label}</span> : null}
 			{badge > 0 ? (
 				expanded ? (
@@ -125,7 +136,10 @@ function SidebarLink({ item, label, expanded, badge = 0 }: SidebarLinkProps) {
 						{badge}
 					</span>
 				) : (
-					<span aria-hidden className="absolute top-2 right-2 size-2 rounded-full bg-accent ring-2 ring-bg" />
+					<span
+						aria-hidden="true"
+						className="absolute top-2 right-2 size-2 rounded-full bg-accent ring-2 ring-bg"
+					/>
 				)
 			) : null}
 		</Link>

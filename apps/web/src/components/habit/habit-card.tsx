@@ -1,3 +1,6 @@
+import { useT } from "@/lib/messages";
+import { useHabitStyle } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import {
 	type Habit,
 	type HabitStats,
@@ -9,9 +12,6 @@ import {
 } from "@atomic/core";
 import { useAtomic, useLogIndex, useToday } from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
-import { useT } from "@/lib/messages";
-import { useHabitStyle } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 import { Tag } from "../ui/chip";
 import { StreakChip } from "./streak-chip";
 
@@ -34,7 +34,7 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 			params={{ habitId: habit.id }}
 			style={style}
 			className={cn(
-				"group flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 shadow-card transition-[border-color,transform,box-shadow] duration-(--atomic-duration-base) hover:-translate-y-0.5 hover:border-line-strong md:p-5",
+				"group hover:-translate-y-0.5 flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 shadow-card transition-[border-color,transform,box-shadow] duration-(--atomic-duration-base) hover:border-line-strong md:p-5",
 				habit.archivedAt && "opacity-70",
 			)}
 		>
@@ -45,8 +45,12 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 				<div className="min-w-0 flex-1">
 					<h3 className="truncate font-semibold text-ink">{habit.name}</h3>
 					<p className="truncate text-ink-muted text-small">
-						{habit.kind === "break" ? t("habits.filter.break") : scheduleLabel(habit, t, weekStartsOn)}
-						{habit.kind === "build" && habit.timeOfDay !== "anytime" ? ` · ${t(`time.${habit.timeOfDay}`)}` : ""}
+						{habit.kind === "break"
+							? t("habits.filter.break")
+							: scheduleLabel(habit, t, weekStartsOn)}
+						{habit.kind === "build" && habit.timeOfDay !== "anytime"
+							? ` · ${t(`time.${habit.timeOfDay}`)}`
+							: ""}
 					</p>
 				</div>
 				<StreakChip habit={habit} streak={stats.streak} compact />
@@ -66,12 +70,17 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 						<span className="font-semibold text-ink tabular-nums">{strength}%</span>
 					</div>
 					<div className="h-1.5 overflow-hidden rounded-full bg-(--habit-softer)">
-						<div className="h-full rounded-full bg-(--habit) transition-[width] duration-(--atomic-duration-slow)" style={{ width: `${strength}%` }} />
+						<div
+							className="h-full rounded-full bg-(--habit) transition-[width] duration-(--atomic-duration-slow)"
+							style={{ width: `${strength}%` }}
+						/>
 					</div>
 				</div>
 				<div className="shrink-0 text-right">
 					<div className="text-ink-muted text-tiny">{t("habits.last30")}</div>
-					<div className="font-semibold text-ink text-small tabular-nums">{t.percent(stats.last30.rate)}</div>
+					<div className="font-semibold text-ink text-small tabular-nums">
+						{t.percent(stats.last30.rate)}
+					</div>
 				</div>
 			</div>
 
@@ -98,14 +107,20 @@ function SevenDayDots({ habit, label }: { habit: Habit; label: string }) {
 							className={cn(
 								"size-3 rounded-full",
 								(state === "done" || state === "clean") && "bg-(--habit)",
-								state === "partial" && "bg-(--habit-soft) ring-1 ring-(--habit)",
+								state === "partial" && "bg-(--habit-soft) ring-(--habit) ring-1",
 								state === "missed" && "bg-heat-0",
 								state === "slipped" && "bg-danger",
 								state === "pending" && "ring-1 ring-line-strong",
-								(state === "skipped" || state === "rest" || state === "inactive") && "border border-dashed border-line-strong",
+								(state === "skipped" || state === "rest" || state === "inactive") &&
+									"border border-line-strong border-dashed",
 							)}
 						/>
-						<span className={cn("text-[10px] leading-none", day === today ? "font-semibold text-ink" : "text-ink-subtle")}>
+						<span
+							className={cn(
+								"text-[10px] leading-none",
+								day === today ? "font-semibold text-ink" : "text-ink-subtle",
+							)}
+						>
 							{t.weekdayName(weekdayOf(day), "min")}
 						</span>
 					</span>

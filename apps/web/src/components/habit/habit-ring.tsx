@@ -1,9 +1,9 @@
+import { useHabitStyle } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import type { DayState, Habit } from "@atomic/core";
 import { motion as tokens } from "@atomic/core/theme";
 import { AnimatePresence, motion } from "motion/react";
 import type { ComponentProps } from "react";
-import { useHabitStyle } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 
 interface HabitRingProps {
 	habit: Habit;
@@ -46,7 +46,13 @@ export function HabitRingGraphic({
 			className={cn("relative inline-grid shrink-0 place-items-center", className)}
 			style={{ ...style, width: size, height: size }}
 		>
-			<svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="absolute inset-0">
+			<svg
+				width={size}
+				height={size}
+				viewBox={`0 0 ${size} ${size}`}
+				aria-hidden="true"
+				className="absolute inset-0"
+			>
 				{isBreak ? (
 					<circle
 						cx={size / 2}
@@ -94,10 +100,15 @@ export function HabitRingGraphic({
 						exit={{ scale: 0.7, opacity: 0 }}
 						transition={spring}
 					>
-						<svg viewBox="0 0 24 24" fill="none" aria-hidden style={{ width: size * 0.46, height: size * 0.46 }}>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							aria-hidden="true"
+							style={{ width: size * 0.46, height: size * 0.46 }}
+						>
 							<motion.path
 								d="M5 12.5l4.5 4.5L19 7.5"
-								stroke="white"
+								stroke="var(--habit-on)"
 								strokeWidth={2.75}
 								strokeLinecap="round"
 								strokeLinejoin="round"
@@ -112,7 +123,8 @@ export function HabitRingGraphic({
 						key="emoji"
 						className={cn(
 							"relative select-none font-emoji leading-none",
-							(state === "skipped" || state === "missed" || state === "inactive") && "opacity-50 grayscale-[40%]",
+							(state === "skipped" || state === "missed" || state === "inactive") &&
+								"opacity-50 grayscale-[40%]",
 						)}
 						style={{ fontSize: emojiSize }}
 						initial={{ scale: 0.6, opacity: 0 }}
@@ -128,7 +140,9 @@ export function HabitRingGraphic({
 	);
 }
 
-interface HabitRingButtonProps extends HabitRingProps, Omit<ComponentProps<typeof motion.button>, "children"> {
+interface HabitRingButtonProps
+	extends HabitRingProps,
+		Omit<ComponentProps<typeof motion.button>, "children"> {
 	label: string;
 	/** Target 1 build habits behave like a checkbox. */
 	checkbox?: boolean;
@@ -164,7 +178,13 @@ export function HabitRingButton({
 			)}
 			{...props}
 		>
-			<HabitRingGraphic habit={habit} progress={progress} state={state} size={size} showEmoji={showEmoji} />
+			<HabitRingGraphic
+				habit={habit}
+				progress={progress}
+				state={state}
+				size={size}
+				showEmoji={showEmoji}
+			/>
 		</motion.button>
 	);
 }

@@ -1,10 +1,3 @@
-import { type Task, type TaskBucket, groupTasks } from "@atomic/core";
-import { useActions, useTasks, useToday } from "@atomic/core/react";
-import { createFileRoute } from "@tanstack/react-router";
-import { ChevronDown } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { useId, useMemo, useState } from "react";
-import { toast } from "sonner";
 import { Page, PageHeader } from "@/components/layout/page";
 import { TaskQuickAdd } from "@/components/tasks/task-quick-add";
 import { TaskRow } from "@/components/tasks/task-row";
@@ -12,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { type Task, type TaskBucket, groupTasks } from "@atomic/core";
+import { useActions, useTasks, useToday } from "@atomic/core/react";
+import { createFileRoute } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useId, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/tasks")({
 	component: TasksScreen,
@@ -95,7 +95,12 @@ function CompletedGroup({ tasks }: { tasks: Task[] }) {
 		actions.clearCompletedTasks();
 		toast(t("common.deleted"), {
 			description: t.tp("common.tasks", ids.length),
-			action: { label: t("common.undo"), onClick: () => ids.forEach((taskId) => actions.restoreTask(taskId)) },
+			action: {
+				label: t("common.undo"),
+				onClick: () => {
+					for (const taskId of ids) actions.restoreTask(taskId);
+				},
+			},
 		});
 	};
 
@@ -107,7 +112,7 @@ function CompletedGroup({ tasks }: { tasks: Task[] }) {
 					id={id}
 					aria-expanded={open}
 					onClick={() => setOpen(!open)}
-					className="flex items-center gap-1.5 rounded-sm px-1 section-label hover:text-ink-muted"
+					className="section-label flex items-center gap-1.5 rounded-sm px-1 hover:text-ink-muted"
 				>
 					<ChevronDown className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
 					{t("tasks.group.done")}

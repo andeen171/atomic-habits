@@ -1,5 +1,5 @@
-import { type ComponentProps, type ReactNode, useId } from "react";
 import { cn } from "@/lib/utils";
+import { type ComponentProps, type ReactNode, useId } from "react";
 
 const controlBase =
 	"w-full rounded-md border border-line bg-sunken/60 px-3.5 text-body text-ink transition-[border-color,box-shadow,background-color] duration-(--atomic-duration-fast) placeholder:text-ink-subtle hover:border-line-strong focus-visible:border-accent focus-visible:bg-surface focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-accent/15 disabled:opacity-60 aria-invalid:border-danger";
@@ -28,9 +28,14 @@ export function Field({ label, hint, error, optional, className, children }: Fie
 	const describedBy = error || hint ? hintId : undefined;
 	return (
 		<div className={cn("flex flex-col gap-1.5", className)}>
-			<label htmlFor={id} className="flex items-baseline justify-between gap-2 font-medium text-ink text-small">
+			<label
+				htmlFor={id}
+				className="flex items-baseline justify-between gap-2 font-medium text-ink text-small"
+			>
 				<span>{label}</span>
-				{optional ? <span className="font-normal text-ink-subtle text-tiny">{optional}</span> : null}
+				{optional ? (
+					<span className="font-normal text-ink-subtle text-tiny">{optional}</span>
+				) : null}
 			</label>
 			{children({ id, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined })}
 			{error ? (

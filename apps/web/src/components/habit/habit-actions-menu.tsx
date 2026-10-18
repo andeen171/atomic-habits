@@ -1,3 +1,6 @@
+import { useT } from "@/lib/messages";
+import { useUI } from "@/lib/ui";
+import { useHabitLogger } from "@/lib/use-habit-logger";
 import { type DayKey, type Habit, getLog } from "@atomic/core";
 import { useActions, useAtomic } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -14,8 +17,6 @@ import {
 	Undo2,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useT } from "@/lib/messages";
-import { useUI } from "@/lib/ui";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 
@@ -41,6 +42,7 @@ export function HabitActionsMenu({
 	const actions = useActions();
 	const navigate = useNavigate();
 	const openNote = useUI((s) => s.openNoteDialog);
+	const { tap } = useHabitLogger();
 	const log = useAtomic((s) => getLog(s, habit.id, day));
 	const count = log?.count ?? 0;
 	const isBreak = habit.kind === "break";
@@ -49,7 +51,12 @@ export function HabitActionsMenu({
 		<Menu open={open} onOpenChange={onOpenChange} modal={false}>
 			<MenuTrigger asChild>
 				{trigger ?? (
-					<IconButton label={t("common.more")} size="sm" tooltip={false} className={triggerClassName}>
+					<IconButton
+						label={t("common.more")}
+						size="sm"
+						tooltip={false}
+						className={triggerClassName}
+					>
 						<Ellipsis />
 					</IconButton>
 				)}
@@ -60,17 +67,18 @@ export function HabitActionsMenu({
 						<MenuItem icon={<Plus />} onSelect={() => actions.increment(habit.id, day, 1)}>
 							{t("habit.increment")}
 						</MenuItem>
-						<MenuItem icon={<Minus />} disabled={count === 0} onSelect={() => actions.increment(habit.id, day, -1)}>
+						<MenuItem
+							icon={<Minus />}
+							disabled={count === 0}
+							onSelect={() => actions.increment(habit.id, day, -1)}
+						>
 							{t("habit.decrement")}
 						</MenuItem>
 						<MenuSeparator />
 					</>
 				) : null}
 				{isBreak ? (
-					<MenuItem
-						icon={count > 0 ? <Undo2 /> : <ShieldAlert />}
-						onSelect={() => actions.setCount(habit.id, day, count > 0 ? 0 : 1)}
-					>
+					<MenuItem icon={count > 0 ? <Undo2 /> : <ShieldAlert />} onSelect={() => tap(habit, day)}>
 						{count > 0 ? t("habit.undoSlip") : t("habit.logSlip")}
 					</MenuItem>
 				) : (

@@ -1,3 +1,20 @@
+import { BlueprintCard } from "@/components/habit/blueprint-card";
+import { HabitRingButton } from "@/components/habit/habit-ring";
+import { HeatLegend, Heatmap } from "@/components/habit/heatmap";
+import { MonthCalendar } from "@/components/habit/month-calendar";
+import { Page } from "@/components/layout/page";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Tag } from "@/components/ui/chip";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IconButton } from "@/components/ui/icon-button";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { StatTile } from "@/components/ui/stat-tile";
+import { useT } from "@/lib/messages";
+import { useColorScheme, useHabitStyle } from "@/lib/theme";
+import { useHabitLogger } from "@/lib/use-habit-logger";
+import { useIsMobile } from "@/lib/use-media-query";
 import {
 	type DayKey,
 	type Habit,
@@ -35,23 +52,6 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { BlueprintCard } from "@/components/habit/blueprint-card";
-import { HabitRingButton } from "@/components/habit/habit-ring";
-import { HeatLegend, Heatmap } from "@/components/habit/heatmap";
-import { MonthCalendar } from "@/components/habit/month-calendar";
-import { Page } from "@/components/layout/page";
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
-import { Tag } from "@/components/ui/chip";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { EmptyState } from "@/components/ui/empty-state";
-import { IconButton } from "@/components/ui/icon-button";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { StatTile } from "@/components/ui/stat-tile";
-import { useT } from "@/lib/messages";
-import { useColorScheme, useHabitStyle } from "@/lib/theme";
-import { useHabitLogger } from "@/lib/use-habit-logger";
-import { useIsMobile } from "@/lib/use-media-query";
 
 export const Route = createFileRoute("/_app/habits/$habitId")({
 	component: HabitDetailScreen,
@@ -116,12 +116,18 @@ function DetailHero({ habit, identity }: { habit: Habit; identity: Identity | un
 
 	return (
 		<Card style={style} className="relative overflow-hidden p-5 md:p-7">
-			<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-(--habit-softer) to-transparent" />
+			<div
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-(--habit-softer) to-transparent"
+			/>
 			<div className="relative flex flex-col gap-5 md:flex-row md:items-center">
-				<div className="flex min-w-0 flex-1 items-start gap-4 md:gap-5">
-					<span className="grid size-16 shrink-0 place-items-center rounded-xl bg-(--habit-soft) font-emoji text-[2rem] md:size-20 md:text-[2.5rem]">
-						{habit.emoji}
-					</span>
+				<div className="flex min-w-0 flex-1 flex-col gap-4 md:flex-row md:items-start md:gap-5">
+					<div className="flex items-start justify-between">
+						<span className="grid size-16 shrink-0 place-items-center rounded-xl bg-(--habit-soft) font-emoji text-[2rem] md:size-20 md:text-[2.5rem]">
+							{habit.emoji}
+						</span>
+						<HabitOverflow habit={habit} className="md:hidden" />
+					</div>
 					<div className="min-w-0 flex-1">
 						<h1 className="font-display text-ink text-title md:text-hero">{habit.name}</h1>
 						<p className="mt-1 text-ink-muted text-small">
@@ -139,19 +145,24 @@ function DetailHero({ habit, identity }: { habit: Habit; identity: Identity | un
 						<div className="mt-3 flex flex-wrap gap-1.5">
 							<Tag>
 								<CalendarDays className="size-3" />
-								{habit.kind === "break" ? t("habits.filter.break") : scheduleLabel(habit, t, weekStartsOn)}
+								{habit.kind === "break"
+									? t("habits.filter.break")
+									: scheduleLabel(habit, t, weekStartsOn)}
 							</Tag>
 							{habit.kind === "build" ? (
 								<Tag>
 									<Clock className="size-3" />
-									{habit.cueTime ? `${t(`time.${habit.timeOfDay}`)} · ${habit.cueTime}` : t(`time.${habit.timeOfDay}`)}
+									{habit.cueTime
+										? `${t(`time.${habit.timeOfDay}`)} · ${habit.cueTime}`
+										: t(`time.${habit.timeOfDay}`)}
 								</Tag>
 							) : null}
 							<Tag>{t("detail.started", { date: t.formatDayShort(habit.startDate) })}</Tag>
-							{habit.archivedAt ? <Tag className="bg-warning-soft text-ink">{t("habits.filter.archived")}</Tag> : null}
+							{habit.archivedAt ? (
+								<Tag className="bg-warning-soft text-ink">{t("habits.filter.archived")}</Tag>
+							) : null}
 						</div>
 					</div>
-					<HabitOverflow habit={habit} className="md:hidden" />
 				</div>
 				{habit.archivedAt ? null : <LogControl habit={habit} />}
 				<HabitOverflow habit={habit} className="hidden self-start md:inline-flex" />
@@ -209,7 +220,11 @@ function LogControl({ habit }: { habit: Habit }) {
 					onClick={() => tap(habit, today)}
 				/>
 				{counted ? (
-					<IconButton label={t("habit.increment")} variant="secondary" onClick={() => actions.increment(habit.id, today, 1)}>
+					<IconButton
+						label={t("habit.increment")}
+						variant="secondary"
+						onClick={() => actions.increment(habit.id, today, 1)}
+					>
 						<Plus />
 					</IconButton>
 				) : null}
@@ -261,12 +276,22 @@ function HabitOverflow({ habit, className }: { habit: Habit; className?: string 
 		<>
 			<Menu modal={false}>
 				<MenuTrigger asChild>
-					<IconButton label={t("common.more")} variant="secondary" className={className} tooltip={false}>
+					<IconButton
+						label={t("common.more")}
+						variant="secondary"
+						className={className}
+						tooltip={false}
+					>
 						<Ellipsis />
 					</IconButton>
 				</MenuTrigger>
 				<MenuContent>
-					<MenuItem icon={<Pencil />} onSelect={() => navigate({ to: "/habits/$habitId/edit", params: { habitId: habit.id } })}>
+					<MenuItem
+						icon={<Pencil />}
+						onSelect={() =>
+							navigate({ to: "/habits/$habitId/edit", params: { habitId: habit.id } })
+						}
+					>
 						{t("common.edit")}
 					</MenuItem>
 					<MenuItem icon={habit.archivedAt ? <ArchiveRestore /> : <Archive />} onSelect={archive}>
@@ -310,7 +335,7 @@ function StatsGrid({ habit, stats }: { habit: Habit; stats: HabitStats }) {
 				<StatTile
 					label={isBreak ? t("detail.daysClean") : t("detail.daysDone")}
 					value={t.number(stats.totalDays)}
-					hint={t.percent(stats.allTime.rate)}
+					hint={`${t("detail.completionAll")} · ${t.percent(stats.allTime.rate)}`}
 				/>
 			</div>
 			<div className="mt-3 flex flex-col gap-1.5 px-1 text-ink-muted text-small md:flex-row md:gap-6">
@@ -350,7 +375,10 @@ function HistorySection({ habit }: { habit: Habit }) {
 		},
 		[logs, habit, today, t, at],
 	);
-	const color = useCallback((level: number) => heatColor(habit.color, level, scheme), [habit.color, scheme]);
+	const color = useCallback(
+		(level: number) => heatColor(habit.color, level, scheme),
+		[habit.color, scheme],
+	);
 	const label = useMemo(() => `${t("detail.history")} — ${habit.name}`, [t, habit.name]);
 
 	return (
@@ -363,7 +391,7 @@ function HistorySection({ habit }: { habit: Habit }) {
 				<Heatmap
 					end={today}
 					weekStartsOn={weekStartsOn}
-					maxWeeks={mobile ? 18 : 27}
+					maxWeeks={mobile ? 18 : 39}
 					minWeeks={mobile ? 12 : 16}
 					cell={cell}
 					color={color}
@@ -396,8 +424,13 @@ function NotesSection({ habit }: { habit: Habit }) {
 			{notes.length ? (
 				<ol className="flex flex-col divide-y divide-line">
 					{notes.map((log) => (
-						<li key={log.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:gap-6">
-							<span className="w-40 shrink-0 text-ink-subtle text-small capitalize">{t.formatDayShort(log.date)}</span>
+						<li
+							key={log.id}
+							className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:gap-6"
+						>
+							<span className="w-24 shrink-0 text-ink-subtle text-small">
+								{t.formatDayShort(log.date)}
+							</span>
 							<p className="text-ink">{log.note}</p>
 						</li>
 					))}

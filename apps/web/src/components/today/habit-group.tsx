@@ -1,7 +1,7 @@
+import { cn } from "@/lib/utils";
 import type { AgendaItem, DayKey } from "@atomic/core";
 import { AnimatePresence, motion } from "motion/react";
 import { useId } from "react";
-import { cn } from "@/lib/utils";
 import { HabitRow } from "../habit/habit-row";
 
 interface HabitGroupProps {
@@ -14,7 +14,14 @@ interface HabitGroupProps {
 	className?: string;
 }
 
-export function HabitGroup({ title, items, day, dimmed, showCount = true, className }: HabitGroupProps) {
+export function HabitGroup({
+	title,
+	items,
+	day,
+	dimmed,
+	showCount = true,
+	className,
+}: HabitGroupProps) {
 	const id = useId();
 	if (!items.length) return null;
 	const done = items.filter((item) => item.done).length;

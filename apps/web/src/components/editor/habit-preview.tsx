@@ -1,8 +1,8 @@
-import { type Habit, blueprintLines, inSentence, scheduleLabel } from "@atomic/core";
-import { useAtomic } from "@atomic/core/react";
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { type Habit, blueprintLines, scheduleLabel } from "@atomic/core";
+import { useAtomic } from "@atomic/core/react";
 import { HabitRingGraphic } from "../habit/habit-ring";
 
 interface HabitPreviewProps {
@@ -24,18 +24,33 @@ export function HabitPreview({ habit, identityStatement, compact, className }: H
 			: `${scheduleLabel(habit, t, weekStartsOn)} · ${t(`time.${habit.timeOfDay}`)}`;
 
 	return (
-		<div style={style} className={cn("overflow-hidden rounded-xl border border-line bg-surface shadow-card", className)}>
+		<div
+			style={style}
+			className={cn(
+				"overflow-hidden rounded-xl border border-line bg-surface shadow-card",
+				className,
+			)}
+		>
 			{compact ? null : (
 				<div className="border-line border-b px-5 py-3">
 					<span className="section-label">{at("form.preview")}</span>
 				</div>
 			)}
 			<div className={cn("flex items-center gap-3.5", compact ? "p-3.5" : "px-5 pt-5")}>
-				<HabitRingGraphic habit={habit} progress={habit.kind === "break" ? 1 : 0.35} state="pending" size={compact ? 40 : 48} />
+				<HabitRingGraphic
+					habit={habit}
+					progress={habit.kind === "break" ? 1 : 0.35}
+					state="pending"
+					size={compact ? 40 : 48}
+				/>
 				<div className="min-w-0 flex-1">
 					<p className="truncate font-semibold text-ink">{habit.name}</p>
 					<p className="truncate text-ink-muted text-small">
-						{habit.twoMinute && compact ? <span className="italic">{habit.twoMinute}</span> : schedule}
+						{habit.twoMinute && compact ? (
+							<span className="italic">{habit.twoMinute}</span>
+						) : (
+							schedule
+						)}
 					</p>
 				</div>
 			</div>
@@ -54,9 +69,12 @@ export function HabitPreview({ habit, identityStatement, compact, className }: H
 						<p className="text-ink-subtle text-small">{t("detail.blueprintEmpty")}</p>
 					)}
 					{identityStatement ? (
-						<p className="mt-4 font-display text-[1.25rem] text-ink italic leading-snug">
-							{t("blueprint.identity", { identity: inSentence(identityStatement) })}
-						</p>
+						<div className="mt-4 border-line border-t pt-3">
+							<p className="section-label">{t("detail.identity")}</p>
+							<p className="mt-0.5 font-display text-[1.25rem] text-ink italic leading-snug">
+								{identityStatement}
+							</p>
+						</div>
 					) : null}
 				</div>
 			)}

@@ -9,7 +9,16 @@ const twMerge = extendTailwindMerge({
 			shadow: ["card", "pop"],
 			font: ["display", "emoji"],
 			ease: ["out-soft"],
-			animate: ["fade-in", "fade-out", "pop-in", "pop-out", "sheet-in", "sheet-out", "page-in", "shake"],
+			animate: [
+				"fade-in",
+				"fade-out",
+				"pop-in",
+				"pop-out",
+				"sheet-in",
+				"sheet-out",
+				"page-in",
+				"shake",
+			],
 		},
 	},
 });

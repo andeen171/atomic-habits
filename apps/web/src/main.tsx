@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { appMessages } from "./lib/messages";
+import { registerServiceWorker } from "./lib/pwa";
 import { store } from "./lib/store";
 import { syncController } from "./lib/sync";
 import { ThemeProvider } from "./lib/theme";
@@ -28,6 +29,7 @@ declare module "@tanstack/react-router" {
 const deviceLocales = typeof navigator !== "undefined" ? [...navigator.languages] : [];
 
 void syncController.start();
+registerServiceWorker();
 
 const root = document.getElementById("app");
 if (!root) throw new Error("Missing #app root element");

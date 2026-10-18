@@ -42,9 +42,27 @@ export function fireConfetti(colors: string[]): void {
 		disableForReducedMotion: true,
 		zIndex: 60,
 	};
-	void confetti({ ...defaults, particleCount: 70, spread: 70, startVelocity: 38, origin: { y: 0.7 } });
+	void confetti({
+		...defaults,
+		particleCount: 70,
+		spread: 70,
+		startVelocity: 38,
+		origin: { y: 0.7 },
+	});
 	setTimeout(() => {
-		void confetti({ ...defaults, particleCount: 40, angle: 60, spread: 55, origin: { x: 0, y: 0.75 } });
-		void confetti({ ...defaults, particleCount: 40, angle: 120, spread: 55, origin: { x: 1, y: 0.75 } });
+		void confetti({
+			...defaults,
+			particleCount: 40,
+			angle: 60,
+			spread: 55,
+			origin: { x: 0, y: 0.75 },
+		});
+		void confetti({
+			...defaults,
+			particleCount: 40,
+			angle: 120,
+			spread: 55,
+			origin: { x: 1, y: 0.75 },
+		});
 	}, 180);
 }

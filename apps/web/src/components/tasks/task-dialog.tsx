@@ -1,17 +1,17 @@
+import { useT } from "@/lib/messages";
+import { useUI } from "@/lib/ui";
 import { type DayKey, type TaskPriority, addDays } from "@atomic/core";
 import { useActions, useAtomic, useToday } from "@atomic/core/react";
 import { CalendarDays, Trash } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useT } from "@/lib/messages";
-import { useUI } from "@/lib/ui";
 import { Button } from "../ui/button";
 import { Chip } from "../ui/chip";
 import { DatePicker } from "../ui/date-picker";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "../ui/dialog";
 import { Field, Input, Textarea } from "../ui/field";
-import { PriorityMenu } from "./task-quick-add";
 import { taskDateLabel } from "./task-date";
+import { PriorityMenu } from "./task-quick-add";
 
 /** Create / edit a task (title, notes, date, priority, delete). */
 export function TaskDialog() {
@@ -20,7 +20,9 @@ export function TaskDialog() {
 	return (
 		<Dialog open={state !== null} onOpenChange={(open) => !open && close(null)}>
 			<DialogContent size="sm">
-				{state ? <TaskForm key={state.mode === "edit" ? state.id : "new"} onDone={() => close(null)} /> : null}
+				{state ? (
+					<TaskForm key={state.mode === "edit" ? state.id : "new"} onDone={() => close(null)} />
+				) : null}
 			</DialogContent>
 		</Dialog>
 	);
@@ -104,7 +106,9 @@ function TaskForm({ onDone }: { onDone(): void }) {
 						<DatePicker value={date} onChange={setDate}>
 							<Chip selected={date !== null && date !== today && date !== tomorrow}>
 								<CalendarDays />
-								{date !== null && date !== today && date !== tomorrow ? taskDateLabel(date, today, t) : t("tasks.date.pick")}
+								{date !== null && date !== today && date !== tomorrow
+									? taskDateLabel(date, today, t)
+									: t("tasks.date.pick")}
 							</Chip>
 						</DatePicker>
 					</div>
@@ -126,7 +130,9 @@ function TaskForm({ onDone }: { onDone(): void }) {
 				<Button variant="secondary" onClick={onDone}>
 					{t("common.cancel")}
 				</Button>
-				<Button type="submit" disabled={!title.trim()}>{existing ? t("common.save") : t("common.add")}</Button>
+				<Button type="submit" disabled={!title.trim()}>
+					{existing ? t("common.save") : t("common.add")}
+				</Button>
 			</DialogFooter>
 		</form>
 	);

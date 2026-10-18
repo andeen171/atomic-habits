@@ -1,11 +1,11 @@
-import { Fragment, type ReactNode } from "react";
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { isMac } from "@/lib/utils";
+import { Fragment, type ReactNode } from "react";
 import { Dialog, DialogBody, DialogContent, DialogHeader } from "../ui/dialog";
 import { Kbd } from "../ui/kbd";
 
-export function useShortcutList() {
+function useShortcutList() {
 	const { t, at } = useT();
 	const then = at("shortcuts.then");
 	const rows: { label: string; keys: ReactNode[] }[] = [
@@ -33,7 +33,11 @@ export function ShortcutList() {
 					<dd className="flex shrink-0 items-center gap-1">
 						{row.keys.map((key, i) => (
 							<Fragment key={`${row.label}-${i}`}>
-								{key === then ? <span className="px-0.5 text-ink-subtle text-tiny">{key}</span> : <Kbd>{key}</Kbd>}
+								{key === then ? (
+									<span className="px-0.5 text-ink-subtle text-tiny">{key}</span>
+								) : (
+									<Kbd>{key}</Kbd>
+								)}
 							</Fragment>
 						))}
 					</dd>

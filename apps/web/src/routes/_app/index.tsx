@@ -1,11 +1,7 @@
-import { type DayKey, TIMES_OF_DAY, greetingKey, isDayKey } from "@atomic/core";
-import { useActions, useDayAgenda, useLocale, useSettings, useToday } from "@atomic/core/react";
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Plus } from "lucide-react";
-import { HabitGroup } from "@/components/today/habit-group";
 import { WeekStrip } from "@/components/habit/week-strip";
 import { FreshStartBanner, NeverMissTwiceBanner } from "@/components/today/banners";
 import { DayProgress } from "@/components/today/day-progress";
+import { HabitGroup } from "@/components/today/habit-group";
 import { IdentityVotesCard } from "@/components/today/identity-votes-card";
 import { PrincipleCard } from "@/components/today/principle-card";
 import { AllDoneCard, NothingDueCard } from "@/components/today/status-cards";
@@ -14,6 +10,10 @@ import { useCelebration } from "@/components/today/use-celebration";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useT } from "@/lib/messages";
+import { type DayKey, type DayScore, TIMES_OF_DAY, greetingKey, isDayKey } from "@atomic/core";
+import { useActions, useDayAgenda, useLocale, useSettings, useToday } from "@atomic/core/react";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, Plus } from "lucide-react";
 
 interface TodaySearch {
 	day?: DayKey;
@@ -57,10 +57,26 @@ function TodayScreen() {
 					{agenda.allDone && agenda.isToday ? <AllDoneCard votes={agenda.votes} /> : null}
 					{!hasDue && agenda.score.due === 0 ? <NothingDueCard /> : null}
 					{TIMES_OF_DAY.map((time) => (
-						<HabitGroup key={time} title={t(`time.${time}`)} items={agenda.groups[time]} day={day} />
+						<HabitGroup
+							key={time}
+							title={t(`time.${time}`)}
+							items={agenda.groups[time]}
+							day={day}
+						/>
 					))}
-					<HabitGroup title={t("today.doneForWeek")} items={agenda.doneForWeek} day={day} dimmed showCount={false} />
-					<HabitGroup title={t("today.breaking")} items={agenda.breaking} day={day} showCount={false} />
+					<HabitGroup
+						title={t("today.doneForWeek")}
+						items={agenda.doneForWeek}
+						day={day}
+						dimmed
+						showCount={false}
+					/>
+					<HabitGroup
+						title={t("today.breaking")}
+						items={agenda.breaking}
+						day={day}
+						showCount={false}
+					/>
 					<div className="flex flex-col gap-6 xl:hidden">
 						<TodayTasks day={day} />
 						<PrincipleCard />
@@ -76,7 +92,7 @@ function TodayScreen() {
 	);
 }
 
-function TodayHeader({ day, today, score }: { day: DayKey; today: DayKey; score: Parameters<typeof DayProgress>[0]["score"] }) {
+function TodayHeader({ day, today, score }: { day: DayKey; today: DayKey; score: DayScore }) {
 	const { t } = useT();
 	const { displayName } = useSettings();
 	const isToday = day === today;

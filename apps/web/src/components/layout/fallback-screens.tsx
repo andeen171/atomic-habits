@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
 import { useT } from "@/lib/messages";
+import { Link } from "@tanstack/react-router";
 import { LogoMark } from "../brand/logo";
 import { Button } from "../ui/button";
 import { OrbitIllustration } from "../ui/empty-state";

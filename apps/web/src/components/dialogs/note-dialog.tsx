@@ -1,8 +1,8 @@
+import { useT } from "@/lib/messages";
+import { useUI } from "@/lib/ui";
 import { getLog } from "@atomic/core";
 import { useActions, useAtomic, useHabit } from "@atomic/core/react";
 import { type FormEvent, useState } from "react";
-import { useT } from "@/lib/messages";
-import { useUI } from "@/lib/ui";
 import { Button } from "../ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "../ui/dialog";
 import { Textarea } from "../ui/field";
@@ -15,7 +15,12 @@ export function NoteDialog() {
 		<Dialog open={state !== null} onOpenChange={(open) => !open && close(null)}>
 			<DialogContent size="sm">
 				{state ? (
-					<NoteForm key={`${state.habitId}:${state.date}`} habitId={state.habitId} date={state.date} onDone={() => close(null)} />
+					<NoteForm
+						key={`${state.habitId}:${state.date}`}
+						habitId={state.habitId}
+						date={state.date}
+						onDone={() => close(null)}
+					/>
 				) : null}
 			</DialogContent>
 		</Dialog>

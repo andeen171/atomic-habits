@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { palettes } from "@atomic/core/theme";
 import tailwindcss from "@tailwindcss/vite";
@@ -6,7 +7,11 @@ import react from "@vitejs/plugin-react";
 import { type PluginOption, defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { viteSingleFile } from "vite-plugin-singlefile";
-import { atomicTokens } from "./build/atomic-tokens";
+import { atomicTokens } from "./plugins/atomic-tokens";
+
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf8")) as {
+	version: string;
+};
 
 /**
  * Two build targets:
@@ -31,7 +36,8 @@ export default defineConfig(({ mode }) => {
 		plugins.push(
 			VitePWA({
 				registerType: "autoUpdate",
-				injectRegister: "script-defer",
+				// Registered from src/lib/pwa.ts so the artifact build and Tauri can skip it.
+				injectRegister: false,
 				includeAssets: ["favicon.svg", "favicon.ico", "apple-touch-icon-180x180.png"],
 				manifest: {
 					name: "Atomic",
@@ -66,6 +72,7 @@ export default defineConfig(({ mode }) => {
 		base: "./",
 		plugins,
 		publicDir: artifact ? false : "public",
+		define: { __APP_VERSION__: JSON.stringify(pkg.version) },
 		resolve: {
 			alias: { "@": path.resolve(__dirname, "./src") },
 		},

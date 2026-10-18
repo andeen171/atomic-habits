@@ -1,3 +1,6 @@
+import { useT } from "@/lib/messages";
+import { useElementWidth } from "@/lib/use-element-width";
+import { clamp, cn } from "@/lib/utils";
 import {
 	type DayKey,
 	type Weekday,
@@ -7,9 +10,6 @@ import {
 	startOfWeek,
 } from "@atomic/core";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useT } from "@/lib/messages";
-import { useElementWidth } from "@/lib/use-element-width";
-import { clamp, cn } from "@/lib/utils";
 
 export interface HeatCell {
 	/** 0–4 intensity, or null for days outside the habit's life (rendered faint). */
@@ -58,8 +58,8 @@ export function Heatmap({
 		weeks = maxWeeks;
 		size = clamp(Math.floor(avail / weeks - GAP), 10, 16);
 	} else {
-		weeks = clamp(Math.floor(avail / (14 + GAP)), minWeeks, maxWeeks);
-		size = clamp(Math.floor(avail / weeks - GAP), 8, 18);
+		weeks = clamp(Math.floor(avail / (16 + GAP)), minWeeks, maxWeeks);
+		size = clamp(Math.floor(avail / weeks - GAP), 8, 20);
 	}
 	const step = size + GAP;
 	const svgWidth = LABEL_W + weeks * step - GAP;
@@ -84,16 +84,19 @@ export function Heatmap({
 		return { columns, months };
 	}, [end, weekStartsOn, weeks, cell, t]);
 
+	// Re-run when the grid width changes so the newest weeks stay in view.
+	const scrollKey = scrollable && width > 0 ? svgWidth + width : 0;
 	useLayoutEffect(() => {
-		if (scrollable && scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
-	}, [scrollable, svgWidth]);
+		if (scrollKey && scrollRef.current)
+			scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+	}, [scrollKey]);
 
 	const weekdayRows = orderedWeekdays(weekStartsOn);
 
 	return (
 		<div ref={ref} className={cn("relative w-full", className)}>
 			{width > 0 ? (
-				<div ref={scrollRef} className={cn(scrollable && "overflow-x-auto scrollbar-none")}>
+				<div ref={scrollRef} className={cn(scrollable && "scrollbar-none overflow-x-auto")}>
 					<svg
 						role="img"
 						aria-label={label}
@@ -112,7 +115,7 @@ export function Heatmap({
 								{m.text}
 							</text>
 						))}
-						{[1, 3, 5].map((row) => (
+						{[0, 2, 4].map((row) => (
 							<text
 								key={row}
 								x={0}
@@ -151,7 +154,7 @@ export function Heatmap({
 			)}
 			{hover && svgWidth <= width + 1 ? (
 				<div
-					className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-sm bg-ink px-2 py-1 font-medium text-bg text-tiny shadow-pop"
+					className="-translate-x-1/2 -translate-y-full pointer-events-none absolute z-10 whitespace-nowrap rounded-sm bg-ink px-2 py-1 font-medium text-bg text-tiny shadow-pop"
 					style={{ left: hover.x, top: hover.y - 6 }}
 				>
 					{hover.text}
@@ -161,7 +164,10 @@ export function Heatmap({
 	);
 }
 
-export function HeatLegend({ color, className }: { color(level: number): string; className?: string }) {
+export function HeatLegend({
+	color,
+	className,
+}: { color(level: number): string; className?: string }) {
 	const { t } = useT();
 	return (
 		<div className={cn("flex items-center gap-1.5 text-ink-subtle text-tiny", className)}>

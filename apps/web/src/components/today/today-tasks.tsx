@@ -1,11 +1,11 @@
+import { useT } from "@/lib/messages";
+import { cn } from "@/lib/utils";
 import { type DayKey, tasksForDay } from "@atomic/core";
 import { useActions, useTasks, useToday } from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type FormEvent, useMemo, useState } from "react";
-import { useT } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 import { TaskRow } from "../tasks/task-row";
 
 /** Tasks for the day with inline quick-add. */
@@ -48,8 +48,16 @@ export function TodayTasks({ day, className }: { day: DayKey; className?: string
 						</motion.div>
 					))}
 				</AnimatePresence>
-				{!list.length ? <p className="px-5 pt-4 pb-1 text-ink-subtle text-small">{t("today.noTasks")}</p> : null}
-				<form onSubmit={submit} className={cn("flex items-center gap-3 px-4 md:px-5", list.length && "border-line border-t")}>
+				{!list.length ? (
+					<p className="px-5 pt-4 pb-1 text-ink-subtle text-small">{t("today.noTasks")}</p>
+				) : null}
+				<form
+					onSubmit={submit}
+					className={cn(
+						"flex items-center gap-3 px-4 md:px-5",
+						list.length && "border-line border-t",
+					)}
+				>
 					<Plus className="size-[18px] shrink-0 text-ink-subtle" />
 					<input
 						value={title}

@@ -1,7 +1,7 @@
-import { principles } from "@atomic/core";
-import { useLocale } from "@atomic/core/react";
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
+import { principles } from "@atomic/core";
+import { useLocale } from "@atomic/core/react";
 import { Dialog, DialogBody, DialogContent, DialogHeader } from "../ui/dialog";
 
 const LAWS = [1, 2, 3, 4] as const;

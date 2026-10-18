@@ -1,5 +1,5 @@
-import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import type { ComponentProps, ReactNode } from "react";
 
 export function Card({ className, ...props }: ComponentProps<"div">) {
 	return (
@@ -31,8 +31,4 @@ export function CardHeader({ title, description, action, className, icon }: Card
 			{action ? <div className="shrink-0">{action}</div> : null}
 		</div>
 	);
-}
-
-export function SectionLabel({ className, ...props }: ComponentProps<"h2">) {
-	return <h2 className={cn("section-label", className)} {...props} />;
 }

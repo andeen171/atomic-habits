@@ -1,3 +1,6 @@
+import { useT } from "@/lib/messages";
+import { useColorScheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import {
 	EMOJI_CHOICES,
 	HABIT_COLORS,
@@ -12,9 +15,6 @@ import { useAtomic } from "@atomic/core/react";
 import { habitColor } from "@atomic/core/theme";
 import { Check, Minus, Plus, ShieldOff, Sprout, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useT } from "@/lib/messages";
-import { useColorScheme } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 import { Field, Input } from "../ui/field";
 import { IconButton } from "../ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -23,26 +23,31 @@ import type { HabitDraft } from "./draft";
 
 export type DraftUpdate = (patch: Partial<HabitDraft>) => void;
 
-export function KindToggle({ value, onChange }: { value: HabitKind; onChange(kind: HabitKind): void }) {
+export function KindToggle({
+	value,
+	onChange,
+}: { value: HabitKind; onChange(kind: HabitKind): void }) {
 	const { t } = useT();
 	const options: { kind: HabitKind; icon: ReactNode; hint: string }[] = [
 		{ kind: "build", icon: <Sprout />, hint: t("form.kind.buildHint") },
 		{ kind: "break", icon: <ShieldOff />, hint: t("form.kind.breakHint") },
 	];
 	return (
-		<div role="radiogroup" aria-label={t("form.kind")} className="grid grid-cols-2 gap-2.5">
+		<fieldset className="grid min-w-0 grid-cols-2 gap-2.5">
+			<legend className="sr-only">{t("form.kind")}</legend>
 			{options.map((option) => {
 				const selected = value === option.kind;
 				return (
 					<button
 						key={option.kind}
 						type="button"
-						role="radio"
-						aria-checked={selected}
+						aria-pressed={selected}
 						onClick={() => onChange(option.kind)}
 						className={cn(
 							"flex items-start gap-3 rounded-lg border bg-surface p-3.5 text-left transition-[border-color,box-shadow] duration-(--atomic-duration-fast)",
-							selected ? "border-accent shadow-[0_0_0_1px_var(--accent)]" : "border-line hover:border-line-strong",
+							selected
+								? "border-accent shadow-[0_0_0_1px_var(--accent)]"
+								: "border-line hover:border-line-strong",
 						)}
 					>
 						<span
@@ -60,11 +65,15 @@ export function KindToggle({ value, onChange }: { value: HabitKind; onChange(kin
 					</button>
 				);
 			})}
-		</div>
+		</fieldset>
 	);
 }
 
-export function EmojiPicker({ value, color, onChange }: { value: string; color: HabitColor; onChange(emoji: string): void }) {
+export function EmojiPicker({
+	value,
+	color,
+	onChange,
+}: { value: string; color: HabitColor; onChange(emoji: string): void }) {
 	const { t, at } = useT();
 	const scheme = useColorScheme();
 	const [open, setOpen] = useState(false);
@@ -129,11 +138,15 @@ export function EmojiPicker({ value, color, onChange }: { value: string; color: 
 	);
 }
 
-export function ColorPicker({ value, onChange }: { value: HabitColor; onChange(color: HabitColor): void }) {
+export function ColorPicker({
+	value,
+	onChange,
+}: { value: HabitColor; onChange(color: HabitColor): void }) {
 	const { t, at } = useT();
 	const scheme = useColorScheme();
 	return (
-		<div role="radiogroup" aria-label={t("form.color")} className="flex flex-wrap gap-2">
+		<fieldset className="flex min-w-0 flex-wrap gap-2">
+			<legend className="sr-only">{t("form.color")}</legend>
 			{HABIT_COLORS.map((color) => {
 				const selected = value === color;
 				const fill = habitColor(color, scheme).fill;
@@ -141,8 +154,7 @@ export function ColorPicker({ value, onChange }: { value: HabitColor; onChange(c
 					<button
 						key={color}
 						type="button"
-						role="radio"
-						aria-checked={selected}
+						aria-pressed={selected}
 						aria-label={at(`color.${color}`)}
 						onClick={() => onChange(color)}
 						className={cn(
@@ -155,7 +167,7 @@ export function ColorPicker({ value, onChange }: { value: HabitColor; onChange(c
 					</button>
 				);
 			})}
-		</div>
+		</fieldset>
 	);
 }
 
@@ -175,7 +187,12 @@ export function Stepper({
 	const { t } = useT();
 	return (
 		<div className="inline-flex h-11 items-center gap-1 rounded-full border border-line bg-sunken/60 p-1">
-			<IconButton label={t("habit.decrement")} size="sm" disabled={value <= min} onClick={() => onChange(value - 1)}>
+			<IconButton
+				label={t("habit.decrement")}
+				size="sm"
+				disabled={value <= min}
+				onClick={() => onChange(value - 1)}
+			>
 				<Minus />
 			</IconButton>
 			<input
@@ -191,7 +208,12 @@ export function Stepper({
 				}}
 				className="w-12 bg-transparent text-center font-semibold text-ink tabular-nums outline-none [appearance:textfield] focus-visible:outline-none [&::-webkit-inner-spin-button]:appearance-none"
 			/>
-			<IconButton label={t("habit.increment")} size="sm" disabled={value >= max} onClick={() => onChange(value + 1)}>
+			<IconButton
+				label={t("habit.increment")}
+				size="sm"
+				disabled={value >= max}
+				onClick={() => onChange(value + 1)}
+			>
 				<Plus />
 			</IconButton>
 		</div>
@@ -235,7 +257,9 @@ export function FrequencyField({ draft, update }: { draft: HabitDraft; update: D
 									onClick={() => toggleDay(day)}
 									className={cn(
 										"h-10 rounded-md border font-medium text-small capitalize transition-colors",
-										selected ? "border-ink bg-ink text-bg" : "border-line bg-surface text-ink-muted hover:border-line-strong",
+										selected
+											? "border-ink bg-ink text-bg"
+											: "border-line bg-surface text-ink-muted hover:border-line-strong",
 									)}
 								>
 									{t.weekdayName(day, "short")}
@@ -247,15 +271,26 @@ export function FrequencyField({ draft, update }: { draft: HabitDraft; update: D
 			) : null}
 			{draft.scheduleType === "weekly" ? (
 				<div className="flex items-center gap-3">
-					<Stepper value={draft.times} min={1} max={7} onChange={(times) => update({ times })} label={at("form.timesLabel")} />
-					<span className="text-ink-muted text-small">{t.tp("form.schedule.timesPerWeek", draft.times)}</span>
+					<Stepper
+						value={draft.times}
+						min={1}
+						max={7}
+						onChange={(times) => update({ times })}
+						label={at("form.timesLabel")}
+					/>
+					<span className="text-ink-muted text-small">
+						{t.tp("form.schedule.timesPerWeek", draft.times)}
+					</span>
 				</div>
 			) : null}
 		</div>
 	);
 }
 
-export function TimeOfDayField({ value, onChange }: { value: TimeOfDay; onChange(value: TimeOfDay): void }) {
+export function TimeOfDayField({
+	value,
+	onChange,
+}: { value: TimeOfDay; onChange(value: TimeOfDay): void }) {
 	const { t } = useT();
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -271,13 +306,22 @@ export function TimeOfDayField({ value, onChange }: { value: TimeOfDay; onChange
 	);
 }
 
-export function CueTimeField({ value, onChange }: { value: string; onChange(value: string): void }) {
+export function CueTimeField({
+	value,
+	onChange,
+}: { value: string; onChange(value: string): void }) {
 	const { t, at } = useT();
 	return (
 		<Field label={t("form.cueTime")} optional={t("common.optional")}>
 			{(props) => (
 				<div className="relative">
-					<Input {...props} type="time" value={value} onChange={(event) => onChange(event.target.value)} className="pr-10" />
+					<Input
+						{...props}
+						type="time"
+						value={value}
+						onChange={(event) => onChange(event.target.value)}
+						className="pr-10"
+					/>
 					{value ? (
 						<IconButton
 							label={at("form.clearTime")}
@@ -340,7 +384,6 @@ export function DraftTextField({
 						value={value}
 						maxLength={maxLength}
 						placeholder={placeholder}
-						// biome-ignore lint/a11y/noAutofocus: first field of a wizard step.
 						autoFocus={autoFocus}
 						onChange={(event) => onChange(event.target.value)}
 					/>

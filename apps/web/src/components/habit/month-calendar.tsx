@@ -1,3 +1,6 @@
+import { useT } from "@/lib/messages";
+import { useHabitStyle } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import {
 	type DayKey,
 	type DayState,
@@ -15,9 +18,6 @@ import {
 import { useActions, useAtomic, useToday } from "@atomic/core/react";
 import { ChevronLeft, ChevronRight, Minus, Plus, SkipForward } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useT } from "@/lib/messages";
-import { useHabitStyle } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -28,7 +28,7 @@ interface MonthCalendarProps {
 }
 
 const stateClass: Record<DayState, string> = {
-	done: "bg-(--habit) text-white font-semibold",
+	done: "bg-(--habit) text-(--habit-on-text) font-semibold",
 	partial: "bg-(--habit-soft) text-(--habit-text) font-semibold",
 	missed: "text-ink-muted",
 	skipped: "text-ink-subtle border border-dashed border-line-strong",
@@ -56,41 +56,67 @@ export function MonthCalendar({ habit, logs }: MonthCalendarProps) {
 	return (
 		<div style={style}>
 			<div className="mb-3 flex items-center justify-between">
-				<h3 className="font-medium text-ink capitalize">{t.formatMonth(month)}</h3>
+				<h3 className="font-medium text-ink">{t.formatMonth(month)}</h3>
 				<div className="flex">
-					<IconButton label={at("month.previous")} size="sm" disabled={!canPrev} onClick={() => setMonth(addMonths(month, -1))}>
+					<IconButton
+						label={at("month.previous")}
+						size="sm"
+						disabled={!canPrev}
+						onClick={() => setMonth(addMonths(month, -1))}
+					>
 						<ChevronLeft />
 					</IconButton>
-					<IconButton label={at("month.next")} size="sm" disabled={!canNext} onClick={() => setMonth(addMonths(month, 1))}>
+					<IconButton
+						label={at("month.next")}
+						size="sm"
+						disabled={!canNext}
+						onClick={() => setMonth(addMonths(month, 1))}
+					>
 						<ChevronRight />
 					</IconButton>
 				</div>
 			</div>
 			<div className="grid grid-cols-7 gap-1 text-center">
 				{orderedWeekdays(weekStartsOn).map((wd) => (
-					<div key={wd} className="pb-1 font-semibold text-[11px] text-ink-subtle uppercase tracking-wide">
+					<div
+						key={wd}
+						className="pb-1 font-semibold text-[11px] text-ink-subtle uppercase tracking-wide"
+					>
 						{t.weekdayName(wd, "min")}
 					</div>
 				))}
 				{rows.flat().map((day) => {
 					const inMonth = isSameMonth(day, month);
-					if (!inMonth) return <div key={day} aria-hidden />;
+					if (!inMonth) return <div key={day} aria-hidden="true" />;
 					const log = logs.get(day);
 					const state = dayState(habit, day, log, today);
 					const disabled = state === "future" || state === "inactive";
-					const label = at("calendar.label", { date: t.formatDayLong(day), state: at(`state.${state}`) });
+					const label = at("calendar.label", {
+						date: t.formatDayLong(day),
+						state: at(`state.${state}`),
+					});
 					const cellClass = cn(
 						"mx-auto grid aspect-square w-full max-w-10 place-items-center rounded-full text-small tabular-nums transition-[background-color,box-shadow,transform] duration-(--atomic-duration-fast)",
 						stateClass[state],
 						!disabled && "hover:scale-105 active:scale-95",
-						!disabled && state !== "done" && state !== "partial" && state !== "clean" && "hover:bg-hover",
+						!disabled &&
+							state !== "done" &&
+							state !== "partial" &&
+							state !== "clean" &&
+							"hover:bg-hover",
 						day === today && state !== "done" && "ring-2 ring-accent",
 					);
 					const number = parseDayKey(day).getDate();
 
 					if (counted && !disabled) {
 						return (
-							<CountDayPopover key={day} habit={habit} day={day} count={log?.count ?? 0} skipped={!!log?.skipped}>
+							<CountDayPopover
+								key={day}
+								habit={habit}
+								day={day}
+								count={log?.count ?? 0}
+								skipped={!!log?.skipped}
+							>
 								<button type="button" aria-label={label} className={cellClass}>
 									{number}
 								</button>
@@ -140,8 +166,14 @@ function CountDayPopover({ habit, day, count, skipped, children }: CountDayPopov
 					>
 						<Minus />
 					</IconButton>
-					<span className="font-semibold text-h3 text-ink tabular-nums">{progressLabel(habit, count, t)}</span>
-					<IconButton label={t("habit.increment")} variant="secondary" onClick={() => actions.increment(habit.id, day, 1)}>
+					<span className="font-semibold text-h3 text-ink tabular-nums">
+						{progressLabel(habit, count, t)}
+					</span>
+					<IconButton
+						label={t("habit.increment")}
+						variant="secondary"
+						onClick={() => actions.increment(habit.id, day, 1)}
+					>
 						<Plus />
 					</IconButton>
 				</div>

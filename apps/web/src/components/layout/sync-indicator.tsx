@@ -1,9 +1,9 @@
-import { useSyncState } from "@atomic/core/react";
-import { Link } from "@tanstack/react-router";
-import { Cloud, CloudAlert, RefreshCw } from "lucide-react";
 import { useT } from "@/lib/messages";
 import { syncController } from "@/lib/sync";
 import { cn } from "@/lib/utils";
+import { useSyncState } from "@atomic/core/react";
+import { Link } from "@tanstack/react-router";
+import { Cloud, CloudAlert, RefreshCw } from "lucide-react";
 import { Tip } from "../ui/tooltip";
 
 /** Discreet cloud status (idle / syncing / error); hidden while signed out. */
@@ -20,7 +20,8 @@ export function SyncIndicator({ showLabel }: { showLabel?: boolean }) {
 				: state.lastSyncedAt
 					? t("settings.lastSynced", { time: t.formatAgo(state.lastSyncedAt) })
 					: at("sync.synced");
-	const Icon = state.status === "syncing" ? RefreshCw : state.status === "error" ? CloudAlert : Cloud;
+	const Icon =
+		state.status === "syncing" ? RefreshCw : state.status === "error" ? CloudAlert : Cloud;
 
 	return (
 		<Tip label={label} side="right">

@@ -1,10 +1,10 @@
+import { fireConfetti, markCelebrated, wasCelebrated } from "@/lib/celebrate";
+import { useColorScheme } from "@/lib/theme";
 import type { DayAgenda } from "@atomic/core";
 import { useAtomic } from "@atomic/core/react";
 import { habitColor } from "@atomic/core/theme";
 import { useReducedMotion } from "motion/react";
 import { useEffect } from "react";
-import { fireConfetti, markCelebrated, wasCelebrated } from "@/lib/celebrate";
-import { useColorScheme } from "@/lib/theme";
 
 /** One celebration per day when every due habit is done. */
 export function useCelebration(agenda: DayAgenda): void {

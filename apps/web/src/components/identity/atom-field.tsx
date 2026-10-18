@@ -1,11 +1,15 @@
-import type { HabitColor } from "@atomic/core";
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
+import type { HabitColor } from "@atomic/core";
 
 const MAX_DOTS = 200;
 
 /** A field of small "atoms": one per vote, scaled down past 200. Recent votes glow. */
-export function AtomField({ votes, recent, color }: { votes: number; recent: number; color: HabitColor }) {
+export function AtomField({
+	votes,
+	recent,
+	color,
+}: { votes: number; recent: number; color: HabitColor }) {
 	const { t, at } = useT();
 	const style = useHabitStyle(color);
 	if (votes <= 0) return null;
@@ -25,7 +29,9 @@ export function AtomField({ votes, recent, color }: { votes: number; recent: num
 				))}
 			</div>
 			<figcaption className="mt-2 text-ink-subtle text-tiny">
-				{scale === 1 ? at("identity.atoms") : at("identity.atomsScaled", { count: t.number(scale) })}
+				{scale === 1
+					? at("identity.atoms")
+					: at("identity.atomsScaled", { count: t.number(scale) })}
 			</figcaption>
 		</figure>
 	);

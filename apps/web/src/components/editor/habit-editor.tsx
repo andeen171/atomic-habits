@@ -1,10 +1,10 @@
+import { useT } from "@/lib/messages";
 import type { HabitTemplate } from "@atomic/core";
 import { useActions, useIdentities, useToday } from "@atomic/core/react";
 import { useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
-import { useT } from "@/lib/messages";
 import { BlueprintCard } from "../habit/blueprint-card";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
@@ -52,9 +52,14 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 		if (patch.name?.trim()) setNameError(false);
 	}, []);
 
-	const preview = useMemo(() => previewHabit(draft, at("form.previewEmpty"), today), [draft, at, today]);
+	const preview = useMemo(
+		() => previewHabit(draft, at("form.previewEmpty"), today),
+		[draft, at, today],
+	);
 	const identityStatement =
-		draft.newIdentity?.trim() || identities.find((i) => i.id === draft.identityId)?.statement || null;
+		draft.newIdentity?.trim() ||
+		identities.find((i) => i.id === draft.identityId)?.statement ||
+		null;
 	const isBreak = draft.kind === "break";
 	const index = STEPS.indexOf(step);
 
@@ -121,7 +126,13 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 	const stepContent: Record<Step, ReactNode> = {
 		what: (
 			<>
-				<BasicsFields draft={draft} update={update} nameError={nameError} onNameEnter={next} autoFocus={!editing} />
+				<BasicsFields
+					draft={draft}
+					update={update}
+					nameError={nameError}
+					onNameEnter={next}
+					autoFocus={!editing}
+				/>
 				{editing ? null : <TemplateList draft={draft} onPick={pickTemplate} />}
 			</>
 		),
@@ -143,7 +154,9 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 					<IconButton label={t("common.close")} onClick={close}>
 						<X />
 					</IconButton>
-					<h1 className="min-w-0 flex-1 truncate font-semibold text-ink">{editing ? t("form.editTitle") : t("form.newTitle")}</h1>
+					<h1 className="min-w-0 flex-1 truncate font-semibold text-ink">
+						{editing ? t("form.editTitle") : t("form.newTitle")}
+					</h1>
 					<SegmentedControl<EditorMode>
 						label={`${t("form.guided")} / ${t("form.quick")}`}
 						size="sm"
@@ -174,7 +187,12 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 									/>
 								</div>
 							</div>
-							<HabitPreview habit={preview} identityStatement={identityStatement} compact className="mb-6 lg:hidden" />
+							<HabitPreview
+								habit={preview}
+								identityStatement={identityStatement}
+								compact
+								className="mb-6 lg:hidden"
+							/>
 							<AnimatePresence mode="wait" initial={false} custom={direction}>
 								<motion.section
 									key={step}
@@ -186,13 +204,23 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 									<h2 className="text-balance font-display text-ink text-title md:text-[2.5rem] md:leading-[2.75rem]">
 										{stepTitle[step].title}
 									</h2>
-									{stepTitle[step].hint ? <p className="mt-2 mb-7 max-w-xl text-ink-muted">{stepTitle[step].hint}</p> : <div className="mb-7" />}
+									{stepTitle[step].hint ? (
+										<p className="mt-2 mb-7 max-w-xl text-ink-muted">{stepTitle[step].hint}</p>
+									) : (
+										<div className="mb-7" />
+									)}
 									{stepContent[step]}
 								</motion.section>
 							</AnimatePresence>
 						</>
 					) : (
-						<QuickForm draft={draft} update={update} nameError={nameError} editing={editing} onPickTemplate={pickTemplate} />
+						<QuickForm
+							draft={draft}
+							update={update}
+							nameError={nameError}
+							editing={editing}
+							onPickTemplate={pickTemplate}
+						/>
 					)}
 				</main>
 				<aside className="hidden lg:block">
@@ -206,7 +234,10 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 				<div className="mx-auto flex h-[72px] w-full max-w-[1080px] items-center gap-3 px-5 md:px-8">
 					{mode === "guided" ? (
 						<>
-							<Button variant="ghost" onClick={() => (index > 0 ? goTo(STEPS[index - 1] ?? "what") : close())}>
+							<Button
+								variant="ghost"
+								onClick={() => (index > 0 ? goTo(STEPS[index - 1] ?? "what") : close())}
+							>
 								<ArrowLeft />
 								{index > 0 ? t("common.back") : t("common.cancel")}
 							</Button>
@@ -273,7 +304,10 @@ function QuickForm({ draft, update, nameError, editing, onPickTemplate }: QuickF
 					<LawBlock law="3" title={t(isBreak ? "form.step.difficult" : "form.step.easy")}>
 						<EasyFields draft={draft} update={update} />
 					</LawBlock>
-					<LawBlock law="2 · 4" title={t(isBreak ? "form.step.unsatisfying" : "form.step.satisfying")}>
+					<LawBlock
+						law="2 · 4"
+						title={t(isBreak ? "form.step.unsatisfying" : "form.step.satisfying")}
+					>
 						<SatisfyingFields draft={draft} update={update} />
 					</LawBlock>
 				</div>
@@ -283,7 +317,11 @@ function QuickForm({ draft, update, nameError, editing, onPickTemplate }: QuickF
 	);
 }
 
-function QuickSection({ title, hint, children }: { title?: string; hint?: string; children: ReactNode }) {
+function QuickSection({
+	title,
+	hint,
+	children,
+}: { title?: string; hint?: string; children: ReactNode }) {
 	return (
 		<section className="rounded-xl border border-line bg-surface p-5 shadow-card md:p-6">
 			{title ? (

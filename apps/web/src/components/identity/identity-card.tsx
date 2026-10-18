@@ -1,10 +1,10 @@
+import { useT } from "@/lib/messages";
+import { useHabitStyle } from "@/lib/theme";
 import type { IdentityStats } from "@atomic/core";
 import { useActions } from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
 import { Ellipsis, Pencil, Plus, Trash } from "lucide-react";
 import { useState } from "react";
-import { useT } from "@/lib/messages";
-import { useHabitStyle } from "@/lib/theme";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
@@ -20,12 +20,17 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 	const [deleting, setDeleting] = useState(false);
 
 	return (
-		<article style={style} className="flex flex-col gap-5 rounded-xl border border-line bg-surface p-5 shadow-card md:p-6">
+		<article
+			style={style}
+			className="flex flex-col gap-5 rounded-xl border border-line bg-surface p-5 shadow-card md:p-6"
+		>
 			<header className="flex items-start gap-3.5">
 				<span className="grid size-12 shrink-0 place-items-center rounded-lg bg-(--habit-soft) font-emoji text-2xl">
 					{identity.emoji}
 				</span>
-				<h2 className="min-w-0 flex-1 pt-1 font-display text-[1.625rem] text-ink leading-tight">{identity.statement}</h2>
+				<h2 className="min-w-0 flex-1 pt-1 font-display text-[1.625rem] text-ink leading-tight">
+					{identity.statement}
+				</h2>
 				<Menu modal={false}>
 					<MenuTrigger asChild>
 						<IconButton label={t("common.more")} size="sm" tooltip={false} className="-mr-1.5">
@@ -47,7 +52,9 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 			<div className="flex items-end gap-3">
 				<div>
 					<div className="section-label">{t("identity.votes")}</div>
-					<div className="font-display text-[3rem] text-ink tabular-nums leading-none">{t.number(votes)}</div>
+					<div className="font-display text-[3rem] text-ink tabular-nums leading-none">
+						{t.number(votes)}
+					</div>
 				</div>
 				{recentVotes > 0 ? (
 					<span className="mb-1 rounded-full bg-success-soft px-2 py-0.5 font-semibold text-ink text-tiny tabular-nums">
@@ -56,14 +63,10 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 				) : null}
 			</div>
 
-			{votes > 0 ? (
-				<AtomField votes={votes} recent={recentVotes} color={identity.color} />
-			) : (
-				<p className="text-ink-subtle text-small">{t("identity.evidenceBody", { votes: 0 })}</p>
-			)}
+			<AtomField votes={votes} recent={recentVotes} color={identity.color} />
 
 			<div className="border-line border-t pt-4">
-				<div className="mb-2 section-label">{t("identity.habits")}</div>
+				<div className="section-label mb-2">{t("identity.habits")}</div>
 				<div className="flex flex-wrap gap-1.5">
 					{habits.map((habit) => (
 						<Link
@@ -85,7 +88,9 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 						{t("identity.linkHabit")}
 					</Link>
 				</div>
-				{habits.length === 0 ? <p className="mt-2 text-ink-subtle text-small">{t("identity.noHabits")}</p> : null}
+				{habits.length === 0 ? (
+					<p className="mt-2 text-ink-subtle text-small">{t("identity.noHabits")}</p>
+				) : null}
 			</div>
 
 			<IdentityDialog open={editing} onOpenChange={setEditing} identity={identity} />

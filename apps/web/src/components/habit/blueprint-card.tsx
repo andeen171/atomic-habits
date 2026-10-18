@@ -1,8 +1,8 @@
-import { type Habit, blueprintLines, inSentence } from "@atomic/core";
-import { Link } from "@tanstack/react-router";
-import { Pencil } from "lucide-react";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { type Habit, blueprintLines } from "@atomic/core";
+import { Link } from "@tanstack/react-router";
+import { Pencil } from "lucide-react";
 import { Button } from "../ui/button";
 
 interface BlueprintCardProps {
@@ -17,13 +17,15 @@ interface BlueprintCardProps {
 const LAWS = [1, 2, 3, 4] as const;
 
 /** The four laws applied to one habit, as readable sentences. */
-export function BlueprintCard({ habit, identityStatement, editable = true, compact }: BlueprintCardProps) {
+export function BlueprintCard({
+	habit,
+	identityStatement,
+	editable = true,
+	compact,
+}: BlueprintCardProps) {
 	const { t } = useT();
 	const lines = blueprintLines(habit, t);
 	const isBreak = habit.kind === "break";
-	const identitySentence = identityStatement
-		? t("blueprint.identity", { identity: inSentence(identityStatement) })
-		: null;
 
 	if (!lines.length && editable) {
 		return (
@@ -47,10 +49,12 @@ export function BlueprintCard({ habit, identityStatement, editable = true, compa
 					return (
 						<li key={law} className="flex gap-3">
 							<span
-								aria-hidden
+								aria-hidden="true"
 								className={cn(
 									"grid size-6 shrink-0 place-items-center rounded-full font-semibold text-[11px] tabular-nums",
-									sentences.length ? "bg-accent-soft text-ink dark:text-accent" : "bg-sunken text-ink-subtle",
+									sentences.length
+										? "bg-accent-soft text-ink dark:text-accent"
+										: "bg-sunken text-ink-subtle",
 								)}
 							>
 								{law}
@@ -76,8 +80,13 @@ export function BlueprintCard({ habit, identityStatement, editable = true, compa
 					);
 				})}
 			</ol>
-			{identitySentence ? (
-				<p className={cn("font-display text-ink italic", compact ? "mt-4 text-h3" : "mt-5 text-h2")}>{identitySentence}</p>
+			{identityStatement ? (
+				<div className={cn("border-line border-t", compact ? "mt-4 pt-4" : "mt-5 pt-5")}>
+					<p className="section-label">{t("detail.identity")}</p>
+					<p className={cn("mt-1 font-display text-ink italic", compact ? "text-h3" : "text-h2")}>
+						{identityStatement}
+					</p>
+				</div>
 			) : null}
 		</div>
 	);

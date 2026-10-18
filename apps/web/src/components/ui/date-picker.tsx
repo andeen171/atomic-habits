@@ -1,3 +1,5 @@
+import { useT } from "@/lib/messages";
+import { cn } from "@/lib/utils";
 import {
 	type DayKey,
 	addMonths,
@@ -10,8 +12,6 @@ import {
 import { useAtomic, useToday } from "@atomic/core/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useT } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 import { IconButton } from "./icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
@@ -49,12 +49,20 @@ function CalendarGrid({ value, onChange }: { value: DayKey | null; onChange(day:
 	return (
 		<div>
 			<div className="mb-2 flex items-center justify-between">
-				<span className="pl-1 font-medium text-ink text-small capitalize">{t.formatMonth(month)}</span>
+				<span className="pl-1 font-medium text-ink text-small">{t.formatMonth(month)}</span>
 				<div className="flex">
-					<IconButton label={at("month.previous")} size="sm" onClick={() => setMonth(addMonths(month, -1))}>
+					<IconButton
+						label={at("month.previous")}
+						size="sm"
+						onClick={() => setMonth(addMonths(month, -1))}
+					>
 						<ChevronLeft />
 					</IconButton>
-					<IconButton label={at("month.next")} size="sm" onClick={() => setMonth(addMonths(month, 1))}>
+					<IconButton
+						label={at("month.next")}
+						size="sm"
+						onClick={() => setMonth(addMonths(month, 1))}
+					>
 						<ChevronRight />
 					</IconButton>
 				</div>

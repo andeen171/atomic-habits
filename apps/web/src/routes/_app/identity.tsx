@@ -1,10 +1,10 @@
-import { useIdentityStats } from "@atomic/core/react";
-import { createFileRoute } from "@tanstack/react-router";
 import { AddIdentity } from "@/components/identity/add-identity";
 import { IdentityCard } from "@/components/identity/identity-card";
 import { Page, PageHeader } from "@/components/layout/page";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useT } from "@/lib/messages";
+import { useIdentityStats } from "@atomic/core/react";
+import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/identity")({
 	component: IdentityScreen,

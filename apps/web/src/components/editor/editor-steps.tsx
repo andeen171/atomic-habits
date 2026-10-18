@@ -1,17 +1,17 @@
+import { useT } from "@/lib/messages";
+import { useHabitStyle } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import { type HabitTemplate, habitTemplates, identityTemplates } from "@atomic/core";
 import { useIdentities, useLocale } from "@atomic/core/react";
 import { Check, Plus } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
-import { useT } from "@/lib/messages";
-import { useHabitStyle } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 import { Field, Input } from "../ui/field";
 import type { HabitDraft } from "./draft";
 import {
 	ColorPicker,
 	CueTimeField,
-	type DraftUpdate,
 	DraftTextField,
+	type DraftUpdate,
 	EmojiPicker,
 	FrequencyField,
 	KindToggle,
@@ -40,7 +40,11 @@ export function BasicsFields({
 				onChange={(kind) =>
 					update(
 						kind === "break"
-							? { kind, color: draft.color === "ember" ? "rose" : draft.color, emoji: draft.emoji === "✨" ? "📵" : draft.emoji }
+							? {
+									kind,
+									color: draft.color === "ember" ? "rose" : draft.color,
+									emoji: draft.emoji === "✨" ? "📵" : draft.emoji,
+								}
 							: { kind },
 					)
 				}
@@ -48,12 +52,15 @@ export function BasicsFields({
 			<Field label={t("form.name")} error={nameError ? t("form.nameRequired") : undefined}>
 				{(props) => (
 					<div className="flex items-center gap-2.5">
-						<EmojiPicker value={draft.emoji} color={draft.color} onChange={(emoji) => update({ emoji })} />
+						<EmojiPicker
+							value={draft.emoji}
+							color={draft.color}
+							onChange={(emoji) => update({ emoji })}
+						/>
 						<Input
 							{...props}
 							value={draft.name}
 							maxLength={120}
-							// biome-ignore lint/a11y/noAutofocus: first field of the editor.
 							autoFocus={autoFocus}
 							placeholder={isBreak ? t("form.namePlaceholderBreak") : t("form.namePlaceholder")}
 							onChange={(event) => update({ name: event.target.value })}
@@ -76,7 +83,10 @@ export function BasicsFields({
 	);
 }
 
-export function TemplateList({ draft, onPick }: { draft: HabitDraft; onPick(template: HabitTemplate): void }) {
+export function TemplateList({
+	draft,
+	onPick,
+}: { draft: HabitDraft; onPick(template: HabitTemplate): void }) {
 	const { t } = useT();
 	const locale = useLocale();
 	const templates = useMemo(
@@ -90,14 +100,23 @@ export function TemplateList({ draft, onPick }: { draft: HabitDraft; onPick(temp
 			<p className="mb-3 text-ink-muted text-small">{t("form.templatesHint")}</p>
 			<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 				{templates.map((tpl) => (
-					<TemplateButton key={tpl.key} template={tpl} selected={draft.name === tpl.name} onPick={() => onPick(tpl)} />
+					<TemplateButton
+						key={tpl.key}
+						template={tpl}
+						selected={draft.name === tpl.name}
+						onPick={() => onPick(tpl)}
+					/>
 				))}
 			</div>
 		</section>
 	);
 }
 
-function TemplateButton({ template, selected, onPick }: { template: HabitTemplate; selected: boolean; onPick(): void }) {
+function TemplateButton({
+	template,
+	selected,
+	onPick,
+}: { template: HabitTemplate; selected: boolean; onPick(): void }) {
 	const style = useHabitStyle(template.color);
 	return (
 		<button
@@ -116,7 +135,9 @@ function TemplateButton({ template, selected, onPick }: { template: HabitTemplat
 			<span className="min-w-0 flex-1">
 				<span className="block truncate font-medium text-ink text-small">{template.name}</span>
 				{template.twoMinute ? (
-					<span className="block truncate text-ink-subtle text-small italic">{template.twoMinute}</span>
+					<span className="block truncate text-ink-subtle text-small italic">
+						{template.twoMinute}
+					</span>
 				) : null}
 			</span>
 		</button>
@@ -134,7 +155,8 @@ export function IdentityFields({ draft, update }: StepProps) {
 	const creating = draft.newIdentity !== null;
 
 	return (
-		<div role="radiogroup" aria-label={t("form.identity")} className="flex flex-col gap-2">
+		<fieldset className="flex min-w-0 flex-col gap-2">
+			<legend className="sr-only">{t("form.identity")}</legend>
 			{identities.map((identity) => (
 				<OptionCard
 					key={identity.id}
@@ -169,7 +191,7 @@ export function IdentityFields({ draft, update }: StepProps) {
 						/>
 						{suggestions.length ? (
 							<div>
-								<p className="mb-2 section-label">{t("identity.suggestions")}</p>
+								<p className="section-label mb-2">{t("identity.suggestions")}</p>
 								<div className="flex flex-wrap gap-1.5">
 									{suggestions.map((tpl) => (
 										<button
@@ -199,7 +221,7 @@ export function IdentityFields({ draft, update }: StepProps) {
 					</button>
 				)}
 			</div>
-		</div>
+		</fieldset>
 	);
 }
 
@@ -219,16 +241,24 @@ function OptionCard({
 	return (
 		<button
 			type="button"
-			role="radio"
-			aria-checked={selected}
+			aria-pressed={selected}
 			onClick={onClick}
 			className={cn(
 				"flex items-center gap-3 rounded-lg border bg-surface p-3 text-left transition-[border-color,box-shadow] duration-(--atomic-duration-fast)",
-				selected ? "border-accent shadow-[0_0_0_1px_var(--accent)]" : "border-line hover:border-line-strong",
+				selected
+					? "border-accent shadow-[0_0_0_1px_var(--accent)]"
+					: "border-line hover:border-line-strong",
 			)}
 		>
 			<span className="grid size-9 shrink-0 place-items-center rounded-full bg-sunken">{icon}</span>
-			<span className={cn("min-w-0 flex-1 font-medium text-small", muted ? "text-ink-muted" : "text-ink")}>{label}</span>
+			<span
+				className={cn(
+					"min-w-0 flex-1 font-medium text-small",
+					muted ? "text-ink-muted" : "text-ink",
+				)}
+			>
+				{label}
+			</span>
 			{selected ? <Check className="size-4 text-accent" strokeWidth={2.5} /> : null}
 		</button>
 	);
@@ -306,7 +336,13 @@ export function EasyFields({ draft, update }: StepProps) {
 				<span className="font-medium text-ink text-small">{t("form.target")}</span>
 				<p className="-mt-1 text-ink-subtle text-small">{t("form.targetHint")}</p>
 				<div className="flex flex-wrap items-center gap-3">
-					<Stepper value={draft.target} min={1} max={10_000} onChange={(target) => update({ target })} label={t("form.target")} />
+					<Stepper
+						value={draft.target}
+						min={1}
+						max={10_000}
+						onChange={(target) => update({ target })}
+						label={t("form.target")}
+					/>
 					<Input
 						value={draft.unit}
 						maxLength={24}

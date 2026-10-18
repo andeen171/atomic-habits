@@ -1,7 +1,7 @@
-import { useIdentityStats } from "@atomic/core/react";
-import { Link } from "@tanstack/react-router";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { useIdentityStats } from "@atomic/core/react";
+import { Link } from "@tanstack/react-router";
 
 /** Compact identity votes for the Today rail. */
 export function IdentityVotesCard({ className }: { className?: string }) {
@@ -25,12 +25,19 @@ export function IdentityVotesCard({ className }: { className?: string }) {
 					<div key={identity.id}>
 						<div className="flex items-center gap-2.5">
 							<span className="font-emoji text-lg leading-none">{identity.emoji}</span>
-							<span className="min-w-0 flex-1 truncate text-ink text-small">{identity.statement}</span>
-							<span className="font-semibold text-ink text-small tabular-nums">{t.number(votes)}</span>
+							<span className="min-w-0 flex-1 truncate text-ink text-small">
+								{identity.statement}
+							</span>
+							<span className="font-semibold text-ink text-small tabular-nums">
+								{t.number(votes)}
+							</span>
 						</div>
 						<div className="mt-2 flex items-center gap-2">
 							<div className="h-1 flex-1 overflow-hidden rounded-full bg-heat-0">
-								<div className="h-full rounded-full bg-accent" style={{ width: `${(votes / max) * 100}%` }} />
+								<div
+									className="h-full rounded-full bg-accent"
+									style={{ width: `${(votes / max) * 100}%` }}
+								/>
 							</div>
 							{recentVotes > 0 ? (
 								<span className={cn("shrink-0 font-medium text-success text-tiny tabular-nums")}>

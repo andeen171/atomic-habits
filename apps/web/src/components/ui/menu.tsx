@@ -1,6 +1,6 @@
+import { cn } from "@/lib/utils";
 import * as MenuPrimitive from "@radix-ui/react-dropdown-menu";
 import type { ComponentProps, ReactNode } from "react";
-import { cn } from "@/lib/utils";
 
 export const Menu = MenuPrimitive.Root;
 export const MenuTrigger = MenuPrimitive.Trigger;
@@ -33,7 +33,14 @@ interface MenuItemProps extends ComponentProps<typeof MenuPrimitive.Item> {
 	shortcut?: ReactNode;
 }
 
-export function MenuItem({ className, icon, destructive, shortcut, children, ...props }: MenuItemProps) {
+export function MenuItem({
+	className,
+	icon,
+	destructive,
+	shortcut,
+	children,
+	...props
+}: MenuItemProps) {
 	return (
 		<MenuPrimitive.Item
 			className={cn(
@@ -50,10 +57,11 @@ export function MenuItem({ className, icon, destructive, shortcut, children, ...
 	);
 }
 
-export function MenuSeparator({ className, ...props }: ComponentProps<typeof MenuPrimitive.Separator>) {
-	return <MenuPrimitive.Separator className={cn("-mx-1.5 my-1.5 h-px bg-line", className)} {...props} />;
-}
-
-export function MenuLabel({ className, ...props }: ComponentProps<typeof MenuPrimitive.Label>) {
-	return <MenuPrimitive.Label className={cn("section-label px-2.5 pt-1.5 pb-1", className)} {...props} />;
+export function MenuSeparator({
+	className,
+	...props
+}: ComponentProps<typeof MenuPrimitive.Separator>) {
+	return (
+		<MenuPrimitive.Separator className={cn("-mx-1.5 my-1.5 h-px bg-line", className)} {...props} />
+	);
 }

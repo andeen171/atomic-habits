@@ -1,9 +1,9 @@
+import { useT } from "@/lib/messages";
+import { cn } from "@/lib/utils";
 import { type DayKey, TASK_PRIORITIES, type TaskPriority, addDays } from "@atomic/core";
 import { useActions, useToday } from "@atomic/core/react";
 import { CalendarDays, CornerDownLeft, Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useT } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 import { Chip } from "../ui/chip";
 import { DatePicker } from "../ui/date-picker";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../ui/menu";
@@ -23,7 +23,13 @@ export function TaskQuickAdd({ autoFocus }: { autoFocus?: boolean }) {
 	const [priority, setPriority] = useState<TaskPriority>(0);
 
 	const date =
-		choice === "today" ? today : choice === "tomorrow" ? addDays(today, 1) : choice === "pick" ? picked : null;
+		choice === "today"
+			? today
+			: choice === "tomorrow"
+				? addDays(today, 1)
+				: choice === "pick"
+					? picked
+					: null;
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault();
@@ -34,7 +40,10 @@ export function TaskQuickAdd({ autoFocus }: { autoFocus?: boolean }) {
 	};
 
 	return (
-		<form onSubmit={submit} className="rounded-xl border border-line bg-surface shadow-card focus-within:border-line-strong">
+		<form
+			onSubmit={submit}
+			className="rounded-xl border border-line bg-surface shadow-card focus-within:border-line-strong"
+		>
 			<div className="flex items-center gap-3 px-4 pt-3 md:px-5">
 				<Plus className="size-5 shrink-0 text-accent" />
 				<input
@@ -57,7 +66,7 @@ export function TaskQuickAdd({ autoFocus }: { autoFocus?: boolean }) {
 					<CornerDownLeft className="size-3.5" />
 				</button>
 			</div>
-			<div className="flex items-center gap-1.5 overflow-x-auto px-4 pt-2 pb-3 scrollbar-none md:px-5">
+			<div className="scrollbar-none flex items-center gap-1.5 overflow-x-auto px-4 pt-2 pb-3 md:px-5">
 				<Chip selected={choice === "today"} onClick={() => setChoice("today")}>
 					{t("tasks.date.today")}
 				</Chip>
@@ -99,7 +108,11 @@ export function PriorityMenu({
 	return (
 		<Menu modal={false}>
 			<MenuTrigger asChild>
-				<Chip selected={false} aria-label={`${t("tasks.priority")}: ${t(`tasks.priority.${value}`)}`} className={cn(className)}>
+				<Chip
+					selected={false}
+					aria-label={`${t("tasks.priority")}: ${t(`tasks.priority.${value}`)}`}
+					className={cn(className)}
+				>
 					<PriorityFlag priority={value} />
 					{value > 0 ? t(`tasks.priority.${value}`) : t("tasks.priority")}
 				</Chip>

@@ -3,7 +3,12 @@ import { cn } from "@/lib/utils";
 /** The Atomic mark: two orbits around an ember nucleus. */
 export function LogoMark({ className }: { className?: string }) {
 	return (
-		<svg viewBox="0 0 100 100" fill="none" aria-hidden className={cn("size-7 text-ink", className)}>
+		<svg
+			viewBox="0 0 100 100"
+			fill="none"
+			aria-hidden="true"
+			className={cn("size-7 text-ink", className)}
+		>
 			<ellipse
 				cx="50"
 				cy="50"

@@ -6,6 +6,10 @@ import { useUI } from "./ui";
 import { isTypingTarget } from "./utils";
 
 const CHORD_MS = 1_200;
+/** Dialogs, menus and popovers that are open (closing ones keep data-state="closed"). */
+const OPEN_LAYER = ["dialog", "alertdialog", "menu"]
+	.map((role) => `[role="${role}"]:not([data-state="closed"])`)
+	.join(", ");
 
 /** Global keyboard shortcuts from the spec (§6). */
 export function useGlobalShortcuts(): void {
@@ -17,6 +21,7 @@ export function useGlobalShortcuts(): void {
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			const ui = useUI.getState();
+			if (router.state.location.pathname === "/onboarding") return;
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 				event.preventDefault();
 				ui.setPaletteOpen(!ui.paletteOpen);
@@ -25,7 +30,7 @@ export function useGlobalShortcuts(): void {
 			if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
 			if (isTypingTarget(event.target)) return;
 			// Leave keys alone while a dialog, menu or popover is open.
-			if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+			if (document.querySelector(OPEN_LAYER)) return;
 
 			const key = event.key;
 			const pathname = router.state.location.pathname;

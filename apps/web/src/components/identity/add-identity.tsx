@@ -1,8 +1,8 @@
+import { useT } from "@/lib/messages";
 import { identityTemplates } from "@atomic/core";
 import { useActions, useIdentities, useLocale } from "@atomic/core/react";
 import { Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
-import { useT } from "@/lib/messages";
 import { Button } from "../ui/button";
 import { Input } from "../ui/field";
 
@@ -43,13 +43,19 @@ export function AddIdentity() {
 			</form>
 			{suggestions.length ? (
 				<div className="mt-4">
-					<p className="mb-2 section-label">{t("identity.suggestions")}</p>
+					<p className="section-label mb-2">{t("identity.suggestions")}</p>
 					<div className="flex flex-wrap gap-1.5">
 						{suggestions.map((tpl) => (
 							<button
 								key={tpl.key}
 								type="button"
-								onClick={() => actions.createIdentity({ statement: tpl.statement, emoji: tpl.emoji, color: tpl.color })}
+								onClick={() =>
+									actions.createIdentity({
+										statement: tpl.statement,
+										emoji: tpl.emoji,
+										color: tpl.color,
+									})
+								}
 								className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-ink-muted text-small transition-colors hover:border-line-strong hover:text-ink"
 							>
 								<span className="font-emoji">{tpl.emoji}</span>

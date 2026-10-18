@@ -35,8 +35,6 @@ export interface HabitDraft {
 	why: string;
 }
 
-export const ALL_DAYS: Weekday[] = [0, 1, 2, 3, 4, 5, 6];
-
 export function emptyDraft(kind: HabitKind = "build"): HabitDraft {
 	return {
 		kind,
@@ -123,7 +121,8 @@ function toSchedule(draft: HabitDraft): Schedule {
 		const days = [...new Set(draft.days)].sort();
 		return days.length === 0 || days.length === 7 ? { type: "daily" } : { type: "weekdays", days };
 	}
-	if (draft.scheduleType === "weekly") return { type: "weekly", times: Math.min(7, Math.max(1, draft.times)) };
+	if (draft.scheduleType === "weekly")
+		return { type: "weekly", times: Math.min(7, Math.max(1, draft.times)) };
 	return { type: "daily" };
 }
 

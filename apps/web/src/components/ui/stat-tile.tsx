@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
 
 interface StatTileProps {
 	label: ReactNode;
@@ -13,7 +13,12 @@ interface StatTileProps {
 
 export function StatTile({ label, value, hint, icon, className, serif = true }: StatTileProps) {
 	return (
-		<div className={cn("flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface p-4 shadow-card", className)}>
+		<div
+			className={cn(
+				"flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface p-4 shadow-card",
+				className,
+			)}
+		>
 			<div className="flex items-center gap-1.5">
 				{icon ? <span className="text-ink-subtle [&_svg]:size-3.5">{icon}</span> : null}
 				<span className="section-label truncate">{label}</span>

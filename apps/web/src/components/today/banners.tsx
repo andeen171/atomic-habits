@@ -1,8 +1,8 @@
+import { useT } from "@/lib/messages";
+import { cn } from "@/lib/utils";
 import type { AgendaItem } from "@atomic/core";
 import { Sprout, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import { useT } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 
 function Banner({
 	icon,
@@ -19,7 +19,6 @@ function Banner({
 }) {
 	return (
 		<div
-			role="status"
 			className={cn(
 				"flex gap-3.5 rounded-xl p-4 md:p-5",
 				tone === "warning" ? "bg-warning-soft" : "border border-line bg-sunken/60",
@@ -47,7 +46,10 @@ export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {
 	const { t, tp } = useT();
 	const first = items[0];
 	if (!first) return null;
-	const body = items.length === 1 ? t("nmt.body", { habit: first.habit.name }) : tp("nmt.bodyMany", items.length);
+	const body =
+		items.length === 1
+			? t("nmt.body", { habit: first.habit.name })
+			: tp("nmt.bodyMany", items.length);
 	return (
 		<Banner tone="warning" icon={<TriangleAlert />} title={t("nmt.title")} body={body}>
 			{items.length > 1 ? (
@@ -70,5 +72,12 @@ export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {
 export function FreshStartBanner({ items }: { items: AgendaItem[] }) {
 	const { t } = useT();
 	if (!items.length) return null;
-	return <Banner tone="muted" icon={<Sprout />} title={t("nmt.freshStart")} body={t("nmt.freshStartBody")} />;
+	return (
+		<Banner
+			tone="muted"
+			icon={<Sprout />}
+			title={t("nmt.freshStart")}
+			body={t("nmt.freshStartBody")}
+		/>
+	);
 }

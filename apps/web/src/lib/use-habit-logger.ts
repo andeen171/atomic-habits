@@ -1,11 +1,17 @@
-import { type DayKey, type Habit, getLog, inSentence, logId } from "@atomic/core";
+import { type DayKey, type Habit, getLog, logId } from "@atomic/core";
 import { useActions, useAtomicStore } from "@atomic/core/react";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { announce } from "./announce";
 import { useT } from "./messages";
 
-export type LogOutcome = "completed" | "progress" | "undone" | "already-done" | "slipped" | "unslipped";
+export type LogOutcome =
+	| "completed"
+	| "progress"
+	| "undone"
+	| "already-done"
+	| "slipped"
+	| "unslipped";
 
 /**
  * The one-tap logging rule from the spec:
@@ -30,7 +36,10 @@ export function useHabitLogger() {
 					return "unslipped";
 				}
 				toast(t("habit.slipLogged"), {
-					action: { label: t("common.undo"), onClick: () => actions.setCount(habit.id, day, count) },
+					action: {
+						label: t("common.undo"),
+						onClick: () => actions.setCount(habit.id, day, count),
+					},
 				});
 				return "slipped";
 			}
@@ -48,7 +57,10 @@ export function useHabitLogger() {
 			if (next >= habit.target && count < habit.target) {
 				announce(
 					identity && !identity.deletedAt
-						? t("habit.completedToast", { habit: habit.name, identity: inSentence(identity.statement) })
+						? t("habit.completedToast", {
+								habit: habit.name,
+								identity: identity.statement,
+							})
 						: at("habit.logged", { habit: habit.name }),
 				);
 				return "completed";

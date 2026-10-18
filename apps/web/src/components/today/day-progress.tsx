@@ -1,8 +1,8 @@
+import { useT } from "@/lib/messages";
+import { cn } from "@/lib/utils";
 import type { DayScore } from "@atomic/core";
 import { motion as tokens } from "@atomic/core/theme";
 import { motion } from "motion/react";
-import { useT } from "@/lib/messages";
-import { cn } from "@/lib/utils";
 
 interface DayProgressProps {
 	score: DayScore;
@@ -23,10 +23,24 @@ export function DayProgress({ score, size = 60, className }: DayProgressProps) {
 
 	return (
 		<div className={cn("flex items-center gap-3", className)}>
-			<span className="hidden text-right text-ink-muted text-small leading-tight sm:block">{label}</span>
-			<div role="img" aria-label={label} className="relative grid place-items-center" style={{ width: size, height: size }}>
-				<svg width={size} height={size} className="absolute inset-0 -rotate-90" aria-hidden>
-					<circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--heat-0)" strokeWidth={stroke} />
+			<span className="hidden text-right text-ink-muted text-small leading-tight sm:block">
+				{label}
+			</span>
+			<div
+				role="img"
+				aria-label={label}
+				className="relative grid place-items-center"
+				style={{ width: size, height: size }}
+			>
+				<svg width={size} height={size} className="-rotate-90 absolute inset-0" aria-hidden="true">
+					<circle
+						cx={size / 2}
+						cy={size / 2}
+						r={r}
+						fill="none"
+						stroke="var(--heat-0)"
+						strokeWidth={stroke}
+					/>
 					<motion.circle
 						cx={size / 2}
 						cy={size / 2}
