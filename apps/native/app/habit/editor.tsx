@@ -226,11 +226,9 @@ export default function HabitEditorScreen() {
 				order: 0,
 			}),
 			...toInput(draft),
-			name:
-				draft.name.trim() ||
-				(isBreak ? t.t("form.namePlaceholderBreak") : t.t("form.namePlaceholder")),
+			name: draft.name.trim() || t.x("editor.previewEmpty"),
 		}),
-		[draft, existing, today, isBreak, t],
+		[draft, existing, today, t],
 	);
 
 	const save = () => {

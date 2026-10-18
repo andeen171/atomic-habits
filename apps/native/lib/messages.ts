@@ -35,6 +35,7 @@ const en = {
 	"detail.stats": "Stats",
 
 	"editor.preview": "Preview",
+	"editor.previewEmpty": "Your habit",
 	"editor.pickTime": "Pick a time",
 	"editor.noTime": "No time",
 	"editor.hour": "Hour",
@@ -113,6 +114,7 @@ const ptBR: Record<AppMessageKey, string> = {
 	"detail.stats": "Estatísticas",
 
 	"editor.preview": "Prévia",
+	"editor.previewEmpty": "Seu hábito",
 	"editor.pickTime": "Escolha um horário",
 	"editor.noTime": "Sem horário",
 	"editor.hour": "Hora",
