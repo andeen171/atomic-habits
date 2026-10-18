@@ -23,7 +23,7 @@ import { Pressable, View, type ViewStyle } from "react-native";
 /** Editable month calendar: tap toggles a day; count habits open a stepper. */
 export function HabitCalendar({ habit }: { habit: Habit }) {
 	const t = useT();
-	const { colors, habit: toneOf } = useTheme();
+	const { colors, onStatus, habit: toneOf } = useTheme();
 	const actions = useActions();
 	const today = useToday();
 	const index = useLogIndex();
@@ -59,13 +59,13 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 					let color: string = colors.text;
 					if (state === "done") {
 						cell = { backgroundColor: tone.fill };
-						color = colors.onAccent;
+						color = tone.onText;
 					} else if (state === "clean") {
 						cell = { backgroundColor: tone.soft };
 						color = tone.text;
 					} else if (state === "slipped") {
 						cell = { backgroundColor: colors.danger };
-						color = colors.onAccent;
+						color = onStatus.danger;
 					} else if (state === "partial") {
 						cell = { backgroundColor: tone.soft, borderWidth: 1.5, borderColor: tone.fill };
 						color = tone.text;
@@ -210,8 +210,7 @@ function stateLabel(
 ): string | null {
 	switch (state) {
 		case "done":
-			// "common.done" is a button verb in pt-BR ("Concluir"); a day needs the state.
-			return habit.target > 1 ? progressLabel(habit, count, t) : t.x("habit.doneState");
+			return habit.target > 1 ? progressLabel(habit, count, t) : t.t("habit.done");
 		case "partial":
 			return progressLabel(habit, count, t);
 		case "missed":

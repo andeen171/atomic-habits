@@ -6,6 +6,7 @@ import {
 	habitColor,
 	palettes,
 	radii,
+	readableOn,
 	spacing,
 	typeScale,
 	withAlpha,
@@ -24,7 +25,15 @@ export const fonts = {
 	serifItalic: "InstrumentSerif_400Regular_Italic",
 } as const;
 
+/** Habit color for a scheme. Content on `fill` uses `on` (icons) / `onText` (text), never white. */
 export type HabitTone = ReturnType<typeof habitColor>;
+
+/** Ink or white for content on the solid status fills, picked by contrast (≥ 4.5:1). */
+export interface StatusOn {
+	success: string;
+	warning: string;
+	danger: string;
+}
 
 export interface Theme {
 	scheme: ColorScheme;
@@ -34,6 +43,8 @@ export interface Theme {
 	/** Switch knob: always a light disc on either track color. */
 	knob: string;
 	habit: (color: HabitColor) => HabitTone;
+	/** Icon/text color on `colors.success` / `warning` / `danger` fills. */
+	onStatus: StatusOn;
 	/** Very soft elevation for cards in light mode; nothing in dark mode. */
 	cardShadow: ViewStyle;
 	/** Lifted elevation for sheets, toasts and the tab bar. */
@@ -53,6 +64,11 @@ function buildTheme(scheme: ColorScheme): Theme {
 		colors,
 		inverse,
 		knob: palettes.light.surface,
+		onStatus: {
+			success: readableOn(colors.success, 4.5),
+			warning: readableOn(colors.warning, 4.5),
+			danger: readableOn(colors.danger, 4.5),
+		},
 		habit(color) {
 			let tone = tones.get(color);
 			if (!tone) {

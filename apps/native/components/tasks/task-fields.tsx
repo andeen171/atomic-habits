@@ -14,7 +14,7 @@ import { Pressable, ScrollView, View } from "react-native";
 export function priorityColor(priority: TaskPriority, theme: Theme): string {
 	if (priority === 3) return theme.colors.danger;
 	if (priority === 2) return theme.colors.warning;
-	if (priority === 1) return theme.habit("sky").fill;
+	if (priority === 1) return theme.habit("sky").text;
 	return theme.colors.textSubtle;
 }
 

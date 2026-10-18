@@ -40,14 +40,14 @@ export function Button({
 	accessibilityHint,
 	testID,
 }: ButtonProps) {
-	const { colors } = useTheme();
+	const { colors, onStatus } = useTheme();
 	const styles = useStyles();
 	const palette: Record<ButtonVariant, { bg: string; fg: string; border?: string }> = {
 		primary: { bg: colors.accent, fg: colors.onAccent },
 		secondary: { bg: colors.surface, fg: colors.text, border: colors.border },
 		ghost: { bg: "transparent", fg: colors.text },
-		// onAccent is white on the light danger red and ink on the brighter dark one (AA either way).
-		destructive: { bg: colors.danger, fg: colors.onAccent },
+		// White on the light danger red, ink on the brighter dark one (picked by contrast).
+		destructive: { bg: colors.danger, fg: onStatus.danger },
 		soft: { bg: colors.sunken, fg: colors.text },
 		ink: { bg: colors.text, fg: colors.bg },
 	};

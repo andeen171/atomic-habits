@@ -187,7 +187,7 @@ export function ColorPicker({
 	onChange,
 }: { value: HabitColor; onChange: (color: HabitColor) => void }) {
 	const t = useT();
-	const { colors, habit: toneOf } = useTheme();
+	const { habit: toneOf } = useTheme();
 	const styles = useStyles();
 	return (
 		<View
@@ -208,11 +208,11 @@ export function ColorPicker({
 						hitSlop={4}
 						accessibilityRole="radio"
 						accessibilityState={{ selected }}
-						accessibilityLabel={color}
+						accessibilityLabel={t.x(`color.${color}`)}
 						style={[styles.swatchRing, selected && { borderColor: tone.fill }]}
 					>
 						<View style={[styles.swatch, { backgroundColor: tone.fill }]}>
-							{selected ? <Check size={14} color={colors.onAccent} strokeWidth={3} /> : null}
+							{selected ? <Check size={14} color={tone.on} strokeWidth={3} /> : null}
 						</View>
 					</Pressable>
 				);

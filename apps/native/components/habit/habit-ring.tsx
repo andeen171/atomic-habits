@@ -200,7 +200,7 @@ export function HabitRing({
 									discStyle,
 								]}
 							>
-								<Check size={size * 0.46} color={colors.onAccent} strokeWidth={3} />
+								<Check size={size * 0.46} color={tone.on} strokeWidth={3} />
 							</Animated.View>
 						</>
 					)}
@@ -220,7 +220,7 @@ export function HabitRing({
 }
 
 function BreakBadge({ slipped, size }: { slipped: boolean; size: number }) {
-	const { colors } = useTheme();
+	const { colors, onStatus } = useTheme();
 	const badge = Math.max(16, size * 0.38);
 	const Icon = slipped ? ShieldAlert : ShieldCheck;
 	return (
@@ -238,7 +238,11 @@ function BreakBadge({ slipped, size }: { slipped: boolean; size: number }) {
 				},
 			]}
 		>
-			<Icon size={badge * 0.62} color={colors.onAccent} strokeWidth={2.4} />
+			<Icon
+				size={badge * 0.62}
+				color={slipped ? onStatus.danger : onStatus.success}
+				strokeWidth={2.4}
+			/>
 		</View>
 	);
 }

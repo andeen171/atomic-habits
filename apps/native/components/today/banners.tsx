@@ -9,7 +9,7 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanim
 /** Warm nudge after a single miss — never guilt, always a specific next step. */
 export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {
 	const t = useT();
-	const { colors } = useTheme();
+	const { colors, onStatus } = useTheme();
 	const styles = useStyles();
 	const first = items[0];
 	if (!first) return null;
@@ -26,7 +26,7 @@ export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {
 			accessibilityRole="summary"
 		>
 			<View style={[styles.icon, { backgroundColor: colors.warning }]}>
-				<TriangleAlert size={16} color={colors.onAccent} strokeWidth={2.4} />
+				<TriangleAlert size={16} color={onStatus.warning} strokeWidth={2.4} />
 			</View>
 			<View style={styles.text}>
 				<Text weight="semibold">{t.t("nmt.title")}</Text>

@@ -27,7 +27,6 @@ const en = {
 	"habit.setCountHint": "Repetitions logged for {date}.",
 	"habit.restDay": "Rest day",
 	"habit.alreadyDone": "Already done — nice work.",
-	"habit.doneState": "Done",
 
 	"detail.logToday": "Log today",
 	"detail.doneToday": "Done today",
@@ -86,6 +85,17 @@ const en = {
 	"onboarding.attribution": "— James Clear",
 	"onboarding.pickUpTo": "Pick up to 3",
 	"onboarding.stepA11y": "Step {current} of {total}",
+
+	"color.ember": "Ember",
+	"color.amber": "Amber",
+	"color.lime": "Lime",
+	"color.emerald": "Emerald",
+	"color.teal": "Teal",
+	"color.sky": "Sky",
+	"color.indigo": "Indigo",
+	"color.violet": "Violet",
+	"color.rose": "Rose",
+	"color.stone": "Stone",
 } as const;
 
 export type AppMessageKey = keyof typeof en;
@@ -115,7 +125,6 @@ const ptBR: Record<AppMessageKey, string> = {
 	"habit.setCountHint": "Repetições registradas em {date}.",
 	"habit.restDay": "Dia de descanso",
 	"habit.alreadyDone": "Já feito — bom trabalho.",
-	"habit.doneState": "Feito",
 
 	"detail.logToday": "Registrar hoje",
 	"detail.doneToday": "Feito hoje",
@@ -175,6 +184,17 @@ const ptBR: Record<AppMessageKey, string> = {
 	"onboarding.attribution": "— James Clear",
 	"onboarding.pickUpTo": "Escolha até 3",
 	"onboarding.stepA11y": "Etapa {current} de {total}",
+
+	"color.ember": "Brasa",
+	"color.amber": "Âmbar",
+	"color.lime": "Lima",
+	"color.emerald": "Esmeralda",
+	"color.teal": "Verde-azulado",
+	"color.sky": "Azul-céu",
+	"color.indigo": "Índigo",
+	"color.violet": "Violeta",
+	"color.rose": "Rosa",
+	"color.stone": "Pedra",
 };
 
 /** Passed to `<AtomicProvider messages>`; merged over the shared catalog. */

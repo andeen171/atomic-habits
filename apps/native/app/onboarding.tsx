@@ -395,7 +395,7 @@ function IdentityTile({
 				<View
 					style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
 				>
-					{selected ? <Check size={13} color={colors.onAccent} strokeWidth={3} /> : null}
+					{selected ? <Check size={13} color={tone.on} strokeWidth={3} /> : null}
 				</View>
 			</View>
 			<Text weight="medium" numberOfLines={3} color={selected ? tone.text : colors.text}>
@@ -416,7 +416,7 @@ function HabitTile({
 	disabled: boolean;
 	onPress: () => void;
 }) {
-	const { colors, habit: toneOf } = useTheme();
+	const { habit: toneOf } = useTheme();
 	const styles = useStyles();
 	const tone = toneOf(habit.color);
 	return (
@@ -445,7 +445,7 @@ function HabitTile({
 			<View
 				style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
 			>
-				{selected ? <Check size={13} color={colors.onAccent} strokeWidth={3} /> : null}
+				{selected ? <Check size={13} color={tone.on} strokeWidth={3} /> : null}
 			</View>
 		</PressableScale>
 	);

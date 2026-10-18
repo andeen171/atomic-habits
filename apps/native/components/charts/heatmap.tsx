@@ -29,6 +29,20 @@ export interface HeatmapProps {
 const LEFT = 18;
 const TOP = 16;
 
+/** Press position in the grid; react-native-web hands over a DOM MouseEvent (offsetX/Y) instead. */
+function pressPoint(event: GestureResponderEvent) {
+	const native = event.nativeEvent as Partial<{
+		locationX: number;
+		locationY: number;
+		offsetX: number;
+		offsetY: number;
+	}>;
+	return {
+		locationX: native.locationX ?? native.offsetX ?? -1,
+		locationY: native.locationY ?? native.offsetY ?? -1,
+	};
+}
+
 /** GitHub-style grid: columns are weeks, rows are weekdays; press shows the day. */
 export function Heatmap({
 	end,
@@ -72,6 +86,18 @@ export function Heatmap({
 		return out.filter((m, i) => !out[i + 1] || (out[i + 1]?.x ?? 0) - m.x >= 3);
 	}, [columns, first, weeks, t]);
 
+	const radius = Math.max(2, cell * 0.22);
+	const ringWidth = 1.5;
+	const ringInset = gap / 2;
+	const selectedAt = useMemo(() => {
+		if (!selected) return null;
+		for (let w = 0; w < columns.length; w++) {
+			const d = columns[w]?.indexOf(selected) ?? -1;
+			if (d >= 0) return { w, d };
+		}
+		return null;
+	}, [columns, selected]);
+
 	const svgWidth = LEFT + weeks * (cell + gap);
 	const svgHeight = TOP + 7 * (cell + gap);
 	const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
@@ -79,7 +105,7 @@ export function Heatmap({
 
 	// One responder for the whole grid (SVG shapes can't take presses on web).
 	const onPress = (event: GestureResponderEvent) => {
-		const { locationX, locationY } = event.nativeEvent;
+		const { locationX, locationY } = pressPoint(event);
 		const w = Math.floor((locationX - LEFT) / (cell + gap));
 		const d = Math.floor((locationY - TOP) / (cell + gap));
 		const day = columns[w]?.[d];
@@ -124,14 +150,25 @@ export function Heatmap({
 									y={TOP + d * (cell + gap)}
 									width={cell}
 									height={cell}
-									rx={Math.max(2, cell * 0.22)}
+									rx={radius}
 									fill={colorFor(day)}
-									stroke={day === selected ? colors.text : undefined}
-									strokeWidth={day === selected ? 1.5 : 0}
 								/>
 							),
 						),
 					)}
+					{selectedAt ? (
+						// Ring sits in the gap around the cell, so it never draws on the habit fill.
+						<Rect
+							x={LEFT + selectedAt.w * (cell + gap) - ringInset}
+							y={TOP + selectedAt.d * (cell + gap) - ringInset}
+							width={cell + ringInset * 2}
+							height={cell + ringInset * 2}
+							rx={radius + ringInset}
+							fill="none"
+							stroke={colors.text}
+							strokeWidth={ringWidth}
+						/>
+					) : null}
 				</Svg>
 			</Pressable>
 		) : null;
