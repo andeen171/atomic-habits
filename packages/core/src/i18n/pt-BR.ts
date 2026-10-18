@@ -213,7 +213,7 @@ export const ptBR: Messages = {
 	"blueprint.unattractive": "O custo real: {bundle}.",
 	"blueprint.difficult": "Atrito: {twoMinute}.",
 	"blueprint.unsatisfying": "Responsabilidade: {reward}.",
-	"blueprint.identity": "…porque estou me tornando: {identity}.",
+	"blueprint.identity": "Cada repetição é um voto em “{identity}”.",
 
 	"form.newTitle": "Novo hábito",
 	"form.editTitle": "Editar hábito",

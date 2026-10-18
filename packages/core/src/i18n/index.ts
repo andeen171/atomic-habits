@@ -238,6 +238,8 @@ export function greetingKey(hour: number): MessageKey {
 /** Lower-cases the first letter so a habit name reads inside a sentence. */
 export function inSentence(value: string): string {
 	if (!value) return value;
+	// The pronoun "I" stays upper-case ("I am a reader", "I'm…").
+	if (/^I(?:\s|'|’|$)/.test(value)) return value;
 	const second = value[1];
 	// Keep acronyms ("TV time") intact.
 	if (second && second === second.toUpperCase() && second !== second.toLowerCase()) return value;

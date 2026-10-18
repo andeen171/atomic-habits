@@ -213,7 +213,7 @@ export const en = {
 	"blueprint.unattractive": "The real cost: {bundle}.",
 	"blueprint.difficult": "Friction: {twoMinute}.",
 	"blueprint.unsatisfying": "Accountability: {reward}.",
-	"blueprint.identity": "…because I am becoming {identity}.",
+	"blueprint.identity": "Every repetition is a vote for “{identity}”.",
 
 	"form.newTitle": "New habit",
 	"form.editTitle": "Edit habit",

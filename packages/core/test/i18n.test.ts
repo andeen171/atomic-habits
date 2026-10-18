@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blueprintLines, scheduleLabel } from "../src/blueprint";
+import { blueprintLines, identityLine, scheduleLabel } from "../src/blueprint";
 import { habitTemplates, identityTemplates, principleOfTheDay, principles } from "../src/content";
 import { createTranslator, en, inSentence, ptBR, resolveLocale } from "../src/i18n";
 import { habitSchema } from "../src/model";
@@ -40,9 +40,12 @@ describe("i18n", () => {
 		expect(t.t("custom.key" as never, { name: "Ana" })).toBe("Hello Ana");
 	});
 
-	test("inSentence keeps acronyms", () => {
+	test("inSentence keeps acronyms and the pronoun I", () => {
 		expect(inSentence("Read 10 pages")).toBe("read 10 pages");
 		expect(inSentence("TV off")).toBe("TV off");
+		expect(inSentence("I am a reader")).toBe("I am a reader");
+		expect(inSentence("I'm learning")).toBe("I'm learning");
+		expect(inSentence("Ice bath")).toBe("ice bath");
 	});
 });
 
@@ -90,5 +93,7 @@ describe("content", () => {
 		expect(lines).toContain("After I brush my teeth, I will read 10 pages.");
 		expect(lines).toContain("Two-minute version: Read one page.");
 		expect(scheduleLabel(habit, t)).toBe("Mon · Wed · Fri");
+		const identity = { statement: "I am a reader" } as Parameters<typeof identityLine>[0];
+		expect(identityLine(identity, t)).toBe("Every repetition is a vote for “I am a reader”.");
 	});
 });

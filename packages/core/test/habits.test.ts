@@ -148,6 +148,10 @@ describe("weekly habits", () => {
 		expect(weekProgress(h, map, TODAY, 1)).toEqual({ done: 1, required: 3 });
 	});
 
+	test("week progress never reads above the quota", () => {
+		expect(weekProgress(h, doneOn(h, [0, 1, 2, 3]), TODAY, 1)).toEqual({ done: 3, required: 3 });
+	});
+
 	test("stops being due once the quota is met", () => {
 		const map = doneOn(h, [1, 2, 3]);
 		expect(isDueOn(h, map, TODAY, 1)).toBe(false);

@@ -52,7 +52,7 @@ export function blueprintLines(habit: Habit, t: Translator): BlueprintLine[] {
 
 export function identityLine(identity: Identity | undefined, t: Translator): string | null {
 	if (!identity) return null;
-	return t.t("blueprint.identity", { identity: inSentence(identity.statement) });
+	return t.t("blueprint.identity", { identity: identity.statement.trim() });
 }
 
 /** "Every day", "Mon · Wed · Fri", "3 times a week". */

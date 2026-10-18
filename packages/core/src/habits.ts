@@ -378,9 +378,11 @@ export function weekProgress(
 ): WeekProgress {
 	const weekStart = startOfWeek(day, weekStartsOn);
 	if (habit.schedule.type === "weekly") {
+		// Extra sessions beyond the quota don't read as "4/3".
+		const required = habit.schedule.times;
 		return {
-			done: weekDoneCount(habit, logs, weekStart, addDays(weekStart, 6)),
-			required: habit.schedule.times,
+			done: Math.min(required, weekDoneCount(habit, logs, weekStart, addDays(weekStart, 6))),
+			required,
 		};
 	}
 	let done = 0;

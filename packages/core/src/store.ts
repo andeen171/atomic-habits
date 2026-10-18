@@ -2,6 +2,7 @@ import { persist } from "zustand/middleware";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import { type DayKey, toDayKey } from "./dates";
 import { buildDemoData } from "./demo";
+import { resolveLocale } from "./i18n";
 import { createId } from "./ids";
 import {
 	type AtomicData,
@@ -472,7 +473,13 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						const demo = buildDemoData({
 							today: toDayKey(now()),
 							now: now(),
-							locale: locale ?? get().settings.locale,
+							locale:
+								locale ??
+								resolveLocale(
+									get().settings.locale,
+									(globalThis as { navigator?: { languages?: readonly string[] } }).navigator
+										?.languages ?? [],
+								),
 						});
 						const pending: Record<string, true> = {};
 						for (const collection of COLLECTIONS) {
