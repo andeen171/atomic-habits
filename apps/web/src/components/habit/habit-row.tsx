@@ -173,7 +173,9 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 					) : null}
 				</div>
 				{secondary ? (
-					<p className="mt-0.5 line-clamp-2 break-words text-ink-muted text-small sm:line-clamp-1">
+					// Narrow phones leave little room beside the streak chip: give the two-minute
+					// version three lines before it is clamped.
+					<p className="mt-0.5 line-clamp-3 break-words text-ink-muted text-small sm:line-clamp-2">
 						{secondary}
 					</p>
 				) : null}

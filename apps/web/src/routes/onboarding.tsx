@@ -489,7 +489,9 @@ function HabitOption({
 			<span className="min-w-0 flex-1">
 				<span className="block font-medium text-ink">{habit.name}</span>
 				{habit.twoMinute ? (
-					<span className="block truncate text-ink-muted text-small italic">{habit.twoMinute}</span>
+					<span className="line-clamp-2 block break-words text-ink-muted text-small italic">
+						{habit.twoMinute}
+					</span>
 				) : null}
 			</span>
 			<SelectCheck selected={selected} />

@@ -50,6 +50,8 @@ const en = {
 	"sync.synced": "Synced",
 	"sync.error": "Sync paused",
 	"settings.fourLaws": "The four laws of behavior change",
+	"settings.fourLawsIntro":
+		"Every habit runs on cue, craving, response and reward. Use the four laws to build good habits, and invert them to break bad ones.",
 	"scorecard.rating": "Rating",
 	"settings.exported": "Backup downloaded",
 	"settings.exportUnavailable": "Saving files isn't available here.",
@@ -132,6 +134,8 @@ const ptBR: Record<AppMessageKey, string> = {
 	"sync.synced": "Sincronizado",
 	"sync.error": "Sincronização pausada",
 	"settings.fourLaws": "As quatro leis da mudança de comportamento",
+	"settings.fourLawsIntro":
+		"Todo hábito segue deixa, desejo, resposta e recompensa. Use as quatro leis para construir bons hábitos e inverta-as para abandonar os ruins.",
 	"scorecard.rating": "Avaliação",
 	"settings.exported": "Backup baixado",
 	"settings.exportUnavailable": "Não é possível salvar arquivos aqui.",

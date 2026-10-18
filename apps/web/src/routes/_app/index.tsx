@@ -130,7 +130,8 @@ function TodayHeader({ day, today, score }: { day: DayKey; today: DayKey; score:
 		<header className="mb-6 flex items-end justify-between gap-4 md:mb-8">
 			<div className="min-w-0">
 				{isToday ? (
-					<p className="mb-1 truncate text-ink-muted text-small">
+					// Wraps on narrow screens (long names, pt-BR dates) rather than cutting the date off.
+					<p className="mb-1 break-words text-ink-muted text-small">
 						{name ? t("greeting.withName", { greeting, name }) : greeting}
 						<span className="text-ink-subtle"> · {t.formatDayLong(today)}</span>
 					</p>

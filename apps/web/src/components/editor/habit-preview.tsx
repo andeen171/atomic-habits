@@ -44,8 +44,10 @@ export function HabitPreview({ habit, identityStatement, compact, className }: H
 					size={compact ? 40 : 48}
 				/>
 				<div className="min-w-0 flex-1">
-					<p className="truncate font-semibold text-ink">{habit.name}</p>
-					<p className="truncate text-ink-muted text-small">
+					<p className="line-clamp-2 break-words font-semibold text-ink leading-snug">
+						{habit.name}
+					</p>
+					<p className="line-clamp-2 break-words text-ink-muted text-small">
 						{habit.twoMinute && compact ? (
 							<span className="italic">{habit.twoMinute}</span>
 						) : (

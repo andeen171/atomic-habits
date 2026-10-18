@@ -1,5 +1,5 @@
 import { useT } from "@/lib/messages";
-import { readableOn, useColorScheme } from "@/lib/theme";
+import { useColorScheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import {
 	EMOJI_CHOICES,
@@ -191,8 +191,7 @@ export function ColorPicker({
 			<legend className="sr-only">{t("form.color")}</legend>
 			{HABIT_COLORS.map((color) => {
 				const selected = value === color;
-				const fill = habitColor(color, scheme).fill;
-				const check = readableOn(fill, 3);
+				const { fill, on: check } = habitColor(color, scheme);
 				return (
 					<button
 						key={color}

@@ -17,7 +17,7 @@ export function FourLawsDialog() {
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogContent>
-				<DialogHeader title={at("settings.fourLaws")} description={t("detail.blueprintHint")} />
+				<DialogHeader title={at("settings.fourLaws")} description={at("settings.fourLawsIntro")} />
 				<DialogBody className="flex flex-col gap-3 pb-6">
 					{LAWS.map((law) => {
 						const principle = all.find((p) => p.law === law);

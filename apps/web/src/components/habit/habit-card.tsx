@@ -43,8 +43,11 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 					{habit.emoji}
 				</span>
 				<div className="min-w-0 flex-1">
-					<h3 className="truncate font-semibold text-ink">{habit.name}</h3>
-					<p className="truncate text-ink-muted text-small">
+					{/* Names and schedules wrap: "3 vezes por semana · Manhã" must not lose its time. */}
+					<h3 className="line-clamp-2 break-words font-semibold text-ink leading-snug">
+						{habit.name}
+					</h3>
+					<p className="mt-0.5 break-words text-ink-muted text-small">
 						{habit.kind === "break"
 							? t("habits.filter.break")
 							: scheduleLabel(habit, t, weekStartsOn)}

@@ -70,7 +70,11 @@ export function useColorScheme(): ColorScheme {
 
 export type HabitStyle = CSSProperties & Record<`--habit${string}`, string>;
 
-/** CSS variables for a habit hue: `--habit`, `--habit-text`, `--habit-soft`, `--habit-softer`. */
+/**
+ * CSS variables for a habit hue: `--habit` (fill), `--habit-text`, `--habit-soft`,
+ * `--habit-softer`, plus `--habit-on` (icons on the fill) and `--habit-on-text`
+ * (text on the fill), both picked by core so web and native share one rule.
+ */
 export function useHabitStyle(color: HabitColor): HabitStyle {
 	const scheme = useColorScheme();
 	return useMemo(() => habitStyle(color, scheme), [color, scheme]);
@@ -80,28 +84,10 @@ export function habitStyle(color: HabitColor, scheme: ColorScheme): HabitStyle {
 	const c = habitColor(color, scheme);
 	return {
 		"--habit": c.fill,
-		"--habit-on": readableOn(c.fill, 3),
-		"--habit-on-text": readableOn(c.fill, 4.5),
+		"--habit-on": c.on,
+		"--habit-on-text": c.onText,
 		"--habit-text": c.text,
 		"--habit-soft": c.soft,
 		"--habit-softer": c.softer,
 	};
-}
-
-function luminance(hex: string): number {
-	const channel = (i: number) => {
-		const v = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
-		return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-	};
-	return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-}
-
-/**
- * White or warm ink on a habit fill. `minContrast` is 3 for icons (WCAG
- * non-text) and 4.5 for text; white wins whenever it is readable enough.
- */
-export function readableOn(hex: string, minContrast = 4.5): string {
-	const l = luminance(hex);
-	const onWhite = 1.05 / (l + 0.05);
-	return onWhite >= minContrast ? "#FFFFFF" : palettes.light.text;
 }

@@ -162,11 +162,12 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 	return (
 		<div className="flex min-h-dvh flex-col">
 			<header className="sticky top-0 z-20 border-line border-b bg-bg/85 backdrop-blur-xl">
-				<div className="mx-auto flex h-16 w-full max-w-[1080px] items-center gap-3 px-4 md:px-8">
+				<div className="mx-auto flex min-h-16 w-full max-w-[1080px] items-center gap-3 px-4 py-2 md:px-8">
 					<IconButton label={t("common.close")} onClick={close}>
 						<X />
 					</IconButton>
-					<h1 className="min-w-0 flex-1 truncate font-semibold text-ink">
+					{/* Two lines at most on narrow phones rather than an ellipsis. */}
+					<h1 className="line-clamp-2 min-w-0 flex-1 break-words font-semibold text-ink leading-snug">
 						{editing ? t("form.editTitle") : t("form.newTitle")}
 					</h1>
 					<SegmentedControl<EditorMode>
@@ -369,7 +370,7 @@ function LawBlock({ law, title, children }: { law: string; title: string; childr
 	return (
 		<div>
 			<div className="mb-4 flex items-center gap-2.5">
-				<span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-accent-soft px-1.5 font-semibold text-[11px] text-ink tabular-nums dark:text-accent-text">
+				<span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-accent-soft px-1.5 font-semibold text-[11px] text-ink tabular-nums dark:text-accent-text">
 					{law}
 				</span>
 				<h3 className="font-medium text-ink">{title}</h3>

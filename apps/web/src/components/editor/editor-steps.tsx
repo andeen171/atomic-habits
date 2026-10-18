@@ -145,9 +145,11 @@ function TemplateButton({
 				{template.emoji}
 			</span>
 			<span className="min-w-0 flex-1">
-				<span className="block truncate font-medium text-ink text-small">{template.name}</span>
+				<span className="line-clamp-2 block break-words font-medium text-ink text-small">
+					{template.name}
+				</span>
 				{template.twoMinute ? (
-					<span className="block truncate text-ink-subtle text-small italic">
+					<span className="line-clamp-2 block break-words text-ink-subtle text-small italic">
 						{template.twoMinute}
 					</span>
 				) : null}

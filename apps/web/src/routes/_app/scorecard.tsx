@@ -144,10 +144,17 @@ const RATING_SYMBOL: Record<ScorecardRating, string> = {
 	neutral: "=",
 	negative: "−",
 };
+/**
+ * A selected + / − is a solid disc in its tone with the surface color on top
+ * (white in light mode, near-black in dark), so the glyph stays AA readable in
+ * both themes; a selected = stays quiet (ink on sunken).
+ */
 const RATING_STYLE: Record<ScorecardRating, string> = {
-	positive: "aria-checked:bg-success-soft aria-checked:text-success aria-checked:border-success/40",
-	neutral: "aria-checked:bg-sunken aria-checked:text-ink aria-checked:border-line-strong",
-	negative: "aria-checked:bg-danger-soft aria-checked:text-danger aria-checked:border-danger/40",
+	positive:
+		"aria-checked:border-success aria-checked:bg-success aria-checked:text-surface aria-checked:hover:bg-success aria-checked:hover:text-surface",
+	neutral: "aria-checked:border-line-strong aria-checked:bg-sunken aria-checked:text-ink",
+	negative:
+		"aria-checked:border-danger aria-checked:bg-danger aria-checked:text-surface aria-checked:hover:bg-danger aria-checked:hover:text-surface",
 };
 
 function RatingPicker({
@@ -161,13 +168,23 @@ function RatingPicker({
 	itemLabel?: string;
 }) {
 	const { t, at } = useT();
-	const onKeyDown = (event: KeyboardEvent, index: number) => {
-		const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+	const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+		const delta =
+			event.key === "ArrowRight" || event.key === "ArrowDown"
+				? 1
+				: event.key === "ArrowLeft" || event.key === "ArrowUp"
+					? -1
+					: 0;
 		if (!delta) return;
 		event.preventDefault();
-		const next =
-			SCORECARD_RATINGS[(index + delta + SCORECARD_RATINGS.length) % SCORECARD_RATINGS.length];
-		if (next) onChange(next);
+		const nextIndex = (index + delta + SCORECARD_RATINGS.length) % SCORECARD_RATINGS.length;
+		const next = SCORECARD_RATINGS[nextIndex];
+		if (!next) return;
+		onChange(next);
+		// Roving tabindex: focus follows the newly checked radio.
+		const radios =
+			event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]');
+		radios?.[nextIndex]?.focus();
 	};
 	return (
 		<div

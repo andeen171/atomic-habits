@@ -54,7 +54,7 @@ export function BlueprintCard({
 									"grid size-6 shrink-0 place-items-center rounded-full font-semibold text-[11px] tabular-nums",
 									sentences.length
 										? "bg-accent-soft text-ink dark:text-accent-text"
-										: "bg-sunken text-ink-subtle",
+										: "bg-sunken text-ink-muted",
 								)}
 							>
 								{law}

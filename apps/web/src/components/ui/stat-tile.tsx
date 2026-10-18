@@ -11,11 +11,17 @@ interface StatTileProps {
 	serif?: boolean;
 }
 
+/**
+ * Label, big value, optional hint. Placed in a CSS grid, each tile spans two
+ * of the parent's rows through a subgrid (label | value + hint), so every
+ * value in a row starts on the same line even when one label wraps or only
+ * some tiles carry a hint. Outside a grid it falls back to a plain stack.
+ */
 export function StatTile({ label, value, hint, icon, className, serif = true }: StatTileProps) {
 	return (
 		<div
 			className={cn(
-				"flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface p-4 shadow-card",
+				"row-span-2 grid min-w-0 grid-rows-subgrid content-start gap-y-1 rounded-lg border border-line bg-surface p-4 shadow-card",
 				className,
 			)}
 		>
@@ -24,7 +30,7 @@ export function StatTile({ label, value, hint, icon, className, serif = true }: 
 				{/* Labels wrap (two lines at most) instead of hiding words behind an ellipsis. */}
 				<span className="section-label line-clamp-2 break-words">{label}</span>
 			</div>
-			<div className="mt-auto flex flex-col gap-1">
+			<div className="flex min-w-0 flex-col gap-1">
 				<div
 					className={cn(
 						"truncate text-ink tabular-nums",

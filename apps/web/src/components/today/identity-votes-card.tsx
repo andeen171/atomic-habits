@@ -23,9 +23,10 @@ export function IdentityVotesCard({ className }: { className?: string }) {
 			<div className="flex flex-col gap-3.5 rounded-xl border border-line bg-surface p-5 shadow-card">
 				{stats.slice(0, 4).map(({ identity, votes, recentVotes }) => (
 					<div key={identity.id}>
-						<div className="flex items-center gap-2.5">
+						<div className="flex items-baseline gap-2.5">
 							<span className="font-emoji text-lg leading-none">{identity.emoji}</span>
-							<span className="min-w-0 flex-1 truncate text-ink text-small">
+							{/* Statements wrap: the whole sentence is the point. */}
+							<span className="min-w-0 flex-1 break-words text-ink text-small">
 								{identity.statement}
 							</span>
 							<span className="font-semibold text-ink text-small tabular-nums">

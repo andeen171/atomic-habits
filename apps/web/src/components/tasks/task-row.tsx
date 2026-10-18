@@ -1,10 +1,12 @@
+import { keepFocus } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { type Task, isTaskDone } from "@atomic/core";
 import { useActions, useToday } from "@atomic/core/react";
 import { CalendarDays, Check } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useIsPresent } from "motion/react";
+import type { MouseEvent } from "react";
 import { toast } from "sonner";
 import { PriorityFlag } from "./priority";
 import { taskDateLabel } from "./task-date";
@@ -20,10 +22,14 @@ export function TaskRow({ task, hideDate }: TaskRowProps) {
 	const actions = useActions();
 	const today = useToday();
 	const openTaskDialog = useUI((s) => s.openTaskDialog);
+	// False while the row animates out (deleted, completed, moved): it can't take focus then.
+	const present = useIsPresent();
 	const done = isTaskDone(task);
 	const overdue = !done && task.date != null && task.date < today;
 
-	const toggle = () => {
+	const toggle = (event: MouseEvent<HTMLButtonElement>) => {
+		// The row may move to another group (or out of view): keep keyboard focus on it.
+		keepFocus(event.currentTarget);
 		actions.toggleTask(task.id);
 		if (!done) {
 			toast(t("tasks.completed"), {
@@ -33,7 +39,11 @@ export function TaskRow({ task, hideDate }: TaskRowProps) {
 	};
 
 	return (
-		<div className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-hover/70 md:px-5">
+		<div
+			data-focus-row={task.id}
+			inert={!present}
+			className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-hover/70 md:px-5"
+		>
 			<motion.button
 				type="button"
 				// biome-ignore lint/a11y/useSemanticElements: styled control with full ARIA state and keyboard support.
@@ -60,20 +70,14 @@ export function TaskRow({ task, hideDate }: TaskRowProps) {
 				onClick={() => openTaskDialog({ mode: "edit", id: task.id })}
 				className="min-w-0 flex-1 text-left"
 			>
+				{/* Long titles wrap; the strike-through is drawn per line so it follows them. */}
 				<span
 					className={cn(
-						"relative inline-block max-w-full truncate align-top",
-						done ? "text-ink-subtle" : "text-ink",
+						"break-words bg-[linear-gradient(currentColor,currentColor)] bg-[position:0_55%] box-decoration-clone bg-no-repeat transition-[background-size] duration-(--atomic-duration-slow) ease-out-soft",
+						done ? "bg-[length:100%_1px] text-ink-subtle" : "bg-[length:0%_1px] text-ink",
 					)}
 				>
 					{task.title}
-					<span
-						aria-hidden="true"
-						className={cn(
-							"absolute inset-x-0 top-1/2 h-px origin-left bg-current transition-transform duration-(--atomic-duration-slow) ease-out-soft",
-							done ? "scale-x-100" : "scale-x-0",
-						)}
-					/>
 				</span>
 				{task.notes ? (
 					<span className="mt-0.5 block truncate text-ink-subtle text-small">{task.notes}</span>

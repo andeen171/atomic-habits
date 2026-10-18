@@ -3,6 +3,7 @@ import { TaskQuickAdd } from "@/components/tasks/task-quick-add";
 import { TaskRow } from "@/components/tasks/task-row";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { keepFocus } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { type Task, type TaskBucket, groupTasks } from "@atomic/core";
@@ -10,7 +11,7 @@ import { useActions, useTasks, useToday } from "@atomic/core/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useId, useMemo, useState } from "react";
+import { type MouseEvent, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/tasks")({
@@ -90,8 +91,10 @@ function CompletedGroup({ tasks }: { tasks: Task[] }) {
 	const id = useId();
 	if (!tasks.length) return null;
 
-	const clear = () => {
+	const clear = (event: MouseEvent<HTMLButtonElement>) => {
 		const ids = tasks.map((task) => task.id);
+		// This whole section goes away: don't leave focus on <body>.
+		keepFocus(event.currentTarget);
 		actions.clearCompletedTasks();
 		toast(t("common.deleted"), {
 			description: t.tp("common.tasks", ids.length),

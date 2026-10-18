@@ -13,9 +13,15 @@ export const Route = createFileRoute("/habits/$habitId/edit")({
 
 function EditHabitScreen() {
 	const { habitId } = Route.useParams();
+	// One editor per habit: moving between two edit URLs must not carry the
+	// first habit's draft (or its kind) over to the second.
+	return <EditHabit key={habitId} habitId={habitId} />;
+}
+
+function EditHabit({ habitId }: { habitId: string }) {
 	const { t } = useT();
 	const habit = useHabit(habitId);
-	// Snapshot once: later store updates must not reset the form.
+	// Snapshot once per habit: later store updates must not reset the form.
 	const [initial] = useState(() => (habit ? draftFromHabit(habit) : null));
 
 	if (!habit || !initial) {
@@ -33,5 +39,5 @@ function EditHabitScreen() {
 			</div>
 		);
 	}
-	return <HabitEditor key={habit.id} initial={initial} habitId={habit.id} />;
+	return <HabitEditor initial={initial} habitId={habit.id} />;
 }

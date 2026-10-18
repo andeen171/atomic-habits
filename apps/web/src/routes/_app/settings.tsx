@@ -149,25 +149,28 @@ function AboutSection() {
 	const setFourLawsOpen = useUI((s) => s.setFourLawsOpen);
 	return (
 		<SettingsSection title={t("settings.about")}>
-			<div className="flex items-start gap-4 px-5 py-5">
-				<LogoMark className="size-10 shrink-0" />
-				<div className="min-w-0">
-					<p className="font-display text-h2 text-ink">{t("app.name")}</p>
-					<p className="text-ink-muted text-small">{t("app.tagline")}</p>
-					<p className="mt-1 text-ink-subtle text-small">
-						{t("settings.version", { version: __APP_VERSION__ })}
-					</p>
-					<p className="mt-3 text-ink-subtle text-small">{t("app.attribution")}</p>
-					<Button
-						variant="secondary"
-						size="sm"
-						className="mt-4"
-						onClick={() => setFourLawsOpen(true)}
-					>
-						<BookOpen />
-						{at("settings.fourLaws")}
-					</Button>
+			<div className="px-5 py-5">
+				<div className="flex items-start gap-4">
+					<LogoMark className="size-10 shrink-0" />
+					<div className="min-w-0">
+						<p className="font-display text-h2 text-ink">{t("app.name")}</p>
+						<p className="text-ink-muted text-small">{t("app.tagline")}</p>
+						<p className="mt-1 text-ink-subtle text-small">
+							{t("settings.version", { version: __APP_VERSION__ })}
+						</p>
+						<p className="mt-3 text-ink-subtle text-small">{t("app.attribution")}</p>
+					</div>
 				</div>
+				{/* Phones: full width and allowed to wrap (the pt-BR label is long). */}
+				<Button
+					variant="secondary"
+					size="sm"
+					className="mt-4 h-auto min-h-11 w-full whitespace-normal rounded-lg py-2 text-left leading-snug sm:ml-14 sm:min-h-8 sm:w-auto sm:max-w-[calc(100%-3.5rem)] sm:rounded-full sm:py-1.5"
+					onClick={() => setFourLawsOpen(true)}
+				>
+					<BookOpen />
+					<span className="min-w-0 break-words">{at("settings.fourLaws")}</span>
+				</Button>
 			</div>
 		</SettingsSection>
 	);
