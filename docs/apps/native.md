@@ -1,30 +1,28 @@
-# Native Application (`apps/native`)
+# Mobile (`apps/native`)
 
-The mobile application is built with **React Native** and **Expo**, utilizing **NativeWind** for styling.
+Expo SDK 57 (React Native 0.86, new architecture) with Expo Router. Styling is `StyleSheet` plus a
+theme context built from `@atomic/core/theme` — no CSS-in-JS runtime.
 
-## Technologies
-- **React Native:** Framework for building native apps using React.
-- **Expo:** Development platform and toolkit for React Native.
-- **Expo Router:** File-based routing for React Native.
-- **NativeWind:** Tailwind CSS for React Native.
-- **tRPC Client:** For type-safe API communication.
+## Structure
+- `app/(tabs)/` — Today, Habits, Tasks, You, with a custom tab bar and a center create button.
+- `app/habit/[id].tsx`, `app/habit/editor.tsx`, `app/task/[id].tsx` (sheet), `identity`,
+  `insights`, `scorecard`, `settings`, `onboarding`.
+- `components/` — `habit/` (animated ring, row, actions sheet, calendar), `today/`, `charts/`,
+  `sheet/` (reanimated + gesture-handler bottom sheet rendered through a portal), `ui/`.
+- `lib/` — `store.ts` (expo-sqlite kv-store), `sync.ts` (SecureStore session), `reminders.ts`
+  (expo-notifications), `backup.ts` (share sheet / document picker), `theme.tsx`, `haptics.ts`,
+  `messages.ts`. `*.web.ts` variants keep the web export working.
 
-## Directory Structure
-- `app/`: Expo Router directory.
-    - `_layout.tsx`: Root layout and providers.
-    - `(drawer)/`: Navigation drawer.
-    - `(tabs)/`: Bottom tab navigation.
-- `components/`: Mobile-specific UI components.
-- `utils/trpc.ts`: tRPC client configuration for mobile (pointing to the server URL).
-- `lib/`: Shared utilities and hooks.
-    - `auth-client.ts`: Better Auth client for React Native.
-- `metro.config.js`: Metro bundler configuration.
+## Commands
+| Command | |
+| --- | --- |
+| `bun dev` | Expo dev server (dev client or simulator) |
+| `bun android` / `bun ios` | Local native build (`expo run:*`) |
+| `bun run export` | Bundle check (`expo export --platform android`) |
+| `bun check-types` | TypeScript |
 
-## Key Commands
-- `bun dev`: Starts the Expo development server.
-- `bun ios`: Runs the app on an iOS simulator (macOS only).
-- `bun android`: Runs the app on an Android emulator.
-- `bun build:preview`: Creates a preview build via EAS.
-
-## Development Tips
-The native app communicates with the server via the same tRPC router as the web app. Ensure the server is running and the `BASE_URL` in `utils/trpc.ts` (or environment variables) is correctly set to your local IP address when testing on physical devices or emulators.
+## Builds
+- GitHub Actions (`.github/workflows/android.yml`) prebuilds and assembles a standalone release APK
+  and a dev-client debug APK on every relevant push.
+- `eas.json` has `development`, `preview` and `production` profiles for EAS Build; the EAS project
+  is `@andeen/atomic-habits`.

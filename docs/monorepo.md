@@ -1,49 +1,61 @@
-# Monorepo Architecture
+# Monorepo architecture
 
-This project is organized as a monorepo using **Turborepo** and **Bun Workspaces**. This structure allows for shared types, configurations, and efficient task execution across multiple applications.
-
-## Directory Structure
+Atomic is a Bun workspace orchestrated by Turborepo. Every client is **local-first**: the
+device owns the data, and the optional server only relays changes between devices.
 
 ```text
 .
 ├── apps/
-│   ├── web/          # React + TanStack Router (Web & Desktop)
-│   ├── native/       # React Native + Expo (Mobile)
-│   ├── server/       # Hono + tRPC + Drizzle (Backend)
-│   └── docs/         # Astro + Starlight (Public Docs)
-├── docs/             # Internal Developer Documentation (this folder)
-├── package.json      # Root dependencies and workspace scripts
-├── turbo.json        # Turborepo configuration
-└── biome.json        # Shared linting and formatting rules
+│   ├── web/          React 19 + Vite + TanStack Router + Tailwind v4 (web, PWA, Tauri desktop)
+│   ├── native/       Expo SDK 57 + Expo Router (Android, iOS)
+│   ├── server/       Bun + Hono + tRPC + Drizzle + Better Auth (optional sync)
+│   └── docs/         Astro Starlight (public documentation, en + pt-BR)
+├── packages/
+│   └── core/         @atomic/core — shared engine (see below)
+├── assets/brand/     logo/icon SVG sources and rendered PNGs
+├── docs/             internal docs (this folder) incl. the design spec
+├── .github/workflows CI, Android APK, Tauri desktop
+├── bunfig.toml       hoisted node_modules (required by React Native / Metro)
+├── turbo.json        task pipeline
+└── biome.json        lint + format rules (tabs, 100 columns)
 ```
 
-## Task Orchestration (Turborepo)
+## `@atomic/core`
 
-Turborepo (`turbo.json`) manages the build pipeline and development workflow. It ensures that tasks are run in the correct order and leverages caching to speed up repeated operations.
+Imported as TypeScript source by every app (no build step). Entry points:
 
-### Key Scripts (Root)
-- `bun dev`: Runs `turbo dev`, starting all applications in development mode simultaneously.
-- `bun build`: Runs `turbo build`, building all applications for production.
-- `bun check`: Runs Biome linting and formatting across the entire repo.
-- `bun check-types`: Runs TypeScript type checking across all packages.
+| Import | Contents |
+| --- | --- |
+| `@atomic/core` | model + Zod schemas, day math (`dates`), habit science (`habits`), agenda/insights/identity selectors (`agenda`), tasks, blueprint sentences, content (principles, templates), sample data, i18n, store, storage adapters, sync protocol/engine/controller, HTTP client, theme |
+| `@atomic/core/react` | `AtomicProvider` and hooks (`useDayAgenda`, `useHabitStats`, `useI18n`, …) |
+| `@atomic/core/theme` | design tokens only (safe for build tooling) |
+| `@atomic/core/sync` | sync protocol schemas only (used by the server) |
 
-## Shared Configurations
+Key rules encoded in core:
 
-- **TypeScript:** Each app has its own `tsconfig.json` but can extend a shared base if defined (currently they are mostly independent but follow the same standards).
-- **Biome:** The root `biome.json` defines the linting and formatting standards for all files in the monorepo.
-- **Environment Variables:** Each app typically manages its own `.env` file, but some variables (like API URLs) must be coordinated.
+- **Day keys** (`YYYY-MM-DD`) are local calendar days; never convert through UTC.
+- **Streaks** follow "never miss twice": one missed scheduled period doesn't reset the streak,
+  two consecutive misses do; skipped days are neutral; weekly habits count weeks.
+- **Habit strength** is an EMA of outcomes with a 14-scheduled-day half-life (3 weeks weekly).
+- **Votes**: build habits earn one per repetition up to the target; break habits one per clean day.
+- **Entities** carry `updatedAt` + `deletedAt` tombstones; the store marks changed documents as
+  pending for sync. Never hard-delete.
 
-## Cross-Application Integration
+## Data flow
 
-The primary mechanism for integration is **tRPC**. 
+1. Each app creates one store: `createAtomicStore({ storage })` — localStorage on web,
+   `expo-sqlite/kv-store` on native. Writes are debounced and flushed when the app backgrounds.
+2. UI reads through `@atomic/core/react` hooks; zustand selectors must return stable slices.
+3. Optional sync: `createSyncController({ store, sessionStorage })` signs in with bearer tokens,
+   pushes pending documents to `POST /trpc/sync.push` and pulls `GET /trpc/sync.pull` until caught
+   up. Conflicts resolve last-write-wins per document.
 
-1. **Schema Definition:** The `apps/server` defines the API schema and procedures.
-2. **Type Export:** The server exports the `AppRouter` type.
-3. **Type Consumption:** Both `apps/web` and `apps/native` import this type to create their tRPC clients.
-4. **End-to-End Safety:** Any change in the server's API will immediately cause type errors in the web or native apps if they are not updated accordingly.
+## Tasks
 
-## Workflow Best Practices
-
-1. **Atomic Changes:** When adding a new feature that requires API changes, update the server first, then the clients. tRPC ensures you don't forget any parts.
-2. **Global Checks:** Always run `bun check` and `bun check-types` from the root before committing to ensure no regressions were introduced in other apps.
-3. **Scoped Commands:** You can run commands for specific apps using `turbo -F <app-name> <command>` (e.g., `turbo -F web dev`).
+| Command | Scope |
+| --- | --- |
+| `bun dev` / `bun run build` | all apps (turbo) |
+| `bun check-types` | `tsc --noEmit` in every workspace |
+| `bun run test` | `bun test` in core and server |
+| `bun check` | Biome with fixes |
+| `turbo -F <app> <task>` | one app |
