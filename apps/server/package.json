@@ -7,14 +7,13 @@
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
 		"start": "bun run src/index.ts",
-		"build": "bun build ./src/index.ts --target bun --outdir dist",
-		"compile": "bun build --compile --minify --sourcemap ./src/index.ts --outfile server",
+		"build": "rm -rf dist && bun build ./src/index.ts --target bun --packages external --outdir dist && cp -r src/db/migrations dist/",
 		"check-types": "tsc --noEmit",
 		"test": "bun test",
-		"db:push": "drizzle-kit push",
-		"db:studio": "drizzle-kit studio",
 		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate"
+		"db:migrate": "drizzle-kit migrate",
+		"db:push": "drizzle-kit push",
+		"db:studio": "drizzle-kit studio"
 	},
 	"dependencies": {
 		"@atomic/core": "workspace:*",

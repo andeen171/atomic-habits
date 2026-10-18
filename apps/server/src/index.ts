@@ -1,57 +1,19 @@
-import "dotenv/config";
-import { appRouter } from "@/routers";
-import { google } from "@ai-sdk/google";
-import { trpcServer } from "@hono/trpc-server";
-import { streamText } from "ai";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { logger } from "hono/logger";
-import { stream } from "hono/streaming";
-import { auth } from "./lib/auth";
-import { createContext } from "./lib/context";
+import { app } from "./app";
+import { runMigrations } from "./db/migrate";
+import { env } from "./env";
 
-const app = new Hono();
+await runMigrations();
 
-app.use(logger());
-app.use(
-	"/*",
-	cors({
-		origin: (process.env.CORS_ORIGINS || "").split(",").filter(Boolean),
-		allowMethods: ["GET", "POST", "OPTIONS"],
-		allowHeaders: ["Content-Type", "Authorization"],
-		credentials: true,
-	}),
-);
+// As PID 1 in a container, a process without its own handlers ignores
+// SIGTERM, so `docker stop` would hang until SIGKILL. Exiting is safe: a
+// push is a single SQLite transaction and rolls back if interrupted.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+	process.on(signal, () => process.exit(0));
+}
 
-app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+console.log(`[atomic] Sync server listening on http://localhost:${env.port}`);
 
-app.use(
-	"/trpc/*",
-	trpcServer({
-		router: appRouter,
-		createContext: (_opts, context) => {
-			return createContext({ context });
-		},
-	}),
-);
-
-app.post("/ai", async (c) => {
-	const body = await c.req.json();
-	const messages = body.messages || [];
-
-	const result = streamText({
-		model: google("gemini-1.5-flash"),
-		messages,
-	});
-
-	c.header("X-Vercel-AI-Data-Stream", "v1");
-	c.header("Content-Type", "text/plain; charset=utf-8");
-
-	return stream(c, (stream) => stream.pipe(result.toDataStream()));
-});
-
-app.get("/", (c) => {
-	return c.text("OK");
-});
-
-export default app;
+export default {
+	port: env.port,
+	fetch: app.fetch,
+};

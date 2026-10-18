@@ -1,0 +1,22 @@
+# Keep Docker build contexts small and free of local state and secrets.
+**/node_modules
+**/.turbo
+**/dist
+**/dist-artifact
+**/dev-dist
+**/.expo
+**/.cache
+**/.astro
+.git
+.idea
+.husky
+**/.DS_Store
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+**/*.db
+**/*.db-*
+apps/native/android
+apps/native/ios
+apps/web/src-tauri/target
