@@ -1,5 +1,6 @@
 import { useSettings } from "@atomic/core/react";
-import { type ColorScheme, type HabitColor, habitColor, palettes } from "@atomic/core/theme";
+import type { HabitColor } from "@atomic/core";
+import { type ColorScheme, habitColor, palettes } from "@atomic/core/theme";
 import {
 	type CSSProperties,
 	type ReactNode,

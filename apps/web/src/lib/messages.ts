@@ -17,6 +17,18 @@ const en = {
 	"week.next": "Next week",
 	"month.previous": "Previous month",
 	"month.next": "Next month",
+	"color.ember": "Ember",
+	"color.amber": "Amber",
+	"color.lime": "Lime",
+	"color.emerald": "Emerald",
+	"color.teal": "Teal",
+	"color.sky": "Sky",
+	"color.indigo": "Indigo",
+	"color.violet": "Violet",
+	"color.rose": "Rose",
+	"color.stone": "Stone",
+	"form.customEmoji": "Or type any emoji",
+	"form.clearTime": "Clear time",
 	"form.preview": "Preview",
 	"form.previewEmpty": "Your habit",
 	"form.emojiPick": "Choose an icon",
@@ -29,6 +41,8 @@ const en = {
 	"habit.completeHint": "Already done for today",
 	"identity.thisWeek": "+{count} this week",
 	"identity.atoms": "Each dot is a vote",
+	"identity.atomsScaled": "Each dot is {count} votes",
+	"identity.edit": "Edit identity",
 	"insights.dailyTitle": "Daily completion",
 	"insights.dailyHint": "Share of due habits completed each day.",
 	"insights.journey": "Day {count}",
@@ -42,6 +56,7 @@ const en = {
 	"shortcuts.then": "then",
 	"shortcuts.close": "Close dialog",
 	"onboarding.pickUpTo": "Choose up to {count}",
+	"onboarding.quoteAuthor": "James Clear",
 	"onboarding.selected": "Selected",
 	"you.subtitle": "Identity, insights and settings",
 	"palette.logHabit": "Log {habit}",
@@ -72,6 +87,18 @@ const ptBR: Record<AppMessageKey, string> = {
 	"week.next": "Próxima semana",
 	"month.previous": "Mês anterior",
 	"month.next": "Próximo mês",
+	"color.ember": "Brasa",
+	"color.amber": "Âmbar",
+	"color.lime": "Lima",
+	"color.emerald": "Esmeralda",
+	"color.teal": "Turquesa",
+	"color.sky": "Céu",
+	"color.indigo": "Índigo",
+	"color.violet": "Violeta",
+	"color.rose": "Rosa",
+	"color.stone": "Pedra",
+	"form.customEmoji": "Ou digite qualquer emoji",
+	"form.clearTime": "Limpar horário",
 	"form.preview": "Prévia",
 	"form.previewEmpty": "Seu hábito",
 	"form.emojiPick": "Escolha um ícone",
@@ -84,6 +111,8 @@ const ptBR: Record<AppMessageKey, string> = {
 	"habit.completeHint": "Já concluído hoje",
 	"identity.thisWeek": "+{count} esta semana",
 	"identity.atoms": "Cada ponto é um voto",
+	"identity.atomsScaled": "Cada ponto vale {count} votos",
+	"identity.edit": "Editar identidade",
 	"insights.dailyTitle": "Conclusão diária",
 	"insights.dailyHint": "Parcela dos hábitos previstos concluídos a cada dia.",
 	"insights.journey": "Dia {count}",
@@ -97,6 +126,7 @@ const ptBR: Record<AppMessageKey, string> = {
 	"shortcuts.then": "depois",
 	"shortcuts.close": "Fechar janela",
 	"onboarding.pickUpTo": "Escolha até {count}",
+	"onboarding.quoteAuthor": "James Clear",
 	"onboarding.selected": "Selecionado",
 	"you.subtitle": "Identidade, análises e ajustes",
 	"palette.logHabit": "Registrar {habit}",
@@ -125,11 +155,29 @@ export interface AppTranslator extends Translator {
 	at(key: AppMessageKey, params?: Params): string;
 }
 
+/**
+ * `t` is both the translate function and the full translator, so it can be
+ * called (`t("nav.today")`), used for formatting (`t.formatDayLong(day)`) and
+ * handed to core helpers that expect a `Translator` (`progressLabel(h, n, t)`).
+ */
+export type CallableTranslator = AppTranslator & ((key: MessageKey, params?: Params) => string);
+
+export interface AppI18n extends AppTranslator {
+	t: CallableTranslator;
+}
+
 /** `useI18n()` plus typed access to the web-only strings. */
-export function useT(): AppTranslator {
+export function useT(): AppI18n {
 	const i18n = useI18n();
-	return useMemo(
-		() => ({ ...i18n, at: (key, params) => i18n.t(key as unknown as MessageKey, params) }),
-		[i18n],
-	);
+	return useMemo(() => {
+		const base: AppTranslator = {
+			...i18n,
+			at: (key, params) => i18n.t(key as unknown as MessageKey, params),
+		};
+		const t = Object.assign(
+			(key: MessageKey, params?: Params) => i18n.t(key, params),
+			base,
+		) as CallableTranslator;
+		return { ...base, t };
+	}, [i18n]);
 }

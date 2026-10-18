@@ -1,5 +1,18 @@
 import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/** tailwind-merge that knows the custom scales defined in styles/index.css. */
+const twMerge = extendTailwindMerge({
+	extend: {
+		theme: {
+			text: ["hero", "title", "h2", "h3", "body", "small", "tiny"],
+			shadow: ["card", "pop"],
+			font: ["display", "emoji"],
+			ease: ["out-soft"],
+			animate: ["fade-in", "fade-out", "pop-in", "pop-out", "sheet-in", "sheet-out", "page-in", "shake"],
+		},
+	},
+});
 
 export function cn(...inputs: ClassValue[]): string {
 	return twMerge(clsx(inputs));
