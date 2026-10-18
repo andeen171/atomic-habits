@@ -168,7 +168,6 @@ function QuickAdd() {
 	const [date, setDate] = useState<DayKey | null>(today);
 	const [priority, setPriority] = useState<TaskPriority>(0);
 	const [focused, setFocused] = useState(false);
-	const expanded = focused || title.length > 0;
 
 	const add = () => {
 		const value = title.trim();
@@ -180,7 +179,7 @@ function QuickAdd() {
 	};
 
 	return (
-		<Card padding={0} style={[styles.quick, expanded && { borderColor: colors.borderStrong }]}>
+		<Card padding={0} style={[styles.quick, focused && { borderColor: colors.borderStrong }]}>
 			<View style={styles.quickRow}>
 				<Pressable
 					onPress={add}
@@ -222,14 +221,13 @@ function QuickAdd() {
 					<DateChips value={date} onChange={setDate} size="sm" />
 				</View>
 			</View>
-			{expanded ? (
-				<Animated.View entering={FadeIn.duration(160)} style={styles.quickPriority}>
-					<Text variant="tiny" weight="semibold" tone="subtle">
-						{t.t("tasks.priority")}
-					</Text>
-					<PriorityPicker value={priority} onChange={setPriority} compact />
-				</Animated.View>
-			) : null}
+			{/* Always rendered: collapsing on blur would shift the list under the finger. */}
+			<View style={styles.quickPriority}>
+				<Text variant="tiny" weight="semibold" tone="subtle">
+					{t.t("tasks.priority")}
+				</Text>
+				<PriorityPicker value={priority} onChange={setPriority} compact />
+			</View>
 		</Card>
 	);
 }

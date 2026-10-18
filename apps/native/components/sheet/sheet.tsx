@@ -110,8 +110,16 @@ function SheetFrame({
 		);
 	}, [open]);
 
+	// Android back button closes the sheet; on web, Escape does.
 	useEffect(() => {
-		if (!open || Platform.OS === "web") return;
+		if (!open) return;
+		if (Platform.OS === "web") {
+			const onKey = (event: KeyboardEvent) => {
+				if (event.key === "Escape") onClose();
+			};
+			globalThis.addEventListener?.("keydown", onKey);
+			return () => globalThis.removeEventListener?.("keydown", onKey);
+		}
 		const sub = BackHandler.addEventListener("hardwareBackPress", () => {
 			onClose();
 			return true;
