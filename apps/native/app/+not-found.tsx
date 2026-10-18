@@ -1,18 +1,20 @@
-import { Link, Stack } from "expo-router";
-import { Text } from "react-native";
-
-import { Container } from "@/components/container";
+import { EmptyState } from "@/components/empty-state";
+import { Button } from "@/components/ui/button";
+import { Screen } from "@/components/ui/screen";
+import { useT } from "@/lib/i18n";
+import { router } from "expo-router";
 
 export default function NotFoundScreen() {
+	const t = useT();
 	return (
-		<>
-			<Stack.Screen options={{ title: "Oops!" }} />
-			<Container>
-				<Text className="font-bold text-xl">This screen doesn't exist.</Text>
-				<Link href="/" className="mt-4 pt-4">
-					<Text className="text-[#2e78b7] text-base">Go to home screen!</Text>
-				</Link>
-			</Container>
-		</>
+		<Screen back>
+			<EmptyState
+				title={t.t("notFound.title")}
+				body={t.t("notFound.body")}
+				action={
+					<Button label={t.t("today.backToToday")} size="lg" onPress={() => router.replace("/")} />
+				}
+			/>
+		</Screen>
 	);
 }

@@ -1,0 +1,45 @@
+---
+title: Atomic
+description: Pequenos hábitos. Resultados notáveis. Um app de hábitos e tarefas local-first inspirado em Hábitos Atômicos.
+template: splash
+hero:
+  title: Pequenos hábitos. Resultados notáveis.
+  tagline: O Atomic ajuda você a construir bons hábitos e abandonar os ruins com as quatro leis da mudança de comportamento — na web, no computador e no celular.
+  image:
+    file: ../../../assets/logo.svg
+  actions:
+    - text: Começar
+      link: /pt-br/guides/getting-started/
+      icon: right-arrow
+    - text: O método
+      link: /pt-br/guides/method/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/andeen171/atomic-habits
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid stagger>
+	<Card title="Identidade primeiro" icon="star">
+		Cada hábito concluído é um **voto** em quem você está se tornando. Vincule hábitos a
+		identidades como “Sou uma pessoa que lê todos os dias” e veja as evidências se acumularem.
+	</Card>
+	<Card title="As quatro leis, nativas" icon="puzzle">
+		Torne óbvio, atraente, fácil e satisfatório — o editor de hábitos guia você por intenções de
+		implementação, empilhamento de hábitos, a regra dos dois minutos e recompensas.
+	</Card>
+	<Card title="Nunca falhe duas vezes" icon="approve-check-circle">
+		As sequências sobrevivem a uma falha. Falhou uma vez? O Atomic te ajuda a voltar. Só duas
+		falhas seguidas zeram a sequência.
+	</Card>
+	<Card title="Local-first, em todo lugar" icon="laptop">
+		Funciona offline na web, no desktop (Tauri) e no celular (Expo). A sincronização opcional e
+		auto-hospedada mantém seus aparelhos juntos.
+	</Card>
+</CardGrid>
+
+> O Atomic é inspirado em *Hábitos Atômicos*, de James Clear, e não tem afiliação com o autor ou a
+> editora.

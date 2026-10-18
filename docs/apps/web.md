@@ -1,34 +1,30 @@
-# Web Application (`apps/web`)
+# Web & desktop (`apps/web`)
 
-The web application is a React-based frontend that also powers the desktop application via Tauri.
+React 19 + Vite 7 + TanStack Router + Tailwind v4. The same build runs as a website, an installable
+PWA, a Tauri desktop app and a single-file claude.ai Artifact.
 
-## Technologies
-- **React:** UI library.
-- **TanStack Router:** Type-safe, file-based routing.
-- **tRPC Client:** For type-safe API communication.
-- **Tailwind CSS & shadcn/ui:** Styling and UI components.
-- **Tauri:** Desktop application framework.
-- **Vite:** Build tool.
+## Structure
+- `src/routes/` — file routes. `_app.*` routes share the app shell (sidebar ≥1024px, icon rail
+  768–1023px, bottom tabs <768px); `onboarding` and the habit editor are full-screen.
+- `src/components/` — `ui/` primitives, `habit/` (ring, row, heatmap, calendar, blueprint),
+  `today/`, `editor/`, `tasks/`, `identity/`, `insights/` (hand-built SVG charts), `settings/`,
+  `layout/`, `dialogs/` (command palette, shortcuts).
+- `src/lib/` — store, sync controller, theme provider, shortcuts, messages, PWA registration,
+  Artifact integration (`artifact-cloud.ts`, `runtime.ts`).
+- `plugins/atomic-tokens.ts` — Vite plugin turning core design tokens into CSS variables.
+- `src-tauri/` — Tauri 2 shell (window defaults, icons).
 
-## Directory Structure
-- `src/main.tsx`: Application entry point.
-- `src/routes/`: File-based routes managed by TanStack Router.
-    - `__root.tsx`: The layout wrapper for all routes.
-    - `index.tsx`: Home page.
-    - `habits.tsx`: Habits management page.
-- `src/components/`:
-    - `ui/`: Reusable primitive components (shadcn/ui).
-    - `pages/`: Page-specific components.
-- `src/utils/trpc.ts`: tRPC client configuration.
-- `src/lib/auth-client.ts`: Better Auth client initialization.
-- `src-tauri/`: Tauri configuration and native Rust code for the desktop app.
+## Commands
+| Command | |
+| --- | --- |
+| `bun dev` | Vite dev server on :3001 |
+| `bun run build` | `dist/` (PWA, also Tauri's frontend) |
+| `bun run build:artifact` | `dist-artifact/index.html` (standalone) and `atomic.html` (Artifact page body) |
+| `bun desktop:dev` / `bun desktop:build` | Tauri (requires Rust) |
+| `bun check-types` | TypeScript |
 
-## Key Commands
-- `bun dev`: Starts the Vite development server.
-- `bun desktop:dev`: Starts the Tauri development environment (requires Rust).
-- `bun build`: Builds the web application for production.
-- `bun desktop:build`: Builds the native desktop executable.
-- `bun generate-pwa-assets`: Generates icons and manifest for PWA support.
-
-## PWA & Desktop
-The app is configured as a Progressive Web App (PWA) using `vite-plugin-pwa`. It also integrates with Tauri to provide a native desktop experience with access to system APIs when needed.
+## Notes
+- Hash history everywhere except the Artifact build, which routes in memory.
+- The theme follows `settings.theme`, then a host `data-theme` attribute, then the OS.
+- In the Artifact build each viewer's data is mirrored to their private `db` subtree and backups
+  are offered through the viewer's download prompt.

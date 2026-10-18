@@ -1,23 +1,23 @@
 {
 	"compilerOptions": {
 		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
 		"esModuleInterop": true,
 		"jsx": "react-jsx",
-		"target": "ESNext",
+		"target": "ES2022",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
 		"module": "ESNext",
 		"moduleResolution": "Bundler",
 		"verbatimModuleSyntax": true,
 		"skipLibCheck": true,
-		"types": ["vite/client"],
-		"rootDirs": ["."],
+		"noEmit": true,
+		"types": ["vite/client", "node"],
 		"baseUrl": ".",
 		"paths": {
 			"@/*": ["./src/*"]
 		}
 	},
-	"references": [
-		{
-			"path": "../server"
-		}
-	]
+	"include": ["src", "plugins", "vite.config.ts"]
 }

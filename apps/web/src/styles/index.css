@@ -1,0 +1,268 @@
+@import "tailwindcss";
+@import "./fonts.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Every color, radius, type size and duration below points at a CSS variable
+ * generated from `@atomic/core/theme` (see plugins/atomic-tokens.ts). Only use
+ * these semantic tokens in components — never Tailwind's default palette.
+ */
+@theme {
+	--font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif,
+		"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+	--font-display: "Instrument Serif", ui-serif, Georgia, "Times New Roman", serif;
+	--font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+
+	--ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+	--animate-fade-in: fade-in var(--atomic-duration-base) var(--ease-out-soft);
+	--animate-fade-out: fade-out var(--atomic-duration-fast) ease-in;
+	--animate-pop-in: pop-in var(--atomic-duration-base) var(--ease-out-soft);
+	--animate-pop-out: pop-out var(--atomic-duration-fast) ease-in;
+	--animate-sheet-in: sheet-in var(--atomic-duration-slow) var(--ease-out-soft);
+	--animate-sheet-out: sheet-out var(--atomic-duration-base) ease-in;
+	--animate-page-in: page-in var(--atomic-duration-base) var(--ease-out-soft);
+	--animate-shake: shake 360ms ease-in-out;
+
+	@keyframes fade-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@keyframes fade-out {
+		to {
+			opacity: 0;
+		}
+	}
+	@keyframes pop-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px) scale(0.97);
+		}
+	}
+	@keyframes pop-out {
+		to {
+			opacity: 0;
+			transform: scale(0.98);
+		}
+	}
+	@keyframes sheet-in {
+		from {
+			transform: translateY(100%);
+		}
+	}
+	@keyframes sheet-out {
+		to {
+			transform: translateY(100%);
+		}
+	}
+	@keyframes page-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+	}
+	@keyframes shake {
+		20%,
+		60% {
+			transform: translateX(-3px);
+		}
+		40%,
+		80% {
+			transform: translateX(3px);
+		}
+	}
+}
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-sunken: var(--sunken);
+	--color-hover: var(--hover);
+	--color-line: var(--border);
+	--color-line-strong: var(--border-strong);
+	--color-ink: var(--text);
+	--color-ink-muted: var(--text-muted);
+	--color-ink-subtle: var(--text-subtle);
+	--color-accent: var(--accent);
+	--color-accent-hover: var(--accent-hover);
+	--color-accent-text: var(--accent-text);
+	--color-accent-soft: var(--accent-soft);
+	--color-on-accent: var(--on-accent);
+	--color-success: var(--success);
+	--color-success-soft: var(--success-soft);
+	--color-warning: var(--warning);
+	--color-warning-soft: var(--warning-soft);
+	--color-danger: var(--danger);
+	--color-danger-soft: var(--danger-soft);
+	--color-ring: var(--ring);
+	--color-scrim: var(--scrim);
+	--color-heat-0: var(--heat-0);
+
+	--radius-xs: var(--atomic-radius-xs);
+	--radius-sm: var(--atomic-radius-sm);
+	--radius-md: var(--atomic-radius-md);
+	--radius-lg: var(--atomic-radius-lg);
+	--radius-xl: var(--atomic-radius-xl);
+	--radius-2xl: var(--atomic-radius-xxl);
+
+	--text-hero: var(--atomic-text-hero);
+	--text-hero--line-height: var(--atomic-leading-hero);
+	--text-title: var(--atomic-text-title);
+	--text-title--line-height: var(--atomic-leading-title);
+	--text-h2: var(--atomic-text-h2);
+	--text-h2--line-height: var(--atomic-leading-h2);
+	--text-h3: var(--atomic-text-h3);
+	--text-h3--line-height: var(--atomic-leading-h3);
+	--text-body: var(--atomic-text-body);
+	--text-body--line-height: var(--atomic-leading-body);
+	--text-small: var(--atomic-text-small);
+	--text-small--line-height: var(--atomic-leading-small);
+	--text-tiny: var(--atomic-text-tiny);
+	--text-tiny--line-height: var(--atomic-leading-tiny);
+
+	--shadow-card: var(--atomic-shadow-card);
+	--shadow-pop: var(--atomic-shadow-pop);
+}
+
+:root {
+	--atomic-shadow-card: 0 1px 2px rgb(27 24 20 / 0.04), 0 4px 16px rgb(27 24 20 / 0.04);
+	--atomic-shadow-pop: 0 2px 6px rgb(27 24 20 / 0.06), 0 16px 48px rgb(27 24 20 / 0.12);
+	--sidebar-width: 248px;
+	--tabbar-height: 64px;
+}
+
+:root.dark {
+	--atomic-shadow-card: none;
+	--atomic-shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.02), 0 16px 48px rgb(0 0 0 / 0.5);
+}
+
+@utility section-label {
+	font-size: var(--text-tiny);
+	line-height: var(--text-tiny--line-height);
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--text-subtle);
+}
+
+@utility font-display {
+	font-family: var(--font-display);
+	font-weight: 400;
+	letter-spacing: -0.01em;
+}
+
+@utility scrollbar-none {
+	scrollbar-width: none;
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
+@utility pb-safe {
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+@layer base {
+	html {
+		-webkit-text-size-adjust: 100%;
+		-webkit-tap-highlight-color: transparent;
+		text-rendering: optimizeLegibility;
+	}
+
+	/* Keep focused controls clear of the fixed mobile tab bar (WCAG 2.4.11). */
+	@media (max-width: 767.98px) {
+		html {
+			scroll-padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 12px);
+		}
+	}
+
+	/* Full-screen routes with a sticky header and footer (habit editor). */
+	html[data-sticky-bars] {
+		scroll-padding-top: 80px;
+		scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom) + 12px);
+	}
+
+	body {
+		min-height: 100dvh;
+		background: var(--bg);
+		color: var(--text);
+		font-family: var(--font-sans);
+		font-size: var(--text-body);
+		line-height: var(--text-body--line-height);
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		font-feature-settings: "ss01", "cv11";
+	}
+
+	::selection {
+		background: var(--accent-soft);
+		color: var(--text);
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+
+	/* Headings receive focus programmatically after navigation; they aren't controls. */
+	:is(h1, h2)[tabindex="-1"]:focus {
+		outline: none;
+	}
+
+	button,
+	[role="button"] {
+		cursor: pointer;
+	}
+
+	button:disabled {
+		cursor: not-allowed;
+	}
+
+	input,
+	textarea,
+	select {
+		font: inherit;
+		color: inherit;
+	}
+
+	input::placeholder,
+	textarea::placeholder {
+		color: var(--text-subtle);
+	}
+
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--border-strong) transparent;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		::before,
+		::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+			scroll-behavior: auto !important;
+		}
+	}
+}
+
+/*
+ * Windows High Contrast: draw state with system colors, never with backgrounds
+ * alone. Unlayered so it wins over the utilities it corrects.
+ */
+@media (forced-colors: active) {
+	.habit-ring-done {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
+	.habit-ring-done path {
+		stroke: HighlightText;
+	}
+	.forced-selected {
+		outline: 2px solid Highlight;
+		outline-offset: -2px;
+	}
+}

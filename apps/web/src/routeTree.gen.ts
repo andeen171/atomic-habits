@@ -9,122 +9,309 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TodosRouteImport } from './routes/todos'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as HabitsRouteImport } from './routes/habits'
-import { Route as CheckhealthRouteImport } from './routes/checkhealth'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppIdentityRouteImport } from './routes/_app/identity'
+import { Route as AppInsightsRouteImport } from './routes/_app/insights'
+import { Route as AppScorecardRouteImport } from './routes/_app/scorecard'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppTasksRouteImport } from './routes/_app/tasks'
+import { Route as AppYouRouteImport } from './routes/_app/you'
+import { Route as HabitsNewRouteImport } from './routes/habits/new'
+import { Route as AppHabitsIndexRouteImport } from './routes/_app/habits/index'
+import { Route as AppHabitsHabitIdRouteImport } from './routes/_app/habits/$habitId'
+import { Route as HabitsHabitIdEditRouteImport } from './routes/habits/$habitId.edit'
 
-const TodosRoute = TodosRouteImport.update({
-  id: '/todos',
-  path: '/todos',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HabitsRoute = HabitsRouteImport.update({
-  id: '/habits',
-  path: '/habits',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CheckhealthRoute = CheckhealthRouteImport.update({
-  id: '/checkhealth',
-  path: '/checkhealth',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexRoute = IndexRouteImport.update({
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIdentityRoute = AppIdentityRouteImport.update({
+  id: '/identity',
+  path: '/identity',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInsightsRoute = AppInsightsRouteImport.update({
+  id: '/insights',
+  path: '/insights',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppScorecardRoute = AppScorecardRouteImport.update({
+  id: '/scorecard',
+  path: '/scorecard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTasksRoute = AppTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppYouRoute = AppYouRouteImport.update({
+  id: '/you',
+  path: '/you',
+  getParentRoute: () => AppRoute,
+} as any)
+const HabitsNewRoute = HabitsNewRouteImport.update({
+  id: '/habits/new',
+  path: '/habits/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppHabitsIndexRoute = AppHabitsIndexRouteImport.update({
+  id: '/habits/',
+  path: '/habits/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHabitsHabitIdRoute = AppHabitsHabitIdRouteImport.update({
+  id: '/habits/$habitId',
+  path: '/habits/$habitId',
+  getParentRoute: () => AppRoute,
+} as any)
+const HabitsHabitIdEditRoute = HabitsHabitIdEditRouteImport.update({
+  id: '/habits/$habitId/edit',
+  path: '/habits/$habitId/edit',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/checkhealth': typeof CheckhealthRoute
-  '/habits': typeof HabitsRoute
-  '/login': typeof LoginRoute
-  '/todos': typeof TodosRoute
+  '/': typeof AppIndexRoute
+  '/onboarding': typeof OnboardingRoute
+  '/identity': typeof AppIdentityRoute
+  '/insights': typeof AppInsightsRoute
+  '/scorecard': typeof AppScorecardRoute
+  '/settings': typeof AppSettingsRoute
+  '/tasks': typeof AppTasksRoute
+  '/you': typeof AppYouRoute
+  '/habits/new': typeof HabitsNewRoute
+  '/habits/$habitId': typeof AppHabitsHabitIdRoute
+  '/habits/$habitId/edit': typeof HabitsHabitIdEditRoute
+  '/habits/': typeof AppHabitsIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/checkhealth': typeof CheckhealthRoute
-  '/habits': typeof HabitsRoute
-  '/login': typeof LoginRoute
-  '/todos': typeof TodosRoute
+  '/onboarding': typeof OnboardingRoute
+  '/identity': typeof AppIdentityRoute
+  '/insights': typeof AppInsightsRoute
+  '/scorecard': typeof AppScorecardRoute
+  '/settings': typeof AppSettingsRoute
+  '/tasks': typeof AppTasksRoute
+  '/you': typeof AppYouRoute
+  '/habits/new': typeof HabitsNewRoute
+  '/': typeof AppIndexRoute
+  '/habits/$habitId': typeof AppHabitsHabitIdRoute
+  '/habits/$habitId/edit': typeof HabitsHabitIdEditRoute
+  '/habits': typeof AppHabitsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/checkhealth': typeof CheckhealthRoute
-  '/habits': typeof HabitsRoute
-  '/login': typeof LoginRoute
-  '/todos': typeof TodosRoute
+  '/_app': typeof AppRouteWithChildren
+  '/onboarding': typeof OnboardingRoute
+  '/_app/identity': typeof AppIdentityRoute
+  '/_app/insights': typeof AppInsightsRoute
+  '/_app/scorecard': typeof AppScorecardRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/_app/tasks': typeof AppTasksRoute
+  '/_app/you': typeof AppYouRoute
+  '/habits/new': typeof HabitsNewRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/habits/$habitId': typeof AppHabitsHabitIdRoute
+  '/habits/$habitId/edit': typeof HabitsHabitIdEditRoute
+  '/_app/habits/': typeof AppHabitsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
+  fullPaths:
+    | '/'
+    | '/onboarding'
+    | '/identity'
+    | '/insights'
+    | '/scorecard'
+    | '/settings'
+    | '/tasks'
+    | '/you'
+    | '/habits/new'
+    | '/habits/$habitId'
+    | '/habits/$habitId/edit'
+    | '/habits/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
-  id: '__root__' | '/' | '/checkhealth' | '/habits' | '/login' | '/todos'
+  to:
+    | '/onboarding'
+    | '/identity'
+    | '/insights'
+    | '/scorecard'
+    | '/settings'
+    | '/tasks'
+    | '/you'
+    | '/habits/new'
+    | '/'
+    | '/habits/$habitId'
+    | '/habits/$habitId/edit'
+    | '/habits'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/onboarding'
+    | '/_app/identity'
+    | '/_app/insights'
+    | '/_app/scorecard'
+    | '/_app/settings'
+    | '/_app/tasks'
+    | '/_app/you'
+    | '/habits/new'
+    | '/_app/'
+    | '/_app/habits/$habitId'
+    | '/habits/$habitId/edit'
+    | '/_app/habits/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  CheckhealthRoute: typeof CheckhealthRoute
-  HabitsRoute: typeof HabitsRoute
-  LoginRoute: typeof LoginRoute
-  TodosRoute: typeof TodosRoute
+  AppRoute: typeof AppRouteWithChildren
+  OnboardingRoute: typeof OnboardingRoute
+  HabitsNewRoute: typeof HabitsNewRoute
+  HabitsHabitIdEditRoute: typeof HabitsHabitIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/todos': {
-      id: '/todos'
-      path: '/todos'
-      fullPath: '/todos'
-      preLoaderRoute: typeof TodosRouteImport
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/habits': {
-      id: '/habits'
-      path: '/habits'
-      fullPath: '/habits'
-      preLoaderRoute: typeof HabitsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/checkhealth': {
-      id: '/checkhealth'
-      path: '/checkhealth'
-      fullPath: '/checkhealth'
-      preLoaderRoute: typeof CheckhealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/identity': {
+      id: '/_app/identity'
+      path: '/identity'
+      fullPath: '/identity'
+      preLoaderRoute: typeof AppIdentityRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/insights': {
+      id: '/_app/insights'
+      path: '/insights'
+      fullPath: '/insights'
+      preLoaderRoute: typeof AppInsightsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/scorecard': {
+      id: '/_app/scorecard'
+      path: '/scorecard'
+      fullPath: '/scorecard'
+      preLoaderRoute: typeof AppScorecardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/tasks': {
+      id: '/_app/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AppTasksRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/you': {
+      id: '/_app/you'
+      path: '/you'
+      fullPath: '/you'
+      preLoaderRoute: typeof AppYouRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/habits/new': {
+      id: '/habits/new'
+      path: '/habits/new'
+      fullPath: '/habits/new'
+      preLoaderRoute: typeof HabitsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/habits/': {
+      id: '/_app/habits/'
+      path: '/habits'
+      fullPath: '/habits/'
+      preLoaderRoute: typeof AppHabitsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/habits/$habitId': {
+      id: '/_app/habits/$habitId'
+      path: '/habits/$habitId'
+      fullPath: '/habits/$habitId'
+      preLoaderRoute: typeof AppHabitsHabitIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/habits/$habitId/edit': {
+      id: '/habits/$habitId/edit'
+      path: '/habits/$habitId/edit'
+      fullPath: '/habits/$habitId/edit'
+      preLoaderRoute: typeof HabitsHabitIdEditRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
 }
 
+interface AppRouteChildren {
+  AppIdentityRoute: typeof AppIdentityRoute
+  AppInsightsRoute: typeof AppInsightsRoute
+  AppScorecardRoute: typeof AppScorecardRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppTasksRoute: typeof AppTasksRoute
+  AppYouRoute: typeof AppYouRoute
+  AppIndexRoute: typeof AppIndexRoute
+  AppHabitsHabitIdRoute: typeof AppHabitsHabitIdRoute
+  AppHabitsIndexRoute: typeof AppHabitsIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppIdentityRoute: AppIdentityRoute,
+  AppInsightsRoute: AppInsightsRoute,
+  AppScorecardRoute: AppScorecardRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppTasksRoute: AppTasksRoute,
+  AppYouRoute: AppYouRoute,
+  AppIndexRoute: AppIndexRoute,
+  AppHabitsHabitIdRoute: AppHabitsHabitIdRoute,
+  AppHabitsIndexRoute: AppHabitsIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  CheckhealthRoute: CheckhealthRoute,
-  HabitsRoute: HabitsRoute,
-  LoginRoute: LoginRoute,
-  TodosRoute: TodosRoute,
+  AppRoute: AppRouteWithChildren,
+  OnboardingRoute: OnboardingRoute,
+  HabitsNewRoute: HabitsNewRoute,
+  HabitsHabitIdEditRoute: HabitsHabitIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -7,6 +7,14 @@
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
 			"outputs": ["dist/**"]
 		},
+		"build:artifact": {
+			"dependsOn": ["^build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": ["dist-artifact/**"]
+		},
+		"test": {
+			"dependsOn": ["^test"]
+		},
 		"lint": {
 			"dependsOn": ["^lint"]
 		},

@@ -1,0 +1,3 @@
+[install]
+# React Native / Metro expect a classic hoisted node_modules layout.
+linker = "hoisted"

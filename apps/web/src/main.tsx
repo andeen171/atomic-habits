@@ -1,21 +1,31 @@
-import { RouterProvider, createRouter } from "@tanstack/react-router";
-import ReactDOM from "react-dom/client";
-import Loader from "./components/loader";
+import { AtomicProvider } from "@atomic/core/react";
+import {
+	RouterProvider,
+	createHashHistory,
+	createMemoryHistory,
+	createRouter,
+} from "@tanstack/react-router";
+import { MotionConfig } from "motion/react";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { TooltipProvider } from "./components/ui/tooltip";
+import { connectArtifactCloud } from "./lib/artifact-cloud";
+import { appMessages } from "./lib/messages";
+import { registerServiceWorker } from "./lib/pwa";
+import { isArtifactBuild } from "./lib/runtime";
+import { store } from "./lib/store";
+import { syncController } from "./lib/sync";
+import { ThemeProvider } from "./lib/theme";
 import { routeTree } from "./routeTree.gen";
-
-import { QueryClientProvider } from "@tanstack/react-query";
-import { queryClient, trpc } from "./utils/trpc";
+import "./styles/index.css";
 
 const router = createRouter({
 	routeTree,
-	defaultPreload: "intent",
-	defaultPendingComponent: () => <Loader />,
-	context: { trpc, queryClient },
-	Wrap: function WrapComponent({ children }: { children: React.ReactNode }) {
-		return (
-			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-		);
-	},
+	// Hash history works in Tauri and static hosting; the Artifact viewer keeps
+	// navigation inside the page, so that build routes in memory.
+	history: isArtifactBuild ? createMemoryHistory({ initialEntries: ["/"] }) : createHashHistory(),
+	scrollRestoration: true,
+	defaultPreload: false,
 });
 
 declare module "@tanstack/react-router" {
@@ -24,13 +34,25 @@ declare module "@tanstack/react-router" {
 	}
 }
 
-const rootElement = document.getElementById("app");
+const deviceLocales = typeof navigator !== "undefined" ? [...navigator.languages] : [];
 
-if (!rootElement) {
-	throw new Error("Root element not found");
-}
+void syncController.start();
+registerServiceWorker();
+if (isArtifactBuild) void connectArtifactCloud(store);
 
-if (!rootElement.innerHTML) {
-	const root = ReactDOM.createRoot(rootElement);
-	root.render(<RouterProvider router={router} />);
-}
+const root = document.getElementById("app");
+if (!root) throw new Error("Missing #app root element");
+
+createRoot(root).render(
+	<StrictMode>
+		<AtomicProvider store={store} deviceLocales={deviceLocales} messages={appMessages}>
+			<ThemeProvider>
+				<MotionConfig reducedMotion="user">
+					<TooltipProvider delayDuration={300} skipDelayDuration={200}>
+						<RouterProvider router={router} />
+					</TooltipProvider>
+				</MotionConfig>
+			</ThemeProvider>
+		</AtomicProvider>
+	</StrictMode>,
+);

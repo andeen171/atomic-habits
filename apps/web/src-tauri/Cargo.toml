@@ -1,8 +1,8 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "1.0.0"
+description = "Atomic — tiny habits, remarkable results"
+authors = ["andeen"]
 license = ""
 repository = ""
 edition = "2021"

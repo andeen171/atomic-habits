@@ -1,40 +1,71 @@
 {
 	"expo": {
-		"name": "my-better-t-app",
-		"slug": "my-better-t-app",
+		"name": "Atomic",
+		"slug": "atomic-habits",
+		"owner": "andeen",
 		"version": "1.0.0",
-		"scheme": "my-better-t-app",
-		"web": {
-			"bundler": "metro",
-			"output": "static",
-			"favicon": "./assets/favicon.png"
-		},
-		"plugins": ["expo-router", "expo-secure-store", "expo-web-browser"],
-		"experiments": {
-			"typedRoutes": true,
-			"tsconfigPaths": true
-		},
-		"newArchEnabled": true,
+		"scheme": "atomic",
 		"orientation": "portrait",
+		"userInterfaceStyle": "automatic",
+		"primaryColor": "#EE5A2F",
+		"backgroundColor": "#F6F3EE",
 		"icon": "./assets/icon.png",
-		"userInterfaceStyle": "light",
-		"splash": {
-			"image": "./assets/splash.png",
-			"resizeMode": "contain",
-			"backgroundColor": "#ffffff"
-		},
-		"assetBundlePatterns": ["**/*"],
 		"ios": {
+			"bundleIdentifier": "dev.andeen.atomic",
 			"supportsTablet": true,
-			"bundleIdentifier": "com.amanvarshney01.mybettertapp"
+			"infoPlist": {
+				"ITSAppUsesNonExemptEncryption": false
+			}
 		},
 		"android": {
+			"package": "dev.andeen.atomic",
 			"adaptiveIcon": {
 				"foregroundImage": "./assets/adaptive-icon.png",
-				"backgroundColor": "#ffffff"
+				"monochromeImage": "./assets/adaptive-icon-monochrome.png",
+				"backgroundColor": "#1B1814"
 			},
-			"package": "com.amanvarshney01.mybettertapp",
-			"edgeToEdgeEnabled": true
+			"softwareKeyboardLayoutMode": "resize"
+		},
+		"web": {
+			"bundler": "metro",
+			"output": "single",
+			"favicon": "./assets/favicon.png"
+		},
+		"plugins": [
+			"expo-router",
+			[
+				"expo-splash-screen",
+				{
+					"image": "./assets/splash-icon.png",
+					"imageWidth": 120,
+					"backgroundColor": "#F6F3EE",
+					"dark": {
+						"image": "./assets/splash-icon-dark.png",
+						"backgroundColor": "#0F0E0C"
+					}
+				}
+			],
+			"expo-font",
+			"expo-sqlite",
+			"expo-secure-store",
+			"expo-localization",
+			[
+				"expo-notifications",
+				{
+					"icon": "./assets/notification-icon.png",
+					"color": "#EE5A2F"
+				}
+			],
+			"expo-system-ui"
+		],
+		"experiments": {
+			"typedRoutes": true
+		},
+		"extra": {
+			"router": {},
+			"eas": {
+				"projectId": "53215f97-f293-46ab-947a-b033f4cb9eb1"
+			}
 		}
 	}
 }

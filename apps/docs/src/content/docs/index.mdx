@@ -1,36 +1,45 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
+title: Atomic
+description: Tiny habits. Remarkable results. A local-first habit and task app inspired by Atomic Habits.
 template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
+  title: Tiny habits. Remarkable results.
+  tagline: Atomic helps you build good habits and break bad ones with the four laws of behavior change — on the web, on your desktop and on your phone.
   image:
-    file: ../../assets/houston.webp
+    file: ../../assets/logo.svg
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Get started
+      link: /guides/getting-started/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
+    - text: The method
+      link: /guides/method/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/andeen171/atomic-habits
       icon: external
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
-
-## Next steps
+import { Card, CardGrid } from "@astrojs/starlight/components";
 
 <CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
+	<Card title="Identity first" icon="star">
+		Every completion is a **vote** for who you are becoming. Link habits to identities like
+		“I am a reader” and watch the evidence pile up.
 	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
+	<Card title="The four laws, built in" icon="puzzle">
+		Make it obvious, attractive, easy and satisfying — the habit editor walks you through
+		implementation intentions, habit stacking, the two-minute rule and rewards.
 	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
+	<Card title="Never miss twice" icon="approve-check-circle">
+		Streaks survive a single miss. Miss once and Atomic nudges you back on track; only two
+		misses in a row start over.
 	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
+	<Card title="Local-first, everywhere" icon="laptop">
+		Works offline on web, desktop (Tauri) and mobile (Expo). Optional self-hosted sync keeps
+		your devices together.
 	</Card>
 </CardGrid>
+
+> Atomic is inspired by *Atomic Habits* by James Clear and is not affiliated with the author or
+> publisher.

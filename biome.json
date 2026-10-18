@@ -1,27 +1,32 @@
 {
 	"$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
 	"vcs": {
-		"enabled": false,
+		"enabled": true,
 		"clientKind": "git",
-		"useIgnoreFile": false
+		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false,
+		"ignoreUnknown": true,
 		"ignore": [
-			".next",
 			"dist",
-			".turbo",
+			"dist-artifact",
 			"dev-dist",
-			".zed",
-			".vscode",
+			".turbo",
+			".expo",
+			".cache",
+			"android",
+			"ios",
 			"routeTree.gen.ts",
 			"src-tauri",
-			".nuxt"
+			"src/db/migrations",
+			".astro",
+			".idea"
 		]
 	},
 	"formatter": {
 		"enabled": true,
-		"indentStyle": "tab"
+		"indentStyle": "tab",
+		"lineWidth": 100
 	},
 	"organizeImports": {
 		"enabled": true
@@ -42,8 +47,7 @@
 					}
 				}
 			}
-		},
-		"ignore": ["**/.astro/content.d.ts"]
+		}
 	},
 	"javascript": {
 		"formatter": {
