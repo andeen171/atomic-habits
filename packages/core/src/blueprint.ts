@@ -44,10 +44,15 @@ export function blueprintLines(habit: Habit, t: Translator): BlueprintLine[] {
 	if (habit.environment) add(1, t.t("blueprint.environment", { environment: habit.environment }));
 	if (habit.bundle)
 		add(2, t.t("blueprint.bundle", { habit: name, bundle: inSentence(habit.bundle) }));
-	if (habit.why) add(2, t.t("blueprint.why", { why: inSentence(habit.why) }));
+	if (habit.why) add(2, t.t("blueprint.why", { why: inSentence(withoutGetTo(habit.why)) }));
 	if (habit.twoMinute) add(3, t.t("blueprint.twoMinute", { twoMinute: habit.twoMinute }));
 	if (habit.reward) add(4, t.t("blueprint.reward", { reward: habit.reward }));
 	return lines;
+}
+
+/** "I get to read" typed into the field shouldn't read "I get to I get to read". */
+function withoutGetTo(value: string): string {
+	return value.replace(/^\s*(i get to|eu tenho a oportunidade de)\s+/i, "");
 }
 
 export function identityLine(identity: Identity | undefined, t: Translator): string | null {

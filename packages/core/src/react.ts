@@ -175,10 +175,13 @@ export function useScorecard(): ScorecardItem[] {
 		() =>
 			Object.values(items)
 				.filter((i) => !i.deletedAt)
-				.sort((a, b) => {
-					if (a.time && b.time && a.time !== b.time) return a.time.localeCompare(b.time);
-					return a.order - b.order;
-				}),
+				// Timed behaviors in time order, then untimed ones in manual order.
+				.sort(
+					(a, b) =>
+						(a.time ?? "99:99").localeCompare(b.time ?? "99:99") ||
+						a.order - b.order ||
+						a.createdAt - b.createdAt,
+				),
 		[items],
 	);
 }

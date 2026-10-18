@@ -361,3 +361,29 @@ describe("tasks", () => {
 		expect(tasksForDay([overdueDone, overdueOld], TODAY, TODAY).map((t) => t.id)).toEqual(["a"]);
 	});
 });
+
+describe("copy and import", () => {
+	test("a why that already starts with “I get to” isn't doubled", async () => {
+		const { blueprintLines } = await import("../src/blueprint");
+		const { createTranslator } = await import("../src/i18n");
+		const h = habit({ why: "I get to feel strong" });
+		const lines = blueprintLines(h, createTranslator("en")).map((l) => l.text);
+		expect(lines).toContain("I get to feel strong.");
+	});
+
+	test("merging a backup restores its profile and appearance settings", () => {
+		const source = makeStore();
+		source
+			.getState()
+			.actions.updateSettings({ displayName: "Ana", locale: "pt-BR", weekStartsOn: 0 });
+		const file = JSON.parse(JSON.stringify(source.getState().actions.exportData()));
+		const target = makeStore();
+		target.getState().actions.updateSettings({ serverUrl: "https://sync.example.com" });
+		target.getState().actions.importData(file, "merge");
+		const { settings } = target.getState();
+		expect(settings.displayName).toBe("Ana");
+		expect(settings.locale).toBe("pt-BR");
+		expect(settings.weekStartsOn).toBe(0);
+		expect(settings.serverUrl).toBe("https://sync.example.com");
+	});
+});

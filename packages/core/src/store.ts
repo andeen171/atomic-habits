@@ -563,11 +563,13 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 								}
 								(data as Record<Collection, unknown>)[collection] = records;
 							}
-							return {
-								data,
-								settings: { ...state.settings, onboarded: true },
-								sync: { ...state.sync, pending },
-							};
+							// A backup's profile and appearance settings come back with it.
+							const settings = settingsSchema.parse({
+								...state.settings,
+								...incoming.settings,
+								onboarded: true,
+							});
+							return { data, settings, sync: { ...state.sync, pending } };
 						});
 						return { ok: true, imported };
 					},

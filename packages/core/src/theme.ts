@@ -25,6 +25,8 @@ export interface Palette {
 	textSubtle: string;
 	accent: string;
 	accentHover: string;
+	/** Accent for small text and links on bg/surface (AA contrast). */
+	accentText: string;
 	accentSoft: string;
 	onAccent: string;
 	success: string;
@@ -51,18 +53,19 @@ export const palettes: Record<ColorScheme, Palette> = {
 		borderStrong: "#D3CBBF",
 		text: "#1B1814",
 		textMuted: "#6A6259",
-		textSubtle: "#9B9288",
-		accent: "#EE5A2F",
-		accentHover: "#DA4C23",
+		textSubtle: "#736B61",
+		accent: "#D0461F",
+		accentHover: "#B83D14",
+		accentText: "#B5401A",
 		accentSoft: "#FCE5DC",
 		onAccent: "#FFFFFF",
-		success: "#2A9D6A",
+		success: "#1B7F52",
 		successSoft: "#DDF2E8",
-		warning: "#D48A0C",
+		warning: "#9A6200",
 		warningSoft: "#FBEFD5",
-		danger: "#D63C3C",
+		danger: "#C53030",
 		dangerSoft: "#FADEDE",
-		ring: "#EE5A2F",
+		ring: "#D0461F",
 		scrim: "rgba(27, 24, 20, 0.45)",
 		heat0: "#ECE7DF",
 	},
@@ -75,11 +78,13 @@ export const palettes: Record<ColorScheme, Palette> = {
 		borderStrong: "#3B3631",
 		text: "#F5F1EA",
 		textMuted: "#A79E93",
-		textSubtle: "#71695F",
+		textSubtle: "#8C8378",
 		accent: "#FF6B3D",
 		accentHover: "#FF8259",
+		accentText: "#FF8A63",
 		accentSoft: "#3A1E14",
-		onAccent: "#FFFFFF",
+		// Ink on the bright dark-mode accent: white would be under 3:1.
+		onAccent: "#1B1814",
 		success: "#3DBE84",
 		successSoft: "#14301F",
 		warning: "#F2B33D",
