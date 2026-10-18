@@ -4,6 +4,7 @@ import {
 	Field,
 	type IdentityChoice,
 	IdentityPicker,
+	KindSummary,
 	KindToggle,
 	ScheduleField,
 	TemplatePicker,
@@ -12,7 +13,7 @@ import {
 } from "@/components/editor/fields";
 import { BlueprintCard } from "@/components/habit/blueprint-card";
 import { HabitRing } from "@/components/habit/habit-ring";
-import { ArrowLeft, ArrowRight, Check, X } from "@/components/icons";
+import { ArrowLeft, ArrowRight, BellRing, Check, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
@@ -26,7 +27,7 @@ import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
-import { requestNotificationPermission } from "@/lib/reminders";
+import { useNotificationPermission } from "@/lib/reminders";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
 import {
@@ -161,6 +162,7 @@ export default function HabitEditorScreen() {
 	const scroll = useRef<ScrollView>(null);
 	const templates = useMemo(() => habitTemplates(t.locale), [t.locale]);
 	const isEdit = Boolean(existing);
+	const { permission, request: requestNotifications } = useNotificationPermission();
 
 	const [draft, setDraft] = useState<Draft>(() => {
 		if (existing) return fromHabit(existing);
@@ -242,9 +244,9 @@ export default function HabitEditorScreen() {
 		let identityId: string | null = null;
 		if (draft.identity.mode === "existing") identityId = draft.identity.id;
 		if (draft.identity.mode === "new" && draft.identity.statement.trim()) {
+			// No emoji: the identity gets the 🌱 default the review step previews.
 			identityId = actions.createIdentity({
 				statement: draft.identity.statement.trim(),
-				emoji: draft.emoji,
 				color: draft.color,
 			}).id;
 		}
@@ -266,7 +268,7 @@ export default function HabitEditorScreen() {
 			return;
 		}
 		if (Platform.OS !== "web") {
-			const granted = await requestNotificationPermission();
+			const granted = await requestNotifications();
 			if (!granted) {
 				showToast(t.t("settings.remindersDenied"), { tone: "danger" });
 				return;
@@ -294,9 +296,15 @@ export default function HabitEditorScreen() {
 	// ── Sections ──────────────────────────────────────────────
 	const whatSection = (
 		<View style={styles.section}>
-			<Field label={t.t("form.kind")}>
-				<KindToggle value={draft.kind} onChange={(kind) => set("kind", kind)} />
-			</Field>
+			{isEdit ? (
+				<Field label={t.t("form.kind")} hint={t.x("editor.kindLocked")}>
+					<KindSummary value={draft.kind} />
+				</Field>
+			) : (
+				<Field label={t.t("form.kind")}>
+					<KindToggle value={draft.kind} onChange={(kind) => set("kind", kind)} />
+				</Field>
+			)}
 			<TextField
 				label={t.t("form.name")}
 				value={draft.name}
@@ -394,6 +402,18 @@ export default function HabitEditorScreen() {
 						<Text variant="small" tone="muted">
 							{draft.cueTime ? t.t("form.reminderHint") : t.t("form.reminderNeedsTime")}
 						</Text>
+						{/* An imported or synced reminder can be on without the permission to deliver it. */}
+						{draft.reminder && draft.cueTime && permission?.granted === false ? (
+							<Button
+								label={t.x("settings.remindersEnable")}
+								icon={BellRing}
+								variant="secondary"
+								size="sm"
+								onPress={() => void requestNotifications()}
+								style={styles.allow}
+								testID="editor-allow-notifications"
+							/>
+						) : null}
 					</View>
 					<Switch
 						value={draft.reminder && Boolean(draft.cueTime)}
@@ -748,6 +768,7 @@ const useStyles = makeStyles((t) => ({
 	progressFill: { height: 4, borderRadius: 2, backgroundColor: t.colors.accent },
 	section: { gap: 20 },
 	reminder: { flexDirection: "row", alignItems: "center", gap: 12 },
+	allow: { alignSelf: "flex-start", marginTop: 8 },
 	goalRow: { flexDirection: "row", alignItems: "center", gap: 14 },
 	footerRow: { flexDirection: "row", gap: 10 },
 }));

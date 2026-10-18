@@ -26,7 +26,7 @@ export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {
 			accessibilityRole="summary"
 		>
 			<View style={[styles.icon, { backgroundColor: colors.warning }]}>
-				<TriangleAlert size={16} color="#FFFFFF" strokeWidth={2.4} />
+				<TriangleAlert size={16} color={colors.onAccent} strokeWidth={2.4} />
 			</View>
 			<View style={styles.text}>
 				<Text weight="semibold">{t.t("nmt.title")}</Text>

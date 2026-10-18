@@ -1,6 +1,6 @@
 import { haptics } from "@/lib/haptics";
 import { useTheme } from "@/lib/theme";
-import { motion } from "@atomic/core/theme";
+import { motion, palettes } from "@atomic/core/theme";
 import { Pressable } from "react-native";
 import Animated, {
 	interpolateColor,
@@ -29,7 +29,7 @@ export function Switch({
 	disabled,
 	testID,
 }: SwitchProps) {
-	const { colors } = useTheme();
+	const { colors, knob } = useTheme();
 	const progress = useDerivedValue(() => withSpring(value ? 1 : 0, motion.spring), [value]);
 	const trackStyle = useAnimatedStyle(() => ({
 		backgroundColor: interpolateColor(progress.value, [0, 1], [colors.borderStrong, colors.accent]),
@@ -60,8 +60,8 @@ export function Switch({
 							width: KNOB,
 							height: KNOB,
 							borderRadius: KNOB / 2,
-							backgroundColor: "#FFFFFF",
-							shadowColor: "#000000",
+							backgroundColor: knob,
+							shadowColor: palettes.dark.bg,
 							shadowOpacity: 0.18,
 							shadowRadius: 3,
 							shadowOffset: { width: 0, height: 1 },

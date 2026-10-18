@@ -6,6 +6,7 @@ import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
 import { type AgendaItem, type DayKey, progressLabel, streakLabel } from "@atomic/core";
+import { useToday } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
@@ -27,6 +28,7 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	const { colors } = useTheme();
 	const styles = useStyles();
 	const logger = useHabitLog();
+	const today = useToday();
 	const [shakeKey, setShakeKey] = useState(0);
 	const { habit, count, streak, state } = item;
 	const isBreak = habit.kind === "break";
@@ -46,7 +48,10 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	};
 
 	const secondary = (() => {
-		if (isBreak) return count > 0 ? t.t("habit.slipped") : streakLabel(habit, streak, t);
+		if (isBreak) {
+			if (count === 0) return streakLabel(habit, streak, t);
+			return day === today ? t.t("habit.slipped") : t.t("habit.slippedDay");
+		}
 		if (state === "skipped") return t.t("habit.skipped");
 		if (state === "rest") return t.x("habit.restDay");
 		if (habit.schedule.type === "weekly") {
@@ -77,7 +82,7 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 
 	const showStreak = !isBreak && (streak.current > 0 || streak.atRisk);
 	const hot = streak.current >= 3;
-	const chipColor = streak.atRisk ? colors.warning : hot ? colors.accent : colors.textMuted;
+	const chipColor = streak.atRisk ? colors.warning : hot ? colors.accentText : colors.textMuted;
 	const chipBg = streak.atRisk ? colors.warningSoft : hot ? colors.accentSoft : colors.sunken;
 	const shortStreak = t.t(streak.unit === "weeks" ? "streak.short.weeks" : "streak.short.days", {
 		count: t.number(streak.current),
@@ -88,89 +93,90 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 			entering={FadeIn.duration(220)}
 			exiting={FadeOut.duration(160)}
 			layout={LinearTransition.springify().damping(20)}
-			style={[!first && styles.separator, dimmed && styles.dimmed]}
+			style={!first && styles.separator}
 		>
-			<Pressable
-				testID={`habit-row-${habit.id}`}
-				onPress={() => router.push({ pathname: "/habit/[id]", params: { id: habit.id } })}
-				onLongPress={openActions}
-				delayLongPress={350}
-				accessibilityRole="button"
-				accessibilityLabel={habit.name}
-				accessibilityHint={t.t("habit.viewDetails")}
-				accessibilityActions={[
-					{ name: "activate" },
-					{ name: "longpress", label: t.t("common.more") },
-				]}
-				onAccessibilityAction={(event) => {
-					if (event.nativeEvent.actionName === "longpress") openActions();
-				}}
-				style={({ pressed }) => [
-					styles.row,
-					first && styles.firstRow,
-					last && styles.lastRow,
-					pressed && { backgroundColor: colors.hover },
-				]}
-			>
-				<View style={styles.body}>
-					<Text
-						weight="medium"
-						numberOfLines={2}
-						style={item.done && !isBreak ? styles.doneName : undefined}
-					>
-						{habit.name}
-					</Text>
-					{secondary ? (
-						<Text
-							variant="small"
-							tone={isBreak && count > 0 ? "danger" : "muted"}
-							italic={italic}
-							numberOfLines={1}
-						>
-							{secondary}
-						</Text>
-					) : null}
-				</View>
-				{showStreak ? (
-					<View
-						style={[styles.chip, { backgroundColor: chipBg }]}
-						accessible
-						accessibilityLabel={
-							streak.atRisk
-								? `${t.t("streak.atRisk")}, ${streakLabel(habit, streak, t)}`
-								: streakLabel(habit, streak, t)
-						}
-					>
-						{streak.atRisk ? (
-							<TriangleAlert size={13} color={chipColor} strokeWidth={2.4} />
-						) : (
-							<Flame
-								size={13}
-								color={chipColor}
-								strokeWidth={2.4}
-								fill={hot ? chipColor : "transparent"}
-							/>
-						)}
-						<Text variant="tiny" weight="bold" color={chipColor} tabular>
-							{shortStreak}
-						</Text>
-					</View>
-				) : null}
-			</Pressable>
-			{/* Sibling (not nested) so web never renders a button inside a button. */}
-			<View style={styles.ringSlot} pointerEvents="box-none">
-				<HabitRing
-					testID={`habit-ring-${habit.id}`}
-					habit={habit}
-					count={count}
-					progress={item.progress}
-					state={state}
-					size={RING}
-					onPress={onRingPress}
+			{/* Dimming lives on an inner view: the entering fade animates the outer view's opacity. */}
+			<View style={dimmed && styles.dimmed}>
+				<Pressable
+					testID={`habit-row-${habit.id}`}
+					onPress={() => router.push({ pathname: "/habit/[id]", params: { id: habit.id } })}
 					onLongPress={openActions}
-					shakeKey={shakeKey}
-					accessibilityLabel={ringLabel}
-				/>
+					delayLongPress={350}
+					accessibilityRole="button"
+					accessibilityLabel={habit.name}
+					accessibilityHint={t.t("habit.viewDetails")}
+					// No custom "activate": declaring it makes TalkBack/VoiceOver swallow the default click.
+					accessibilityActions={[{ name: "longpress", label: t.t("common.more") }]}
+					onAccessibilityAction={(event) => {
+						if (event.nativeEvent.actionName === "longpress") openActions();
+					}}
+					style={({ pressed }) => [
+						styles.row,
+						first && styles.firstRow,
+						last && styles.lastRow,
+						pressed && { backgroundColor: colors.hover },
+					]}
+				>
+					<View style={styles.body}>
+						<Text
+							weight="medium"
+							numberOfLines={2}
+							style={item.done && !isBreak ? styles.doneName : undefined}
+						>
+							{habit.name}
+						</Text>
+						{secondary ? (
+							<Text
+								variant="small"
+								tone={isBreak && count > 0 ? "danger" : "muted"}
+								italic={italic}
+								numberOfLines={1}
+							>
+								{secondary}
+							</Text>
+						) : null}
+					</View>
+					{showStreak ? (
+						<View
+							style={[styles.chip, { backgroundColor: chipBg }]}
+							accessible
+							accessibilityLabel={
+								streak.atRisk
+									? `${t.t("streak.atRisk")}, ${streakLabel(habit, streak, t)}`
+									: streakLabel(habit, streak, t)
+							}
+						>
+							{streak.atRisk ? (
+								<TriangleAlert size={13} color={chipColor} strokeWidth={2.4} />
+							) : (
+								<Flame
+									size={13}
+									color={chipColor}
+									strokeWidth={2.4}
+									fill={hot ? chipColor : "transparent"}
+								/>
+							)}
+							<Text variant="tiny" weight="bold" color={chipColor} tabular>
+								{shortStreak}
+							</Text>
+						</View>
+					) : null}
+				</Pressable>
+				{/* Sibling (not nested) so web never renders a button inside a button. */}
+				<View style={styles.ringSlot} pointerEvents="box-none">
+					<HabitRing
+						testID={`habit-ring-${habit.id}`}
+						habit={habit}
+						count={count}
+						progress={item.progress}
+						state={state}
+						size={RING}
+						onPress={onRingPress}
+						onLongPress={openActions}
+						shakeKey={shakeKey}
+						accessibilityLabel={ringLabel}
+					/>
+				</View>
 			</View>
 		</Animated.View>
 	);

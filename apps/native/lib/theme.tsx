@@ -29,6 +29,10 @@ export type HabitTone = ReturnType<typeof habitColor>;
 export interface Theme {
 	scheme: ColorScheme;
 	colors: Palette;
+	/** The other scheme's palette, for inverted surfaces such as toasts (ink in light mode). */
+	inverse: Palette;
+	/** Switch knob: always a light disc on either track color. */
+	knob: string;
 	habit: (color: HabitColor) => HabitTone;
 	/** Very soft elevation for cards in light mode; nothing in dark mode. */
 	cardShadow: ViewStyle;
@@ -42,10 +46,13 @@ export interface Theme {
 function buildTheme(scheme: ColorScheme): Theme {
 	const colors = palettes[scheme];
 	const ink = palettes.light.text;
+	const inverse = palettes[scheme === "light" ? "dark" : "light"];
 	const tones = new Map<HabitColor, HabitTone>();
 	return {
 		scheme,
 		colors,
+		inverse,
+		knob: palettes.light.surface,
 		habit(color) {
 			let tone = tones.get(color);
 			if (!tone) {
@@ -65,7 +72,7 @@ function buildTheme(scheme: ColorScheme): Theme {
 					}
 				: {},
 		floatShadow: {
-			shadowColor: scheme === "light" ? ink : "#000000",
+			shadowColor: scheme === "light" ? ink : palettes.dark.bg,
 			shadowOpacity: scheme === "light" ? 0.12 : 0.5,
 			shadowRadius: 24,
 			shadowOffset: { width: 0, height: 8 },

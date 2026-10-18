@@ -5,6 +5,7 @@ import { useT } from "@/lib/i18n";
 import { useKeyboardHeight } from "@/lib/keyboard";
 import { useReduceMotion } from "@/lib/motion";
 import { makeStyles, useTheme } from "@/lib/theme";
+import { ui } from "@/lib/ui-store";
 import { type ReactNode, useEffect, useState } from "react";
 import {
 	BackHandler,
@@ -82,6 +83,7 @@ function SheetFrame({
 	footer,
 	scroll,
 	closeButton,
+	inline,
 	testID,
 }: SheetProps & { onExited: () => void }) {
 	const { colors } = useTheme();
@@ -109,6 +111,12 @@ function SheetFrame({
 			},
 		);
 	}, [open]);
+
+	// Lets the toast host and the portal (screen-reader modality) know a sheet is up.
+	useEffect(() => {
+		if (!open) return;
+		return ui.trackSheet(Boolean(inline));
+	}, [open, inline]);
 
 	// Android back button closes the sheet; on web, Escape does.
 	useEffect(() => {
@@ -203,6 +211,7 @@ function SheetFrame({
 					style={[styles.sheet, sheetStyle]}
 					onLayout={onLayout}
 					accessibilityViewIsModal
+					importantForAccessibility="yes"
 				>
 					{scroll ? (
 						<>

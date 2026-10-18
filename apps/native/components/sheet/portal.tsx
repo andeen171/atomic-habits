@@ -1,3 +1,4 @@
+import { useUI } from "@/lib/ui-store";
 import {
 	Fragment,
 	type ReactNode,
@@ -21,7 +22,17 @@ const PortalContext = createContext<PortalApi | null>(null);
  * Renders portal content above the navigator (sheets, toasts, confetti) while
  * staying inside every app-level provider and the gesture root.
  */
-export function PortalProvider({ children }: { children: ReactNode }) {
+export function PortalProvider({
+	children,
+	overlay,
+}: {
+	children: ReactNode;
+	/** Drawn above sheets and never hidden from screen readers (toasts). */
+	overlay?: ReactNode;
+}) {
+	// accessibilityViewIsModal is iOS-only: on Android, hide the app behind an open
+	// portal sheet from TalkBack so focus can't wander to the screen or tab bar.
+	const modal = useUI((s) => s.openPortalSheets > 0);
 	const [items, setItems] = useState<readonly (readonly [string, ReactNode])[]>([]);
 	const api = useMemo<PortalApi>(
 		() => ({
@@ -39,12 +50,21 @@ export function PortalProvider({ children }: { children: ReactNode }) {
 	);
 	return (
 		<PortalContext.Provider value={api}>
-			{children}
+			{/* collapsable={false}: toggling the accessibility flag must never flatten or
+			    unflatten this view, which would re-parent (and re-attach) the navigator. */}
+			<View
+				collapsable={false}
+				style={styles.app}
+				importantForAccessibility={modal ? "no-hide-descendants" : "auto"}
+			>
+				{children}
+			</View>
 			<View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
 				{items.map(([key, node]) => (
 					<Fragment key={key}>{node}</Fragment>
 				))}
 			</View>
+			{overlay}
 		</PortalContext.Provider>
 	);
 }
@@ -58,3 +78,5 @@ export function Portal({ children }: { children: ReactNode }) {
 	useLayoutEffect(() => () => api?.remove(key), [api, key]);
 	return null;
 }
+
+const styles = StyleSheet.create({ app: { flex: 1 } });

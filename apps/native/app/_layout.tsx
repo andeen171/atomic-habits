@@ -103,11 +103,10 @@ function AppShell({ fontsReady }: { fontsReady: boolean }) {
 
 	return (
 		<NavigationThemeProvider value={navigationTheme}>
-			<PortalProvider>
+			<PortalProvider overlay={<ToastHost />}>
 				<AppNavigator />
 				<GlobalSheets />
 				<Celebration />
-				<ToastHost />
 			</PortalProvider>
 			<StatusBar style={barStyle} />
 			<NavigationBar style={barStyle} />

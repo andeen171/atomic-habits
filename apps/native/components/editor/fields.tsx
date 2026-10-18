@@ -100,6 +100,32 @@ export function KindToggle({
 	);
 }
 
+/** Read-only kind for existing habits: past logs mean different things for build and break. */
+export function KindSummary({ value }: { value: HabitKind }) {
+	const t = useT();
+	const { colors } = useTheme();
+	const styles = useStyles();
+	const Icon = value === "build" ? Sprout : ShieldOff;
+	return (
+		<View
+			testID="kind-summary"
+			accessible
+			accessibilityLabel={`${t.t("form.kind")}: ${t.t(`form.kind.${value}`)}`}
+			style={styles.kindSummary}
+		>
+			<View style={[styles.kindIcon, styles.kindSummaryIcon, { backgroundColor: colors.sunken }]}>
+				<Icon size={18} color={colors.textMuted} strokeWidth={2} />
+			</View>
+			<View style={{ flex: 1, gap: 2 }}>
+				<Text weight="semibold">{t.t(`form.kind.${value}`)}</Text>
+				<Text variant="small" tone="muted">
+					{t.t(value === "build" ? "form.kind.buildHint" : "form.kind.breakHint")}
+				</Text>
+			</View>
+		</View>
+	);
+}
+
 export function EmojiPicker({
 	value,
 	onChange,
@@ -161,7 +187,7 @@ export function ColorPicker({
 	onChange,
 }: { value: HabitColor; onChange: (color: HabitColor) => void }) {
 	const t = useT();
-	const { habit: toneOf } = useTheme();
+	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
 	return (
 		<View
@@ -186,7 +212,7 @@ export function ColorPicker({
 						style={[styles.swatchRing, selected && { borderColor: tone.fill }]}
 					>
 						<View style={[styles.swatch, { backgroundColor: tone.fill }]}>
-							{selected ? <Check size={14} color="#FFFFFF" strokeWidth={3} /> : null}
+							{selected ? <Check size={14} color={colors.onAccent} strokeWidth={3} /> : null}
 						</View>
 					</Pressable>
 				);
@@ -571,6 +597,17 @@ const useStyles = makeStyles((t) => ({
 		justifyContent: "center",
 		marginBottom: 6,
 	},
+	kindSummary: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 12,
+		padding: 14,
+		borderRadius: t.radii.lg,
+		borderWidth: 1.5,
+		borderColor: t.colors.border,
+		backgroundColor: t.colors.bg,
+	},
+	kindSummaryIcon: { marginBottom: 0 },
 	emojiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
 	emojiCell: {
 		width: 42,

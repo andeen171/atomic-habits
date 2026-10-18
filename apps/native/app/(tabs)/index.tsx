@@ -17,7 +17,7 @@ import { useT } from "@/lib/i18n";
 import { claimCelebration } from "@/lib/prefs";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
-import { type AgendaItem, TIMES_OF_DAY, greetingKey } from "@atomic/core";
+import { type AgendaItem, type AtomicData, TIMES_OF_DAY, greetingKey } from "@atomic/core";
 import { useActions, useAtomic, useDayAgenda, useToday } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -33,6 +33,10 @@ export default function TodayScreen() {
 	const agenda = useDayAgenda(day);
 	const name = useAtomic((s) => s.settings.displayName.trim());
 	const isToday = day === today;
+	const hasData = useAtomic((s) => hasAnyData(s.data));
+	const allArchived = useAtomic((s) =>
+		Object.values(s.data.habits).some((h) => !h.deletedAt && h.archivedAt),
+	);
 
 	// Follow midnight rollover when the user was looking at "today".
 	const lastToday = useRef(today);
@@ -75,27 +79,63 @@ export default function TodayScreen() {
 	if (agenda.empty) {
 		return (
 			<Screen tab testID="today-screen">
-				<Header eyebrow={eyebrow} title={title} />
-				<EmptyState
-					testID="today-empty"
-					title={t.t("today.emptyTitle")}
-					body={t.t("today.emptyBody")}
-					action={
-						<Button
-							label={t.t("today.emptyCta")}
-							size="lg"
-							onPress={() => router.push("/habit/editor")}
-							testID="empty-create-habit"
-						/>
-					}
-					secondary={
-						<Button
-							label={t.t("onboarding.explore")}
-							variant="ghost"
-							onPress={() => actions.loadDemoData(t.locale)}
-						/>
-					}
+				<Header
+					eyebrow={eyebrow}
+					title={title}
+					onBack={isToday ? undefined : () => setDay(today)}
 				/>
+				{allArchived ? (
+					<EmptyState
+						testID="today-all-archived"
+						title={t.t("today.allArchivedTitle")}
+						body={t.t("today.allArchivedBody")}
+						action={
+							<Button
+								label={t.x("today.viewArchived")}
+								size="lg"
+								onPress={() => {
+									ui.showHabitsFilter("archived");
+									router.navigate("/habits");
+								}}
+								testID="today-view-archived"
+							/>
+						}
+						secondary={
+							<Button
+								label={t.t("habits.new")}
+								variant="ghost"
+								onPress={() => router.push("/habit/editor")}
+								testID="empty-create-habit"
+							/>
+						}
+					/>
+				) : (
+					<EmptyState
+						testID="today-empty"
+						title={t.t("today.emptyTitle")}
+						body={t.t("today.emptyBody")}
+						action={
+							<Button
+								label={t.t("today.emptyCta")}
+								size="lg"
+								onPress={() => router.push("/habit/editor")}
+								testID="empty-create-habit"
+							/>
+						}
+						secondary={
+							// Sample data replaces everything, so it is only offered on a blank slate.
+							hasData ? null : (
+								<Button
+									label={t.t("onboarding.explore")}
+									variant="ghost"
+									onPress={() => actions.loadDemoData(t.locale)}
+									testID="today-explore"
+								/>
+							)
+						}
+					/>
+				)}
+				<TodayTasks day={day} />
 				<PrincipleCard day={day} />
 			</Screen>
 		);
@@ -127,10 +167,12 @@ export default function TodayScreen() {
 
 			{nothingDue ? (
 				<Card tone="sunken" padding={18} style={styles.block}>
-					<Text variant="h3">{t.t("today.nothingDue")}</Text>
-					<Text variant="small" tone="muted" style={{ marginTop: 4 }}>
-						{t.t("today.nothingDueBody")}
-					</Text>
+					<Text variant="h3">{isToday ? t.t("today.nothingDue") : t.t("today.nothingDueDay")}</Text>
+					{isToday ? (
+						<Text variant="small" tone="muted" style={{ marginTop: 4 }}>
+							{t.t("today.nothingDueBody")}
+						</Text>
+					) : null}
 				</Card>
 			) : null}
 
@@ -153,6 +195,13 @@ export default function TodayScreen() {
 			<PrincipleCard day={day} />
 		</Screen>
 	);
+}
+
+/** True when anything at all is stored (archived habits count), so sample data would replace it. */
+function hasAnyData(data: AtomicData): boolean {
+	const live = (records: Record<string, { deletedAt: number | null }>) =>
+		Object.values(records).some((record) => !record.deletedAt);
+	return live(data.habits) || live(data.tasks) || live(data.identities) || live(data.scorecard);
 }
 
 function HabitGroup({
@@ -232,7 +281,7 @@ function Header({
 						style={styles.back}
 						testID="back-to-today"
 					>
-						<ArrowLeft size={14} color={colors.accent} strokeWidth={2.4} />
+						<ArrowLeft size={14} color={colors.accentText} strokeWidth={2.4} />
 						<Text variant="small" weight="semibold" tone="accent">
 							{t.t("today.backToToday")}
 						</Text>

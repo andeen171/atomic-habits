@@ -41,7 +41,7 @@ const toneKey: Record<TextTone, keyof Palette> = {
 	default: "text",
 	muted: "textMuted",
 	subtle: "textSubtle",
-	accent: "accent",
+	accent: "accentText",
 	success: "success",
 	warning: "warning",
 	danger: "danger",

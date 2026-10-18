@@ -23,7 +23,7 @@ export function ActionList({ actions }: { actions: readonly SheetAction[] }) {
 					action.tone === "danger"
 						? colors.danger
 						: action.tone === "accent"
-							? colors.accent
+							? colors.accentText
 							: colors.text;
 				const Icon = action.icon;
 				return (

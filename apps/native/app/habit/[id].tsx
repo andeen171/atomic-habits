@@ -133,15 +133,18 @@ function HabitDetail({ habitId }: { habitId: string }) {
 	};
 
 	const describe = (day: DayKey) => {
+		const date = t.formatDayShort(day);
+		if (day < habit.startDate) return date;
 		const log = logs.get(day);
+		const isToday = day === today;
 		const value = isBreak
 			? (log?.count ?? 0) > 0
-				? t.t("habit.slipped")
-				: t.x("detail.cleanToday")
+				? t.t(isToday ? "habit.slipped" : "habit.slippedDay")
+				: t.t(isToday ? "habit.cleanToday" : "habit.cleanDay")
 			: log?.skipped
 				? t.t("habit.skipped")
 				: progressLabel(habit, log?.count ?? 0, t);
-		return `${t.formatDayShort(day)} · ${value}`;
+		return `${date} · ${value}`;
 	};
 
 	const weeks = 17;
@@ -239,7 +242,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 					value={t.number(stats.streak.current)}
 					hint={unitLabel}
 					icon={Flame}
-					color={stats.streak.current >= 3 ? colors.accent : undefined}
+					color={stats.streak.current >= 3 ? colors.accentText : undefined}
 				/>
 				<StatTile
 					label={t.t("detail.bestStreak")}

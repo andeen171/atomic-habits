@@ -11,15 +11,20 @@ import { TAB_BAR_HEIGHT } from "./tab-bar";
 
 const TAB_ROUTES = new Set(["/", "/habits", "/tasks", "/you"]);
 
-/** Bottom-center toasts with optional Undo; sits above the tab bar. */
+/**
+ * Bottom-center toasts with optional Undo; sits above the tab bar. While a bottom
+ * sheet is open they move to the top edge so they never cover the sheet's actions.
+ */
 export function ToastHost() {
 	const toasts = useUI((s) => s.toasts);
+	const sheetOpen = useUI((s) => s.openSheets > 0);
 	const insets = useSafeAreaInsets();
 	const pathname = usePathname();
 	const offset = insets.bottom + (TAB_ROUTES.has(pathname) ? TAB_BAR_HEIGHT + 10 : 16);
+	const position = sheetOpen ? { top: insets.top + 8 } : { bottom: offset };
 	return (
 		<View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.host]}>
-			<View pointerEvents="box-none" style={[styles.stack, { bottom: offset }]}>
+			<View pointerEvents="box-none" style={[styles.stack, position]}>
 				{toasts.map((toast) => (
 					<ToastItem key={toast.id} toast={toast} />
 				))}
@@ -29,7 +34,9 @@ export function ToastHost() {
 }
 
 function ToastItem({ toast }: { toast: Toast }) {
-	const { colors } = useTheme();
+	// Toasts are an inverted surface (ink in light mode, paper in dark), so their accents
+	// come from the other scheme's palette to keep AA contrast.
+	const { inverse } = useTheme();
 	const s = useStyles();
 	useEffect(() => {
 		AccessibilityInfo.announceForAccessibility(toast.message);
@@ -40,10 +47,10 @@ function ToastItem({ toast }: { toast: Toast }) {
 		toast.tone === "danger" ? TriangleAlert : toast.tone === "success" ? CircleCheck : Info;
 	const iconColor =
 		toast.tone === "danger"
-			? colors.danger
+			? inverse.danger
 			: toast.tone === "success"
-				? colors.success
-				: colors.textSubtle;
+				? inverse.success
+				: inverse.textMuted;
 	return (
 		<Animated.View
 			entering={FadeInDown.springify().damping(18)}
@@ -54,7 +61,7 @@ function ToastItem({ toast }: { toast: Toast }) {
 		>
 			<Pressable style={s.content} onPress={() => dismissToast(toast.id)} accessibilityRole="alert">
 				<Icon size={18} color={iconColor} strokeWidth={2} />
-				<Text variant="small" weight="medium" color={colors.bg} style={s.message}>
+				<Text variant="small" weight="medium" color={inverse.text} style={s.message}>
 					{toast.message}
 				</Text>
 			</Pressable>
@@ -69,7 +76,7 @@ function ToastItem({ toast }: { toast: Toast }) {
 					accessibilityRole="button"
 					accessibilityLabel={toast.action.label}
 				>
-					<Text variant="small" weight="bold" color={colors.accent}>
+					<Text variant="small" weight="bold" color={inverse.accentText}>
 						{toast.action.label}
 					</Text>
 				</Pressable>

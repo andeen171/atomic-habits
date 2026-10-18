@@ -158,7 +158,7 @@ export function WeekStrip({ selected, onSelect }: WeekStripProps) {
 											variant="small"
 											weight={isToday || isSelected ? "bold" : "medium"}
 											tabular
-											color={perfect ? colors.onAccent : isToday ? colors.accent : undefined}
+											color={perfect ? colors.onAccent : isToday ? colors.accentText : undefined}
 										>
 											{Number(day.slice(8))}
 										</Text>

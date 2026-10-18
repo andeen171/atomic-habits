@@ -41,7 +41,7 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 	const strength = stats?.strength ?? 0;
 	const rate = stats?.last30.rate ?? 0;
 	const archived = Boolean(habit.archivedAt);
-	const streakColor = streak && streak.current >= 3 ? colors.accent : colors.textMuted;
+	const streakColor = streak && streak.current >= 3 ? colors.accentText : colors.textMuted;
 	const meta = [
 		isBreak ? t.t("habits.filter.break") : scheduleLabel(habit, t, weekStartsOn),
 		habit.timeOfDay !== "anytime" ? t.t(`time.${habit.timeOfDay}`) : null,

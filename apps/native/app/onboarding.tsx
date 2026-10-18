@@ -51,6 +51,10 @@ export default function OnboardingScreen() {
 		return firsts.slice(0, MAX_PICKS);
 	}, [picked, starter]);
 	const chosenHabits = habitPicks ?? defaultHabitPicks;
+	// A written identity takes one of the MAX_PICKS slots, like a picked template.
+	const customCount = custom.trim() ? 1 : 0;
+	const identitiesFull = picked.length + customCount >= MAX_PICKS;
+	const canWriteCustom = customCount > 0 || picked.length < MAX_PICKS;
 
 	const finish = (create: boolean) => {
 		if (create) {
@@ -63,7 +67,7 @@ export default function OnboardingScreen() {
 				});
 				ids.set(identity.key, created.id);
 			}
-			if (custom.trim())
+			if (custom.trim() && picked.length < MAX_PICKS)
 				actions.createIdentity({ statement: custom.trim(), emoji: "🌱", color: "ember" });
 			for (const habit of starter.filter((h) => chosenHabits.includes(h.key))) {
 				const { key: _key, identityKey, ...fields } = habit;
@@ -90,7 +94,7 @@ export default function OnboardingScreen() {
 		setPicked((list) =>
 			list.includes(identity.key)
 				? list.filter((k) => k !== identity.key)
-				: list.length >= MAX_PICKS
+				: list.length + customCount >= MAX_PICKS
 					? list
 					: [...list, identity.key],
 		);
@@ -204,12 +208,12 @@ export default function OnboardingScreen() {
 										key={identity.key}
 										identity={identity}
 										selected={picked.includes(identity.key)}
-										disabled={!picked.includes(identity.key) && picked.length >= MAX_PICKS}
+										disabled={!picked.includes(identity.key) && identitiesFull}
 										onPress={() => toggleIdentity(identity)}
 									/>
 								))}
 							</View>
-							{writingCustom || custom ? (
+							{(writingCustom || custom) && canWriteCustom ? (
 								<TextField
 									value={custom}
 									onChangeText={setCustom}
@@ -223,6 +227,7 @@ export default function OnboardingScreen() {
 									label={t.t("onboarding.customIdentity")}
 									icon={PenLine}
 									variant="secondary"
+									disabled={!canWriteCustom}
 									onPress={() => setWritingCustom(true)}
 									style={{ marginTop: 12 }}
 								/>
@@ -337,11 +342,12 @@ function Systems() {
 
 function Ready() {
 	const t = useT();
+	const { colors } = useTheme();
 	const styles = useStyles();
 	return (
 		<View style={styles.welcome}>
 			<Animated.View entering={FadeIn.duration(500)} style={styles.readyBadge}>
-				<Check size={44} color="#FFFFFF" strokeWidth={2.6} />
+				<Check size={44} color={colors.onAccent} strokeWidth={2.6} />
 			</Animated.View>
 			<Text variant="hero" align="center" accessibilityRole="header">
 				{t.t("onboarding.readyTitle")}
@@ -389,7 +395,7 @@ function IdentityTile({
 				<View
 					style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
 				>
-					{selected ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
+					{selected ? <Check size={13} color={colors.onAccent} strokeWidth={3} /> : null}
 				</View>
 			</View>
 			<Text weight="medium" numberOfLines={3} color={selected ? tone.text : colors.text}>
@@ -410,7 +416,7 @@ function HabitTile({
 	disabled: boolean;
 	onPress: () => void;
 }) {
-	const { habit: toneOf } = useTheme();
+	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
 	const tone = toneOf(habit.color);
 	return (
@@ -439,7 +445,7 @@ function HabitTile({
 			<View
 				style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
 			>
-				{selected ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
+				{selected ? <Check size={13} color={colors.onAccent} strokeWidth={3} /> : null}
 			</View>
 		</PressableScale>
 	);

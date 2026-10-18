@@ -6,6 +6,8 @@ export interface ToastAction {
 	onPress: () => void;
 }
 
+export type HabitsFilter = "all" | "build" | "break" | "archived";
+
 export interface Toast {
 	id: number;
 	message: string;
@@ -24,6 +26,11 @@ interface UIState {
 	habitActions: { habitId: string; day: DayKey } | null;
 	/** Bumped to fire the perfect-day confetti. */
 	celebration: number;
+	/** Filter on the Habits tab (other screens can point it at a filter). */
+	habitsFilter: HabitsFilter;
+	/** Open bottom sheets: all of them, and the ones drawn in the app portal. */
+	openSheets: number;
+	openPortalSheets: number;
 }
 
 export const useUI = create<UIState>(() => ({
@@ -32,6 +39,9 @@ export const useUI = create<UIState>(() => ({
 	composer: { open: false, date: null },
 	habitActions: null,
 	celebration: 0,
+	habitsFilter: "all",
+	openSheets: 0,
+	openPortalSheets: 0,
 }));
 
 let toastId = 0;
@@ -66,4 +76,15 @@ export const ui = {
 		useUI.setState({ habitActions: { habitId, day } }),
 	closeHabitActions: () => useUI.setState({ habitActions: null }),
 	celebrate: () => useUI.setState((s) => ({ celebration: s.celebration + 1 })),
+	showHabitsFilter: (habitsFilter: HabitsFilter) => useUI.setState({ habitsFilter }),
+	/** Registers an open sheet; returns the cleanup that unregisters it. */
+	trackSheet(inline: boolean): () => void {
+		const delta = (d: number) =>
+			useUI.setState((s) => ({
+				openSheets: s.openSheets + d,
+				openPortalSheets: s.openPortalSheets + (inline ? 0 : d),
+			}));
+		delta(1);
+		return () => delta(-1);
+	},
 };

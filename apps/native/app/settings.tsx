@@ -1,4 +1,5 @@
 import {
+	BellRing,
 	BookOpen,
 	Check,
 	Cloud,
@@ -25,7 +26,7 @@ import { TextField } from "@/components/ui/text-field";
 import { exportBackup, pickBackup } from "@/lib/backup";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
-import { requestNotificationPermission } from "@/lib/reminders";
+import { reminderHabits, useNotificationPermission } from "@/lib/reminders";
 import { defaultServerUrl, syncController } from "@/lib/sync";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
@@ -50,18 +51,25 @@ export default function SettingsScreen() {
 	const actions = useActions();
 	const settings = useSettings();
 	const [name, setName] = useState(settings.displayName);
-	const [remindersDenied, setRemindersDenied] = useState(false);
+	const { permission, request: requestNotifications } = useNotificationPermission();
+	const reminderCount = useAtomic((s) => reminderHabits(s.data.habits).length);
 	const [confirm, setConfirm] = useState<"demo" | "reset" | null>(null);
 	const [lawsOpen, setLawsOpen] = useState(false);
 	const version = Constants.expoConfig?.version ?? "1.0.0";
 
 	const onReminders = async (value: boolean) => {
-		if (value && isNative) {
-			const granted = await requestNotificationPermission();
-			setRemindersDenied(!granted);
+		if (value && isNative && !(await requestNotifications())) {
+			// Never show reminders as on when the system will not deliver them.
+			actions.updateSettings({ remindersEnabled: false });
+			showToast(t.t("settings.remindersDenied"), { tone: "danger" });
+			return;
 		}
 		actions.updateSettings({ remindersEnabled: value });
 	};
+	const blocked = Boolean(permission && !permission.granted && !permission.canAskAgain);
+	// Reminders are on (and some habit has one) but the system won't deliver them.
+	const needsPermission =
+		isNative && settings.remindersEnabled && reminderCount > 0 && permission?.granted === false;
 
 	const onExport = async () => {
 		try {
@@ -208,7 +216,9 @@ export default function SettingsScreen() {
 						<ListRow
 							title={t.t("settings.reminders")}
 							subtitle={
-								remindersDenied ? t.t("settings.remindersDenied") : t.t("settings.remindersHint")
+								settings.remindersEnabled && blocked
+									? t.t("settings.remindersDenied")
+									: t.t("settings.remindersHint")
 							}
 							right={
 								<Switch
@@ -218,6 +228,26 @@ export default function SettingsScreen() {
 								/>
 							}
 						/>
+						{needsPermission ? (
+							<>
+								<ListSeparator inset={16} />
+								<ListRow
+									icon={BellRing}
+									iconColor={colors.warning}
+									iconBg={colors.warningSoft}
+									title={t.x("settings.remindersEnable")}
+									subtitle={t.x(
+										reminderCount === 1
+											? "settings.remindersWaitingOne"
+											: "settings.remindersWaitingOther",
+										{ count: t.number(reminderCount) },
+									)}
+									chevron
+									onPress={() => void requestNotifications()}
+									testID="settings-allow-notifications"
+								/>
+							</>
+						) : null}
 					</>
 				) : null}
 			</ListGroup>

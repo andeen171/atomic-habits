@@ -107,8 +107,16 @@ export default function InsightsScreen() {
 		};
 	});
 
-	const journey = Math.max(30, summary.journeyDays);
 	const empty = habits.length === 0;
+	// The chart always spans at least 30 days; the copy only claims the real journey.
+	const chartDays = Math.max(30, summary.journeyDays);
+	const journeyDays = empty ? 0 : summary.journeyDays;
+	const journeyEnd = compounding(journeyDays > 0 ? journeyDays : chartDays);
+	const compoundParams = {
+		days: t.tp("common.days", journeyDays > 0 ? journeyDays : chartDays),
+		better: t.number(journeyEnd.better, 2),
+		worse: t.number(journeyEnd.worse, 2),
+	};
 
 	return (
 		<Screen back title={t.t("insights.title")} testID="insights-screen">
@@ -179,13 +187,11 @@ export default function InsightsScreen() {
 
 			<SectionLabel>{t.t("insights.compoundTitle")}</SectionLabel>
 			<Card padding={16} style={styles.block}>
-				<CompoundChart days={journey} marker={summary.journeyDays || undefined} height={190} />
+				<CompoundChart days={chartDays} marker={journeyDays || undefined} height={190} />
 				<Text variant="small" tone="muted" style={{ marginTop: 10 }}>
-					{t.t("insights.compoundBody", {
-						days: t.tp("common.days", journey),
-						better: t.number(compounding(journey).better, 2),
-						worse: t.number(compounding(journey).worse, 2),
-					})}
+					{journeyDays > 0
+						? t.t("insights.compoundBody", compoundParams)
+						: t.x("insights.compoundHypothetical", compoundParams)}
 				</Text>
 				<View style={styles.legend}>
 					<LegendDot color={colors.accent} label={t.t("insights.compoundBetter")} />

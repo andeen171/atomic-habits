@@ -6,20 +6,22 @@ import { Screen, ScreenTitle } from "@/components/ui/screen";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { useT } from "@/lib/i18n";
+import { type HabitsFilter, ui, useUI } from "@/lib/ui-store";
 import type { Identity } from "@atomic/core";
 import { useAllHabitStats, useAtomic, useHabits, useLogIndex } from "@atomic/core/react";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { View } from "react-native";
 
-type Filter = "all" | "build" | "break" | "archived";
+type Filter = HabitsFilter;
 
 const liveIdentity = (identity: Identity | undefined) =>
 	identity && !identity.deletedAt ? identity : undefined;
 
 export default function HabitsScreen() {
 	const t = useT();
-	const [filter, setFilter] = useState<Filter>("all");
+	const filter = useUI((s) => s.habitsFilter);
+	const setFilter = ui.showHabitsFilter;
 	const live = useHabits();
 	const archived = useHabits({ archived: true });
 	const identities = useAtomic((s) => s.data.identities);

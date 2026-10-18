@@ -200,7 +200,7 @@ export function HabitRing({
 									discStyle,
 								]}
 							>
-								<Check size={size * 0.46} color="#FFFFFF" strokeWidth={3} />
+								<Check size={size * 0.46} color={colors.onAccent} strokeWidth={3} />
 							</Animated.View>
 						</>
 					)}
@@ -238,7 +238,7 @@ function BreakBadge({ slipped, size }: { slipped: boolean; size: number }) {
 				},
 			]}
 		>
-			<Icon size={badge * 0.62} color="#FFFFFF" strokeWidth={2.4} />
+			<Icon size={badge * 0.62} color={colors.onAccent} strokeWidth={2.4} />
 		</View>
 	);
 }

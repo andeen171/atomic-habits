@@ -130,7 +130,7 @@ export function DatePickerSheet({
 								variant="small"
 								weight={selected || isToday ? "semibold" : "regular"}
 								tabular
-								color={selected ? colors.bg : isToday ? colors.accent : undefined}
+								color={selected ? colors.bg : isToday ? colors.accentText : undefined}
 								tone={inMonth ? "default" : "subtle"}
 							>
 								{Number(day.slice(8))}

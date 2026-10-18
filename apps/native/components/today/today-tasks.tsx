@@ -22,6 +22,10 @@ export function TodayTasks({ day }: { day: DayKey }) {
 	const list = useMemo(() => tasksForDay(tasks, day, today), [tasks, day, today]);
 	const [title, setTitle] = useState("");
 	const open = list.filter((task) => !task.completedAt).length;
+	// New tasks land on the viewed day, so the copy names it when it isn't today.
+	const date = t.formatDayShort(day);
+	const addLabel = day === today ? t.t("today.addTask") : t.t("today.addTaskFor", { date });
+	const emptyLabel = day === today ? t.t("today.noTasks") : t.t("today.noTasksFor", { date });
 
 	const add = () => {
 		const value = title.trim();
@@ -59,11 +63,11 @@ export function TodayTasks({ day }: { day: DayKey }) {
 						onSubmitEditing={add}
 						blurOnSubmit={false}
 						returnKeyType="done"
-						placeholder={t.t("today.addTask")}
+						placeholder={addLabel}
 						placeholderTextColor={colors.textSubtle}
 						selectionColor={colors.accent}
 						cursorColor={colors.accent}
-						accessibilityLabel={t.t("today.addTask")}
+						accessibilityLabel={addLabel}
 						maxLength={280}
 						style={styles.input}
 					/>
@@ -71,7 +75,7 @@ export function TodayTasks({ day }: { day: DayKey }) {
 			</Card>
 			{list.length === 0 ? (
 				<Text variant="small" tone="subtle" style={styles.empty}>
-					{t.t("today.noTasks")}
+					{emptyLabel}
 				</Text>
 			) : null}
 		</View>

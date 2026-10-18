@@ -21,11 +21,13 @@ const en = {
 
 	"today.tapHint": "Tap a ring to log it. Hold for more.",
 	"today.weekA11y": "Week of {date}",
+	"today.viewArchived": "View archived habits",
 
 	"habit.setCount": "Set progress",
 	"habit.setCountHint": "Repetitions logged for {date}.",
 	"habit.restDay": "Rest day",
 	"habit.alreadyDone": "Already done — nice work.",
+	"habit.doneState": "Done",
 
 	"detail.logToday": "Log today",
 	"detail.doneToday": "Done today",
@@ -48,6 +50,7 @@ const en = {
 	"editor.goal": "Goal",
 	"editor.details": "Details",
 	"editor.created": "{habit} added. Start with two minutes.",
+	"editor.kindLocked": "The type can't be changed once a habit exists.",
 
 	"tasks.showCompleted": "Show completed",
 	"tasks.hideCompleted": "Hide completed",
@@ -67,12 +70,18 @@ const en = {
 	"insights.dailyHint": "Share of due habits completed each day.",
 	"insights.dayN": "Day {count}",
 	"insights.strongestHint": "Habit strength — how automatic each habit is becoming.",
+	"insights.compoundHypothetical":
+		"Improve 1% a day and in {days} you're {better}× better — slip 1% a day and you shrink to {worse}×.",
 
 	"settings.exported": "Backup ready to share",
 	"settings.syncUpToDate": "Up to date",
 	"settings.syncSetup": "Set up sync",
 	"settings.privacy": "Your data never leaves this device unless you turn on sync.",
 	"settings.remindersEnable": "Allow notifications",
+	"settings.remindersWaitingOne":
+		"{count} habit reminder won't arrive until notifications are allowed.",
+	"settings.remindersWaitingOther":
+		"{count} habit reminders won't arrive until notifications are allowed.",
 
 	"onboarding.attribution": "— James Clear",
 	"onboarding.pickUpTo": "Pick up to 3",
@@ -100,11 +109,13 @@ const ptBR: Record<AppMessageKey, string> = {
 
 	"today.tapHint": "Toque no anel para registrar. Segure para mais opções.",
 	"today.weekA11y": "Semana de {date}",
+	"today.viewArchived": "Ver hábitos arquivados",
 
 	"habit.setCount": "Definir progresso",
 	"habit.setCountHint": "Repetições registradas em {date}.",
 	"habit.restDay": "Dia de descanso",
 	"habit.alreadyDone": "Já feito — bom trabalho.",
+	"habit.doneState": "Feito",
 
 	"detail.logToday": "Registrar hoje",
 	"detail.doneToday": "Feito hoje",
@@ -127,6 +138,7 @@ const ptBR: Record<AppMessageKey, string> = {
 	"editor.goal": "Meta",
 	"editor.details": "Detalhes",
 	"editor.created": "{habit} adicionado. Comece com dois minutos.",
+	"editor.kindLocked": "O tipo não pode ser alterado depois que o hábito existe.",
 
 	"tasks.showCompleted": "Mostrar concluídas",
 	"tasks.hideCompleted": "Ocultar concluídas",
@@ -146,6 +158,8 @@ const ptBR: Record<AppMessageKey, string> = {
 	"insights.dailyHint": "Parte dos hábitos do dia concluídos em cada dia.",
 	"insights.dayN": "Dia {count}",
 	"insights.strongestHint": "Força do hábito — o quanto cada hábito está ficando automático.",
+	"insights.compoundHypothetical":
+		"Melhore 1% ao dia e em {days} você estará {better}× melhor — piore 1% ao dia e encolhe para {worse}×.",
 
 	"settings.exported": "Backup pronto para compartilhar",
 	"settings.syncUpToDate": "Sincronizado",
@@ -153,6 +167,10 @@ const ptBR: Record<AppMessageKey, string> = {
 	"settings.privacy":
 		"Seus dados nunca saem deste aparelho, a menos que você ative a sincronização.",
 	"settings.remindersEnable": "Permitir notificações",
+	"settings.remindersWaitingOne":
+		"{count} lembrete de hábito só vai chegar quando as notificações forem permitidas.",
+	"settings.remindersWaitingOther":
+		"{count} lembretes de hábitos só vão chegar quando as notificações forem permitidas.",
 
 	"onboarding.attribution": "— James Clear",
 	"onboarding.pickUpTo": "Escolha até 3",

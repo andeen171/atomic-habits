@@ -103,14 +103,17 @@ function HabitActionsContent({
 					},
 		);
 	} else if (habit.target > 1) {
-		list.push({
-			key: "increment",
-			label: t.t("habit.increment"),
-			icon: Plus,
-			tone: "accent",
-			hint: progressLabel(habit, count, t),
-			onPress: run(() => logger.tap(habit, day, count, liveIdentity)),
-		});
+		// At the target a tap would do nothing, so "Add one" is only offered below it.
+		if (count < habit.target) {
+			list.push({
+				key: "increment",
+				label: t.t("habit.increment"),
+				icon: Plus,
+				tone: "accent",
+				hint: progressLabel(habit, count, t),
+				onPress: run(() => logger.tap(habit, day, count, liveIdentity)),
+			});
+		}
 		if (count > 0) {
 			list.push({
 				key: "decrement",
@@ -131,10 +134,16 @@ function HabitActionsContent({
 			onPress: run(() => logger.tap(habit, day, count, liveIdentity)),
 		});
 	}
-	if (!isBreak) {
+	// Skipping clears the day's count, so it is only offered before any progress;
+	// with progress the user gets "Reset day" instead.
+	if (!isBreak && (skipped || count === 0)) {
 		list.push({
 			key: "skip",
-			label: skipped ? t.t("habit.unskip") : t.t("habit.skip"),
+			label: skipped
+				? t.t("habit.unskip")
+				: day === today
+					? t.t("habit.skip")
+					: t.t("habit.skipDay"),
 			icon: SkipForward,
 			onPress: run(() => {
 				haptics.selection();

@@ -46,7 +46,8 @@ export function Button({
 		primary: { bg: colors.accent, fg: colors.onAccent },
 		secondary: { bg: colors.surface, fg: colors.text, border: colors.border },
 		ghost: { bg: "transparent", fg: colors.text },
-		destructive: { bg: colors.danger, fg: "#FFFFFF" },
+		// onAccent is white on the light danger red and ink on the brighter dark one (AA either way).
+		destructive: { bg: colors.danger, fg: colors.onAccent },
 		soft: { bg: colors.sunken, fg: colors.text },
 		ink: { bg: colors.text, fg: colors.bg },
 	};

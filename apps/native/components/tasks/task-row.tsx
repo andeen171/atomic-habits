@@ -166,7 +166,7 @@ export function TaskRow({ task, hideDate, first }: TaskRowProps) {
 				>
 					<Animated.View style={[styles.box, boxStyle]}>
 						<Animated.View style={checkStyle}>
-							<Check size={14} color="#FFFFFF" strokeWidth={3} />
+							<Check size={14} color={colors.onAccent} strokeWidth={3} />
 						</Animated.View>
 					</Animated.View>
 				</Pressable>

@@ -31,6 +31,7 @@ const TABS: Record<string, { icon: LucideIcon; label: MessageKey }> = {
 /** Today | Habits | ⊕ | Tasks | You — the ⊕ opens the create sheet. */
 export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
 	const t = useT();
+	const { colors } = useTheme();
 	const styles = useStyles();
 	const routes = state.routes.filter((route) => route.name in TABS);
 	const half = Math.ceil(routes.length / 2);
@@ -78,7 +79,7 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
 						accessibilityLabel={t.x("create.a11y")}
 						style={styles.create}
 					>
-						<Plus size={26} color="#FFFFFF" strokeWidth={2.4} />
+						<Plus size={26} color={colors.onAccent} strokeWidth={2.4} />
 					</PressableScale>
 				</View>
 				{routes.slice(half).map(renderTab)}

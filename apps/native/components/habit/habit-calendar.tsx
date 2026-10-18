@@ -1,12 +1,21 @@
 import { CalendarMonth } from "@/components/calendar-month";
+import { RotateCcw, SkipForward } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { Button } from "@/components/ui/button";
 import { Stepper } from "@/components/ui/stepper";
 import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
-import { useT } from "@/lib/i18n";
+import { type AppTranslator, useT } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
-import { type DayKey, type Habit, dayState, logsFor, startOfMonth } from "@atomic/core";
+import { showToast } from "@/lib/ui-store";
+import {
+	type DayKey,
+	type Habit,
+	dayState,
+	logsFor,
+	progressLabel,
+	startOfMonth,
+} from "@atomic/core";
 import { useActions, useLogIndex, useToday } from "@atomic/core/react";
 import { useState } from "react";
 import { Pressable, View, type ViewStyle } from "react-native";
@@ -23,6 +32,8 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 	const [month, setMonth] = useState(startOfMonth(today));
 	const [editing, setEditing] = useState<DayKey | null>(null);
 	const [draft, setDraft] = useState(0);
+	const editingLog = editing ? logs.get(editing) : undefined;
+	const savedCount = editingLog?.count ?? 0;
 
 	const onDay = (day: DayKey) => {
 		if (habit.kind === "build" && habit.target > 1) {
@@ -48,13 +59,13 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 					let color: string = colors.text;
 					if (state === "done") {
 						cell = { backgroundColor: tone.fill };
-						color = "#FFFFFF";
+						color = colors.onAccent;
 					} else if (state === "clean") {
 						cell = { backgroundColor: tone.soft };
 						color = tone.text;
 					} else if (state === "slipped") {
 						cell = { backgroundColor: colors.danger };
-						color = "#FFFFFF";
+						color = colors.onAccent;
 					} else if (state === "partial") {
 						cell = { backgroundColor: tone.soft, borderWidth: 1.5, borderColor: tone.fill };
 						color = tone.text;
@@ -66,11 +77,16 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 						color = colors.textMuted;
 					} else if (state === "pending") {
 						cell = { borderWidth: 2, borderColor: colors.accent };
-						color = colors.accent;
+						color = colors.accentText;
 					} else {
 						color = colors.textSubtle;
 					}
-					const label = [t.formatDayLong(day), stateLabel(state, t)].filter(Boolean).join(", ");
+					const label = [
+						t.formatDayLong(day),
+						stateLabel(state, { habit, count: log?.count ?? 0, isToday: day === today, t }),
+					]
+						.filter(Boolean)
+						.join(", ");
 					return (
 						<Pressable
 							disabled={disabled}
@@ -135,20 +151,77 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 							setEditing(null);
 						}}
 					/>
+					{editingLog?.skipped ? (
+						<Button
+							label={t.t("habit.unskip")}
+							icon={SkipForward}
+							variant="ghost"
+							onPress={() => {
+								if (editing) actions.setSkipped(habit.id, editing, false);
+								haptics.selection();
+								setEditing(null);
+							}}
+							testID="calendar-unskip"
+						/>
+					) : savedCount > 0 ? (
+						// Skipping would wipe logged progress; offer an undoable reset instead.
+						<Button
+							label={t.t("habit.reset")}
+							icon={RotateCcw}
+							variant="ghost"
+							onPress={() => {
+								if (!editing) return;
+								const day = editing;
+								const previous = savedCount;
+								actions.setCount(habit.id, day, 0);
+								haptics.selection();
+								setEditing(null);
+								showToast(t.t("habit.reset"), {
+									action: {
+										label: t.t("common.undo"),
+										onPress: () => actions.setCount(habit.id, day, previous),
+									},
+								});
+							}}
+							testID="calendar-reset"
+						/>
+					) : (
+						<Button
+							label={editing === today ? t.t("habit.skip") : t.t("habit.skipDay")}
+							icon={SkipForward}
+							variant="ghost"
+							onPress={() => {
+								if (editing) actions.setSkipped(habit.id, editing, true);
+								haptics.selection();
+								setEditing(null);
+							}}
+							testID="calendar-skip"
+						/>
+					)}
 				</View>
 			</Sheet>
 		</View>
 	);
 }
 
-function stateLabel(state: ReturnType<typeof dayState>, t: ReturnType<typeof useT>): string | null {
+function stateLabel(
+	state: ReturnType<typeof dayState>,
+	{ habit, count, isToday, t }: { habit: Habit; count: number; isToday: boolean; t: AppTranslator },
+): string | null {
 	switch (state) {
 		case "done":
-			return t.t("common.done");
+			// "common.done" is a button verb in pt-BR ("Concluir"); a day needs the state.
+			return habit.target > 1 ? progressLabel(habit, count, t) : t.x("habit.doneState");
+		case "partial":
+			return progressLabel(habit, count, t);
+		case "missed":
+			return count > 0 ? progressLabel(habit, count, t) : null;
 		case "skipped":
 			return t.t("habit.skipped");
 		case "slipped":
-			return t.t("habit.slipped");
+			return isToday ? t.t("habit.slipped") : t.t("habit.slippedDay");
+		case "clean":
+			return isToday ? t.t("habit.cleanToday") : t.t("habit.cleanDay");
 		case "rest":
 			return t.x("habit.restDay");
 		default:

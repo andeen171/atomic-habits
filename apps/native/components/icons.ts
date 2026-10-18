@@ -7,6 +7,7 @@ export { default as Archive } from "lucide-react-native/icons/archive";
 export { default as ArchiveRestore } from "lucide-react-native/icons/archive-restore";
 export { default as ArrowLeft } from "lucide-react-native/icons/arrow-left";
 export { default as ArrowRight } from "lucide-react-native/icons/arrow-right";
+export { default as BellRing } from "lucide-react-native/icons/bell-ring";
 export { default as BookOpen } from "lucide-react-native/icons/book-open";
 export { default as CalendarCheck } from "lucide-react-native/icons/calendar-check";
 export { default as CalendarDays } from "lucide-react-native/icons/calendar-days";

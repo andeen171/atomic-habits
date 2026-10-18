@@ -7,8 +7,24 @@ export function reminderHabits(habits: Record<string, Habit>): Habit[] {
 	);
 }
 
+export interface NotificationPermission {
+	granted: boolean;
+	canAskAgain: boolean;
+}
+
+export async function getNotificationPermission(): Promise<NotificationPermission> {
+	return { granted: false, canAskAgain: false };
+}
+
 export async function notificationsGranted(): Promise<boolean> {
 	return false;
+}
+
+export function useNotificationPermission(): {
+	permission: NotificationPermission | null;
+	request: () => Promise<boolean>;
+} {
+	return { permission: null, request: async () => false };
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
