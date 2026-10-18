@@ -193,7 +193,7 @@ function LogControl({ habit }: { habit: Habit }) {
 		: counted
 			? progressLabel(habit, count, t)
 			: done
-				? t("common.done")
+				? t("habit.done")
 				: t("habit.markDone");
 
 	return (

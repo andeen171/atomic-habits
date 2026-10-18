@@ -121,6 +121,7 @@ export const ptBR: Messages = {
 	"streak.forgiving": "As sequências sobrevivem a uma falha. Nunca falhe duas vezes.",
 
 	"habit.markDone": "Marcar como feito",
+	"habit.done": "Feito",
 	"habit.markUndone": "Desmarcar",
 	"habit.increment": "Adicionar um",
 	"habit.decrement": "Remover um",

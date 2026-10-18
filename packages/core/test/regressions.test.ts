@@ -387,3 +387,26 @@ describe("copy and import", () => {
 		expect(settings.serverUrl).toBe("https://sync.example.com");
 	});
 });
+
+describe("theme contrast", () => {
+	test("palette text tokens meet WCAG AA on their surfaces", async () => {
+		const { palettes, contrastRatio, habitColor, HABIT_COLORS } = {
+			...(await import("../src/theme")),
+			...(await import("../src/model")),
+		};
+		for (const scheme of ["light", "dark"] as const) {
+			const p = palettes[scheme];
+			for (const surface of [p.bg, p.surface]) {
+				for (const text of [p.text, p.textMuted, p.textSubtle, p.accentText]) {
+					expect(contrastRatio(text, surface)).toBeGreaterThanOrEqual(4.5);
+				}
+			}
+			expect(contrastRatio(p.onAccent, p.accent)).toBeGreaterThanOrEqual(4.5);
+			for (const color of HABIT_COLORS) {
+				const c = habitColor(color, scheme);
+				expect(contrastRatio(c.on, c.fill)).toBeGreaterThanOrEqual(3);
+				expect(contrastRatio(c.onText, c.fill)).toBeGreaterThanOrEqual(4.5);
+			}
+		}
+	});
+});

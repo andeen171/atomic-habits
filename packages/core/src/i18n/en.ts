@@ -123,6 +123,7 @@ export const en = {
 	"streak.forgiving": "Streaks survive a single miss. Never miss twice.",
 
 	"habit.markDone": "Mark as done",
+	"habit.done": "Done",
 	"habit.markUndone": "Mark as not done",
 	"habit.increment": "Add one",
 	"habit.decrement": "Remove one",

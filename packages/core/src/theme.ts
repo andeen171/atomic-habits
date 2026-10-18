@@ -106,7 +106,7 @@ export const habitColors: Record<HabitColor, { base: string; light: string; dark
 	teal: { base: "#0FA5A0", light: "#0A7F7B", dark: "#3CD3CC" },
 	sky: { base: "#1D9BF0", light: "#1277BD", dark: "#5CB9FF" },
 	indigo: { base: "#5B5FEF", light: "#4044C9", dark: "#8A8DFF" },
-	violet: { base: "#9255F2", light: "#7238CE", dark: "#B48BFF" },
+	violet: { base: "#8A4DEC", light: "#7238CE", dark: "#B48BFF" },
 	rose: { base: "#EC4673", light: "#C42A56", dark: "#FF7A9C" },
 	stone: { base: "#8C8279", light: "#665D55", dark: "#B3A99F" },
 };
@@ -114,12 +114,37 @@ export const habitColors: Record<HabitColor, { base: string; light: string; dark
 /** Habit color resolved for a scheme: `fill` for rings/fills, `text` for labels, `soft` for tints. */
 export function habitColor(color: HabitColor, scheme: ColorScheme) {
 	const c = habitColors[color] ?? habitColors.ember;
+	const fill = scheme === "dark" ? c.dark : c.base;
 	return {
-		fill: scheme === "dark" ? c.dark : c.base,
+		fill,
 		text: scheme === "dark" ? c.dark : c.light,
-		soft: withAlpha(scheme === "dark" ? c.dark : c.base, scheme === "dark" ? 0.16 : 0.14),
-		softer: withAlpha(scheme === "dark" ? c.dark : c.base, scheme === "dark" ? 0.08 : 0.07),
+		soft: withAlpha(fill, scheme === "dark" ? 0.16 : 0.14),
+		softer: withAlpha(fill, scheme === "dark" ? 0.08 : 0.07),
+		/** Icons (check marks) drawn on `fill`: white or ink, ≥ 3:1. */
+		on: readableOn(fill, 3),
+		/** Text drawn on `fill`: white or ink, ≥ 4.5:1. */
+		onText: readableOn(fill, 4.5),
 	};
+}
+
+function luminance(hex: string): number {
+	const channel = (i: number) => {
+		const v = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+		return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+	};
+	return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+/** WCAG contrast ratio between two #RRGGBB colors. */
+export function contrastRatio(a: string, b: string): number {
+	const la = luminance(a);
+	const lb = luminance(b);
+	return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** White when it reaches `minContrast` on `fill`, otherwise warm ink. */
+export function readableOn(fill: string, minContrast = 4.5): string {
+	return contrastRatio("#FFFFFF", fill) >= minContrast ? "#FFFFFF" : palettes.light.text;
 }
 
 /** #RRGGBB + alpha → #RRGGBBAA (works in CSS and React Native). */
