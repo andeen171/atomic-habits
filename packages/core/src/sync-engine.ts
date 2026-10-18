@@ -1,3 +1,4 @@
+import { COLLECTIONS } from "./model";
 import type { AtomicStore } from "./store";
 import {
 	MAX_PUSH_BATCH,
@@ -10,24 +11,103 @@ import {
 export interface SyncResult {
 	pushed: number;
 	pulled: number;
+	/** Records the server refused as invalid (dropped from the pending set). */
+	rejected: number;
 	cursor: number;
 }
 
-const inFlight = new WeakMap<AtomicStore, Promise<SyncResult>>();
+interface RoundState {
+	current: Promise<SyncResult>;
+	/** A follow-up round, queued when changes arrive while one is running. */
+	next: Promise<SyncResult> | null;
+}
+
+const rounds = new WeakMap<AtomicStore, RoundState>();
+
+/** Resolves once persisted state has loaded, so a round never races hydration. */
+export function whenHydrated(store: AtomicStore): Promise<void> {
+	if (store.getState().hydrated) return Promise.resolve();
+	return new Promise((resolve) => {
+		const unsubscribe = store.subscribe((state) => {
+			if (!state.hydrated) return;
+			unsubscribe();
+			resolve();
+		});
+	});
+}
+
+/** The round in flight for this store, if any (used to settle before switching accounts). */
+export function currentRound(store: AtomicStore): Promise<SyncResult> | null {
+	const state = rounds.get(store);
+	return state ? (state.next ?? state.current) : null;
+}
+
+/** Everything local becomes pending and the cursor restarts (new account or server reset). */
+export function markAllPending(store: AtomicStore): void {
+	const { data, actions } = store.getState();
+	const pending: Record<string, true> = {};
+	for (const collection of COLLECTIONS) {
+		for (const id of Object.keys(data[collection])) pending[pendingKey(collection, id)] = true;
+	}
+	actions.setSyncMeta({ pending, cursor: 0, lastSyncedAt: null });
+}
 
 /**
- * One full sync round: push local changes, then pull remote changes until
- * caught up. Concurrent calls share the same round.
+ * One full sync: push local changes, then pull remote changes until caught
+ * up. A call made while a round is running queues exactly one follow-up round
+ * (so edits made mid-round are pushed promptly) and shares it with later
+ * callers.
  */
 export function runSync(store: AtomicStore, transport: SyncTransport): Promise<SyncResult> {
-	const existing = inFlight.get(store);
-	if (existing) return existing;
-	const round = syncRound(store, transport).finally(() => inFlight.delete(store));
-	inFlight.set(store, round);
-	return round;
+	const state = rounds.get(store);
+	if (state) {
+		if (!state.next) {
+			state.next = state.current
+				.catch(() => undefined)
+				.then(() => {
+					state.current = state.next as Promise<SyncResult>;
+					state.next = null;
+					return syncRound(store, transport);
+				});
+		}
+		return state.next;
+	}
+	const current = syncRound(store, transport);
+	const entry: RoundState = { current, next: null };
+	rounds.set(store, entry);
+	const settle = (): void => {
+		// Drop the entry only once no follow-up is waiting on it.
+		if (entry.next) {
+			entry.next.then(settle, settle);
+			return;
+		}
+		if (rounds.get(store) === entry) rounds.delete(store);
+	};
+	current.then(settle, settle);
+	return current;
 }
 
 async function syncRound(store: AtomicStore, transport: SyncTransport): Promise<SyncResult> {
+	await whenHydrated(store);
+	const result = await pushAndPull(store, transport);
+	if (result.reset) {
+		// The server lost our history (restored database): re-upload everything.
+		markAllPending(store);
+		const again = await pushAndPull(store, transport);
+		return {
+			pushed: result.pushed + again.pushed,
+			pulled: result.pulled + again.pulled,
+			rejected: result.rejected + again.rejected,
+			cursor: again.cursor,
+		};
+	}
+	return result;
+}
+
+async function pushAndPull(
+	store: AtomicStore,
+	transport: SyncTransport,
+): Promise<SyncResult & { reset: boolean }> {
 	const { actions } = store.getState();
 
 	// 1. Push — snapshot what we send so edits made meanwhile stay pending.
@@ -57,10 +137,17 @@ async function syncRound(store: AtomicStore, transport: SyncTransport): Promise<
 	}
 
 	let pushed = 0;
+	let rejected = 0;
 	for (let i = 0; i < records.length; i += MAX_PUSH_BATCH) {
 		const batch = records.slice(i, i + MAX_PUSH_BATCH);
 		const result = await transport.push({ records: batch });
 		pushed += result.accepted;
+		// Versions that beat ours on the server replace the local copy now.
+		if (result.conflicts?.length) actions.applyRemote(result.conflicts);
+		if (result.rejected?.length) {
+			rejected += result.rejected.length;
+			console.warn("[atomic] The sync server refused some records", result.rejected);
+		}
 		const state = store.getState();
 		const pending = { ...state.sync.pending };
 		for (const record of batch) {
@@ -81,6 +168,7 @@ async function syncRound(store: AtomicStore, transport: SyncTransport): Promise<
 	let cursor = store.getState().sync.cursor;
 	for (let guard = 0; guard < 1000; guard++) {
 		const page = await transport.pull({ cursor });
+		if (page.reset) return { pushed, pulled, rejected, cursor, reset: true };
 		pulled += actions.applyRemote(page.records);
 		cursor = page.cursor;
 		actions.setSyncMeta({ cursor });
@@ -88,5 +176,5 @@ async function syncRound(store: AtomicStore, transport: SyncTransport): Promise<
 	}
 
 	actions.setSyncMeta({ lastSyncedAt: Date.now() });
-	return { pushed, pulled, cursor };
+	return { pushed, pulled, rejected, cursor, reset: false };
 }

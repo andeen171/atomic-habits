@@ -1,9 +1,13 @@
-import { COLLECTIONS } from "./model";
 import { RemoteError, type RemoteUser, createRemoteClient, normalizeServerUrl } from "./remote";
 import type { KeyValueStorage } from "./storage";
 import type { AtomicStore } from "./store";
-import { pendingKey } from "./sync";
-import { type SyncResult, runSync } from "./sync-engine";
+import {
+	type SyncResult,
+	currentRound,
+	markAllPending,
+	runSync,
+	whenHydrated,
+} from "./sync-engine";
 
 export type SyncStatus = "signed-out" | "idle" | "syncing" | "error";
 export type SyncErrorCode = "auth" | "network" | "server" | null;
@@ -101,14 +105,9 @@ export function createSyncController({
 		}
 	};
 
-	/** Everything local becomes pending so it uploads to the (new) account. */
-	const markAllPending = () => {
-		const { data, actions } = store.getState();
-		const pending: Record<string, true> = {};
-		for (const collection of COLLECTIONS) {
-			for (const id of Object.keys(data[collection])) pending[pendingKey(collection, id)] = true;
-		}
-		actions.setSyncMeta({ pending, cursor: 0, lastSyncedAt: null });
+	/** Wait for any round in flight, so it can't touch state after an account switch. */
+	const settle = async () => {
+		await currentRound(store)?.catch(() => undefined);
 	};
 
 	const syncNow = async (): Promise<SyncResult | null> => {
@@ -118,9 +117,12 @@ export function createSyncController({
 		try {
 			const client = createRemoteClient(current.serverUrl, fetchImpl);
 			const result = await runSync(store, client.transport(current.token));
+			// The user switched or left the account meanwhile: this result is stale.
+			if (session !== current) return null;
 			setState({ status: "idle", error: null, lastSyncedAt: store.getState().sync.lastSyncedAt });
 			return result;
 		} catch (error) {
+			if (session !== current) return null;
 			const code = classify(error);
 			if (code === "auth") {
 				await saveSession(null);
@@ -171,11 +173,14 @@ export function createSyncController({
 		setState({ status: "syncing", error: null });
 		try {
 			const result = await run(client);
+			await whenHydrated(store);
 			const previous = store.getState().settings.serverUrl;
 			const sameAccount = session?.user.id === result.user.id && previous === url;
+			// Let a round for the previous session finish before resetting sync state.
+			await settle();
 			await saveSession({ serverUrl: url, token: result.token, user: result.user });
 			store.getState().actions.updateSettings({ serverUrl: url });
-			if (!sameAccount) markAllPending();
+			if (!sameAccount) markAllPending(store);
 			setState({ user: result.user, serverUrl: url });
 			watch();
 			await syncNow();
@@ -210,8 +215,10 @@ export function createSyncController({
 			const current = session;
 			unwatch();
 			await saveSession(null);
+			await settle();
 			if (current) await createRemoteClient(current.serverUrl, fetchImpl).signOut(current.token);
-			markAllPending();
+			await whenHydrated(store);
+			markAllPending(store);
 			setState({ status: "signed-out", user: null, error: null, lastSyncedAt: null });
 		},
 		syncNow,

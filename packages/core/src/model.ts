@@ -36,6 +36,8 @@ export const dayKeySchema = z.string().refine(isDayKey, "Expected YYYY-MM-DD");
 export const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Expected HH:MM");
 const weekdaySchema = z.number().int().min(0).max(6);
 const optionalText = (max: number) => z.string().max(max).nullable().default(null);
+/** Epoch milliseconds; bounded so every store and SQLite reads them back exactly. */
+export const timestampSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
 export const scheduleSchema = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("daily") }),
@@ -52,9 +54,9 @@ export type Schedule = z.infer<typeof scheduleSchema>;
 
 const entityFields = {
 	id: z.string().min(1).max(80),
-	createdAt: z.number(),
-	updatedAt: z.number(),
-	deletedAt: z.number().nullable().default(null),
+	createdAt: timestampSchema,
+	updatedAt: timestampSchema,
+	deletedAt: timestampSchema.nullable().default(null),
 };
 
 export const identitySchema = z.object({
@@ -99,7 +101,7 @@ export const habitSchema = z.object({
 	reminder: z.boolean().default(false),
 	/** First day that counts for stats. */
 	startDate: dayKeySchema,
-	archivedAt: z.number().nullable().default(null),
+	archivedAt: timestampSchema.nullable().default(null),
 	order: z.number().default(0),
 });
 export type Habit = z.infer<typeof habitSchema>;
@@ -123,7 +125,7 @@ export const taskSchema = z.object({
 	/** Scheduled day; `null` keeps it in the inbox. */
 	date: dayKeySchema.nullable().default(null),
 	priority: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).default(0),
-	completedAt: z.number().nullable().default(null),
+	completedAt: timestampSchema.nullable().default(null),
 	identityId: z.string().nullable().default(null),
 	order: z.number().default(0),
 });
@@ -195,7 +197,16 @@ export const exportFileSchema = z.object({
 	format: z.literal(EXPORT_FORMAT),
 	version: z.literal(1),
 	exportedAt: z.number(),
-	settings: settingsSchema.partial().optional(),
+	// No defaults here: a backup only carries a few settings, and missing ones
+	// must keep the device's current values.
+	settings: z
+		.object({
+			displayName: z.string().max(60).optional(),
+			locale: z.enum(LOCALE_SETTINGS).optional(),
+			theme: z.enum(THEME_SETTINGS).optional(),
+			weekStartsOn: z.union([z.literal(0), z.literal(1)]).optional(),
+		})
+		.optional(),
 	data: z.object({
 		habits: z.array(habitSchema).default([]),
 		logs: z.array(habitLogSchema).default([]),

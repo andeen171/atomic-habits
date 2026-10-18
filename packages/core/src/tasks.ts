@@ -1,4 +1,4 @@
-import { type DayKey, addDays } from "./dates";
+import { type DayKey, addDays, toDayKey } from "./dates";
 import type { Task } from "./model";
 
 export type TaskBucket = "overdue" | "today" | "tomorrow" | "upcoming" | "inbox" | "done";
@@ -50,14 +50,14 @@ export function groupTasks(tasks: readonly Task[], today: DayKey): TaskGroups {
 	return groups;
 }
 
-/** Tasks shown on the Today screen: due today, overdue, or completed today. */
+/** Tasks shown on the Today screen: due today, overdue, or overdue and completed today. */
 export function tasksForDay(tasks: readonly Task[], day: DayKey, today: DayKey): Task[] {
 	return sortTasks(
 		tasks.filter((task) => {
 			if (task.date === day) return true;
-			if (day !== today) return false;
-			if (isTaskDone(task)) return false;
-			return task.date != null && task.date < today;
+			if (day !== today || task.date == null || task.date >= today) return false;
+			// Overdue: open ones, plus those finished today so the check-off stays visible.
+			return !isTaskDone(task) || toDayKey(task.completedAt ?? 0) === today;
 		}),
 	);
 }

@@ -88,6 +88,8 @@ export function buildAgenda(
 		};
 
 		if (habit.kind === "break") {
+			// A clean past day is a vote (today is still in progress).
+			if (day < today && count === 0) votes++;
 			breaking.push(item);
 			continue;
 		}
@@ -147,13 +149,13 @@ export function identityStats(
 				votes += stats.votes;
 				if (habit.kind === "build") {
 					for (const log of logs.values()) {
-						if (log.date >= weekAgo && log.date <= today && log.date >= habit.startDate) {
+						if (log.date >= weekAgo && log.date <= today && isActiveOn(habit, log.date)) {
 							recentVotes += Math.min(log.count, habit.target);
 						}
 					}
 				} else {
 					for (const d of eachDay(weekAgo, addDays(today, -1))) {
-						if (d >= habit.startDate && !((logs.get(d)?.count ?? 0) > 0)) recentVotes++;
+						if (isActiveOn(habit, d) && !((logs.get(d)?.count ?? 0) > 0)) recentVotes++;
 					}
 				}
 			}

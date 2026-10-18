@@ -194,6 +194,29 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 					});
 				};
 
+				/**
+				 * A timestamp strictly newer than the version being replaced, so a local
+				 * edit always wins last-write-wins against its own previous version
+				 * (even with a skewed or repeated clock).
+				 */
+				const stamp = (current?: { updatedAt: number }) =>
+					Math.max(now(), (current?.updatedAt ?? 0) + 1);
+
+				/**
+				 * Schema-checks an entity before it is stored. Unknown fields (written
+				 * by newer clients) are kept; invalid writes are dropped with a warning
+				 * so nothing unsyncable or unexportable ever reaches the store.
+				 */
+				const validated = <C extends Collection>(
+					collection: C,
+					candidate: EntityByCollection[C],
+				): EntityByCollection[C] | null => {
+					const parsed = collectionSchemas[collection].safeParse(candidate);
+					if (parsed.success) return { ...candidate, ...parsed.data } as EntityByCollection[C];
+					console.warn(`[atomic] Ignored invalid ${collection} write`, parsed.error.issues);
+					return null;
+				};
+
 				const patch = <C extends Collection>(
 					collection: C,
 					id: string,
@@ -201,7 +224,13 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 				) => {
 					const current = get().data[collection][id] as EntityByCollection[C] | undefined;
 					if (!current) return;
-					put(collection, { ...current, ...changes, id, updatedAt: now() });
+					const next = validated(collection, {
+						...current,
+						...changes,
+						id,
+						updatedAt: stamp(current),
+					});
+					if (next) put(collection, next);
 				};
 
 				const writeLog = (habitId: string, date: DayKey, changes: Partial<HabitLog>) => {
@@ -219,7 +248,66 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						updatedAt: t,
 						deletedAt: null,
 					};
-					put("logs", { ...base, ...changes, id, habitId, date, deletedAt: null, updatedAt: t });
+					const next = validated("logs", {
+						...base,
+						...changes,
+						id,
+						habitId,
+						date,
+						deletedAt: null,
+						updatedAt: stamp(current),
+					});
+					if (next) put("logs", next);
+				};
+
+				/** Re-stamps a set of entities as fresh local writes. */
+				const restamp = <T extends { updatedAt: number }>(
+					entities: Record<string, T>,
+					t: number,
+				) => {
+					const out: Record<string, T> = {};
+					for (const [id, entity] of Object.entries(entities)) {
+						out[id] = { ...entity, updatedAt: Math.max(t, entity.updatedAt + 1) };
+					}
+					return out;
+				};
+
+				/**
+				 * Replaces everything with `next`: entities that disappear become
+				 * tombstones (so the deletion syncs) and every written entity is marked
+				 * pending.
+				 */
+				const replaceData = (state: AtomicState, next: AtomicData, t: number) => {
+					const data = emptyData();
+					const pending: Record<string, true> = { ...state.sync.pending };
+					for (const collection of COLLECTIONS) {
+						const records: Record<
+							string,
+							{ id: string; updatedAt: number; deletedAt: number | null }
+						> = {};
+						for (const [id, entity] of Object.entries(state.data[collection])) {
+							if (entity.deletedAt || next[collection][id]) continue;
+							records[id] = {
+								...entity,
+								deletedAt: t,
+								updatedAt: Math.max(t, entity.updatedAt + 1),
+							};
+							pending[pendingKey(collection, id)] = true;
+						}
+						const incoming = next[collection] as Record<
+							string,
+							{ id: string; updatedAt: number; deletedAt: number | null }
+						>;
+						for (const [id, entity] of Object.entries(restamp(incoming, t))) {
+							const previous = state.data[collection][id];
+							records[id] = previous
+								? { ...entity, updatedAt: Math.max(entity.updatedAt, previous.updatedAt + 1) }
+								: entity;
+							pending[pendingKey(collection, id)] = true;
+						}
+						(data as Record<Collection, unknown>)[collection] = records;
+					}
+					return { data, pending };
 				};
 
 				const actions: AtomicActions = {
@@ -240,12 +328,9 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 					updateHabit(id, changes) {
 						const current = get().data.habits[id];
 						if (!current) return;
-						const next = habitSchema.safeParse({
-							...current,
-							...sanitizeHabit(changes),
-							updatedAt: now(),
-						});
-						if (next.success) put("habits", next.data);
+						const candidate = { ...current, ...sanitizeHabit(changes), updatedAt: stamp(current) };
+						const next = habitSchema.safeParse(candidate);
+						if (next.success) put("habits", { ...candidate, ...next.data });
 						else console.warn("[atomic] Ignored invalid habit update", next.error.issues);
 					},
 					archiveHabit(id, archived = true) {
@@ -258,18 +343,19 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						patch("habits", id, { deletedAt: null });
 					},
 					reorderHabits(ids) {
-						const t = now();
 						const habits = get().data.habits;
 						const changed: Habit[] = [];
 						ids.forEach((id, order) => {
 							const habit = habits[id];
-							if (habit && habit.order !== order) changed.push({ ...habit, order, updatedAt: t });
+							if (habit && habit.order !== order) {
+								changed.push({ ...habit, order, updatedAt: stamp(habit) });
+							}
 						});
 						put("habits", ...changed);
 					},
 
 					setCount(habitId, date, count) {
-						if (!get().data.habits[habitId]) return;
+						if (!get().data.habits[habitId] || !Number.isFinite(count)) return;
 						const value = Math.max(0, Math.min(100_000, Math.round(count)));
 						writeLog(
 							habitId,
@@ -324,10 +410,10 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						const t = now();
 						const habits = Object.values(get().data.habits)
 							.filter((h) => h.identityId === id)
-							.map((h) => ({ ...h, identityId: null, updatedAt: t }));
+							.map((h) => ({ ...h, identityId: null, updatedAt: stamp(h) }));
 						const tasks = Object.values(get().data.tasks)
 							.filter((task) => task.identityId === id)
-							.map((task) => ({ ...task, identityId: null, updatedAt: t }));
+							.map((task) => ({ ...task, identityId: null, updatedAt: stamp(task) }));
 						put("habits", ...habits);
 						put("tasks", ...tasks);
 						patch("identities", id, { deletedAt: t });
@@ -370,7 +456,7 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						const t = now();
 						const done = Object.values(get().data.tasks)
 							.filter((task) => task.completedAt && !task.deletedAt)
-							.map((task) => ({ ...task, deletedAt: t, updatedAt: t }));
+							.map((task) => ({ ...task, deletedAt: t, updatedAt: stamp(task) }));
 						put("tasks", ...done);
 					},
 
@@ -398,12 +484,13 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						patch("scorecard", id, { deletedAt: now() });
 					},
 					reorderScorecard(ids) {
-						const t = now();
 						const items = get().data.scorecard;
 						const changed: ScorecardItem[] = [];
 						ids.forEach((id, order) => {
 							const item = items[id];
-							if (item && item.order !== order) changed.push({ ...item, order, updatedAt: t });
+							if (item && item.order !== order) {
+								changed.push({ ...item, order, updatedAt: stamp(item) });
+							}
 						});
 						put("scorecard", ...changed);
 					},
@@ -441,31 +528,46 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						}
 						const incoming = parsed.data;
 						let imported = 0;
+						const t = now();
 						set((state) => {
-							const data: AtomicData = mode === "replace" ? emptyData() : { ...state.data };
-							const pending = mode === "replace" ? {} : { ...state.sync.pending };
+							if (mode === "replace") {
+								// Restoring a backup: its contents win everywhere, and whatever is
+								// not in it is deleted (as tombstones, so other devices follow).
+								const next = emptyData();
+								for (const collection of COLLECTIONS) {
+									const records: Record<string, unknown> = {};
+									for (const entity of incoming.data[collection]) records[entity.id] = entity;
+									(next as Record<Collection, unknown>)[collection] = records;
+									imported += incoming.data[collection].length;
+								}
+								const { data, pending } = replaceData(state, next, t);
+								const settings = settingsSchema.parse({
+									...state.settings,
+									...incoming.settings,
+									onboarded: true,
+								});
+								return { data, settings, sync: { ...state.sync, pending } };
+							}
+							const data: AtomicData = { ...state.data };
+							const pending = { ...state.sync.pending };
 							for (const collection of COLLECTIONS) {
 								const records = { ...data[collection] } as Record<
 									string,
 									{ id: string; updatedAt: number }
 								>;
 								for (const entity of incoming.data[collection]) {
-									if (mode === "merge" && !shouldReplace(records[entity.id], entity)) continue;
+									if (!shouldReplace(records[entity.id], entity)) continue;
 									records[entity.id] = entity;
 									pending[pendingKey(collection, entity.id)] = true;
 									imported++;
 								}
 								(data as Record<Collection, unknown>)[collection] = records;
 							}
-							const settings =
-								mode === "replace" && incoming.settings
-									? settingsSchema.parse({
-											...state.settings,
-											...incoming.settings,
-											onboarded: true,
-										})
-									: { ...state.settings, onboarded: true };
-							return { data, settings, sync: { ...state.sync, pending } };
+							return {
+								data,
+								settings: { ...state.settings, onboarded: true },
+								sync: { ...state.sync, pending },
+							};
 						});
 						return { ok: true, imported };
 					},
@@ -481,17 +583,14 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 										?.languages ?? [],
 								),
 						});
-						const pending: Record<string, true> = {};
-						for (const collection of COLLECTIONS) {
-							for (const id of Object.keys(demo[collection])) {
-								pending[pendingKey(collection, id)] = true;
-							}
-						}
-						set((state) => ({
-							data: demo,
-							settings: { ...state.settings, onboarded: true },
-							sync: { ...state.sync, pending },
-						}));
+						set((state) => {
+							const { data, pending } = replaceData(state, demo, now());
+							return {
+								data,
+								settings: { ...state.settings, onboarded: true },
+								sync: { ...state.sync, pending },
+							};
+						});
 					},
 					resetAll() {
 						set({ data: emptyData(), settings: { ...DEFAULT_SETTINGS }, sync: emptySync() });
@@ -507,13 +606,16 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 							const pending = { ...state.sync.pending };
 							const touched = new Set<Collection>();
 							for (const record of records) {
+								// Collections from newer clients are skipped, not fatal.
+								if (!COLLECTIONS.includes(record.collection)) continue;
 								const schema = collectionSchemas[record.collection];
-								const parsed = schema.safeParse({
+								const candidate = {
 									...record.data,
 									id: record.id,
 									updatedAt: record.updatedAt,
 									deletedAt: record.deletedAt,
-								});
+								};
+								const parsed = schema.safeParse(candidate);
 								if (!parsed.success) continue;
 								const current = data[record.collection][record.id];
 								if (!shouldReplace(current, parsed.data)) continue;
@@ -521,7 +623,8 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 									data[record.collection] = { ...data[record.collection] };
 									touched.add(record.collection);
 								}
-								data[record.collection][record.id] = parsed.data;
+								// Keep fields this client doesn't know so it never erases them.
+								data[record.collection][record.id] = { ...candidate, ...parsed.data };
 								delete pending[pendingKey(record.collection, record.id)];
 								changed++;
 							}

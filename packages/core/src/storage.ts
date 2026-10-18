@@ -73,6 +73,12 @@ export function createPersistStorage<S>(
 ): FlushablePersistStorage<S> {
 	let pending: { name: string; value: StorageValue<S> } | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * Keys whose stored value could not be read. Writing to them would replace
+	 * the user's real data with the empty state built from that failed read, so
+	 * they stay read-only (in-memory) for the rest of the session.
+	 */
+	const unreadable = new Set<string>();
 
 	const write = async () => {
 		if (timer) {
@@ -82,6 +88,7 @@ export function createPersistStorage<S>(
 		if (!pending) return;
 		const { name, value } = pending;
 		pending = null;
+		if (unreadable.has(name)) return;
 		try {
 			await kv.setItem(name, JSON.stringify(value));
 		} catch (error) {
@@ -108,7 +115,8 @@ export function createPersistStorage<S>(
 		// first render already has the user's data.
 		getItem(name) {
 			const fail = (error: unknown) => {
-				console.warn("[atomic] Could not read stored data", error);
+				unreadable.add(name);
+				console.warn("[atomic] Could not read stored data; changes stay in memory", error);
 				return null;
 			};
 			let raw: string | null | Promise<string | null>;
@@ -123,6 +131,7 @@ export function createPersistStorage<S>(
 			return parse(name, raw as string | null);
 		},
 		setItem(name, value) {
+			if (unreadable.has(name)) return;
 			pending = { name, value };
 			if (debounceMs <= 0) {
 				void write();

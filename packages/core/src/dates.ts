@@ -14,8 +14,16 @@ const MS_PER_DAY = 86_400_000;
 
 const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
 
+/** A real calendar day in YYYY-MM-DD form (rejects 2026-02-31, 2026-13-01…). */
 export function isDayKey(value: unknown): value is DayKey {
-	return typeof value === "string" && DAY_KEY_RE.test(value);
+	if (typeof value !== "string") return false;
+	const match = DAY_KEY_RE.exec(value);
+	if (!match) return false;
+	const y = Number(match[1]);
+	const m = Number(match[2]);
+	const d = Number(match[3]);
+	if (y < 1000 || m < 1 || m > 12 || d < 1) return false;
+	return d <= new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
 /** Local calendar day of a date (defaults to now). */

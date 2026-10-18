@@ -41,9 +41,19 @@ export function logsFor(index: LogIndex, habitId: string): HabitLogs {
 }
 
 /** Last day a habit counts for stats (archive day is excluded). */
-function lastActiveDay(habit: Habit, today: DayKey): DayKey {
+export function lastActiveDay(habit: Habit, today: DayKey): DayKey {
 	if (!habit.archivedAt) return today;
 	return minDay(today, addDays(toDayKey(habit.archivedAt), -1));
+}
+
+/**
+ * Break habits count clean days up to (not including) a reference day: today
+ * while the habit runs (today is still in progress), or the archive day once
+ * it is archived (its last active day is complete).
+ */
+function cleanReference(habit: Habit, today: DayKey): DayKey {
+	const end = lastActiveDay(habit, today);
+	return end < today ? addDays(end, 1) : end;
 }
 
 export function isActiveOn(habit: Habit, day: DayKey): boolean {
@@ -166,11 +176,15 @@ function weeklyPeriods(
 	for (let week = firstWeek; week <= end; week = addDays(week, 7)) {
 		const done = weekDoneCount(habit, logs, week, end);
 		let outcome: Outcome;
+		const weekEnd = addDays(week, 6);
 		if (done >= times) outcome = "done";
 		else if (week === currentWeek && end === today) outcome = "pending";
-		else if (week === firstWeek && week < habit.startDate) {
-			// A habit started mid-week only owes that week if enough days were left.
-			const available = diffDays(addDays(week, 6), habit.startDate) + 1;
+		else if (week < habit.startDate || (end < today && weekEnd > end)) {
+			// A week cut short (started mid-week, or archived mid-week) only owes
+			// the quota if enough active days were left in it.
+			const first = maxDay(week, habit.startDate);
+			const last = minDay(weekEnd, end);
+			const available = diffDays(last, first) + 1;
 			outcome = available >= times ? "missed" : "neutral";
 		} else outcome = "missed";
 		periods.push({ key: week, outcome });
@@ -237,7 +251,7 @@ function breakStreak(habit: Habit, logs: HabitLogs, today: DayKey): StreakInfo {
 		best = Math.max(best, diffDays(slip, anchor));
 		anchor = slip;
 	}
-	const current = diffDays(end, anchor);
+	const current = diffDays(cleanReference(habit, today), anchor);
 	best = Math.max(best, current);
 	const lastSlip = slips.length ? (slips[slips.length - 1] ?? null) : null;
 	return {
@@ -350,11 +364,12 @@ export function votesOf(habit: Habit, logs: HabitLogs, today: DayKey): number {
 	const end = lastActiveDay(habit, today);
 	if (end < habit.startDate) return 0;
 	if (habit.kind === "break") {
+		const reference = cleanReference(habit, today);
 		let slipDays = 0;
 		for (const log of logs.values()) {
-			if (log.count > 0 && log.date >= habit.startDate && log.date < end) slipDays++;
+			if (log.count > 0 && log.date >= habit.startDate && log.date < reference) slipDays++;
 		}
-		return Math.max(0, diffDays(end, habit.startDate) - slipDays);
+		return Math.max(0, diffDays(reference, habit.startDate) - slipDays);
 	}
 	let votes = 0;
 	for (const log of logs.values()) {
@@ -474,8 +489,9 @@ export function habitStats(
 	let totalDays = 0;
 	let lastDone: DayKey | null = null;
 	if (habit.kind === "build") {
+		const end = lastActiveDay(habit, today);
 		for (const log of logs.values()) {
-			if (log.count >= habit.target && log.date >= habit.startDate && log.date <= today) {
+			if (log.count >= habit.target && log.date >= habit.startDate && log.date <= end) {
 				totalDays++;
 				if (!lastDone || log.date > lastDone) lastDone = log.date;
 			}
