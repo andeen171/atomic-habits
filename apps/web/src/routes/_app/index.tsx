@@ -11,9 +11,17 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useT } from "@/lib/messages";
 import { type DayKey, type DayScore, TIMES_OF_DAY, greetingKey, isDayKey } from "@atomic/core";
-import { useActions, useDayAgenda, useLocale, useSettings, useToday } from "@atomic/core/react";
+import {
+	useActions,
+	useDayAgenda,
+	useHabits,
+	useLocale,
+	useSettings,
+	useToday,
+} from "@atomic/core/react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Plus } from "lucide-react";
+import { Archive, ArrowLeft, Plus } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface TodaySearch {
 	day?: DayKey;
@@ -38,45 +46,64 @@ function TodayScreen() {
 		void navigate({ to: "/", search: next === today ? {} : { day: next } });
 	};
 
-	if (agenda.empty) return <EmptyToday />;
+	if (agenda.empty) {
+		return (
+			<TodayLayout header={<TodayHeader day={day} today={today} score={agenda.score} />} day={day}>
+				<NoActiveHabits />
+			</TodayLayout>
+		);
+	}
 
 	const hasDue = TIMES_OF_DAY.some((time) => agenda.groups[time].length > 0);
 
 	return (
+		<TodayLayout
+			header={<TodayHeader day={day} today={today} score={agenda.score} />}
+			day={day}
+			votes
+		>
+			<WeekStrip selected={day} onSelect={selectDay} />
+			{agenda.isToday ? (
+				<>
+					<NeverMissTwiceBanner items={agenda.atRisk} />
+					<FreshStartBanner items={agenda.broken} />
+				</>
+			) : null}
+			{agenda.allDone && agenda.isToday ? <AllDoneCard votes={agenda.votes} /> : null}
+			{!hasDue && agenda.score.due === 0 ? <NothingDueCard past={!agenda.isToday} /> : null}
+			{TIMES_OF_DAY.map((time) => (
+				<HabitGroup key={time} title={t(`time.${time}`)} items={agenda.groups[time]} day={day} />
+			))}
+			<HabitGroup
+				title={t("today.doneForWeek")}
+				items={agenda.doneForWeek}
+				day={day}
+				dimmed
+				showCount={false}
+			/>
+			<HabitGroup title={t("today.breaking")} items={agenda.breaking} day={day} showCount={false} />
+		</TodayLayout>
+	);
+}
+
+/** Header, then habits (main) | tasks, principle and votes (right rail from 1280px). */
+function TodayLayout({
+	header,
+	day,
+	votes,
+	children,
+}: {
+	header: ReactNode;
+	day: DayKey;
+	votes?: boolean;
+	children: ReactNode;
+}) {
+	return (
 		<div className="mx-auto w-full max-w-[760px] animate-page-in px-5 pt-6 pb-10 md:px-8 md:pt-10 lg:px-10 xl:max-w-[1160px]">
-			<TodayHeader day={day} today={today} score={agenda.score} />
+			{header}
 			<div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-8">
 				<div className="flex min-w-0 flex-col gap-6">
-					<WeekStrip selected={day} onSelect={selectDay} />
-					{agenda.isToday ? (
-						<>
-							<NeverMissTwiceBanner items={agenda.atRisk} />
-							<FreshStartBanner items={agenda.broken} />
-						</>
-					) : null}
-					{agenda.allDone && agenda.isToday ? <AllDoneCard votes={agenda.votes} /> : null}
-					{!hasDue && agenda.score.due === 0 ? <NothingDueCard /> : null}
-					{TIMES_OF_DAY.map((time) => (
-						<HabitGroup
-							key={time}
-							title={t(`time.${time}`)}
-							items={agenda.groups[time]}
-							day={day}
-						/>
-					))}
-					<HabitGroup
-						title={t("today.doneForWeek")}
-						items={agenda.doneForWeek}
-						day={day}
-						dimmed
-						showCount={false}
-					/>
-					<HabitGroup
-						title={t("today.breaking")}
-						items={agenda.breaking}
-						day={day}
-						showCount={false}
-					/>
+					{children}
 					<div className="flex flex-col gap-6 xl:hidden">
 						<TodayTasks day={day} />
 						<PrincipleCard />
@@ -85,7 +112,7 @@ function TodayScreen() {
 				<aside className="hidden flex-col gap-6 xl:flex">
 					<TodayTasks day={day} />
 					<PrincipleCard />
-					<IdentityVotesCard />
+					{votes ? <IdentityVotesCard /> : null}
 				</aside>
 			</div>
 		</div>
@@ -111,7 +138,7 @@ function TodayHeader({ day, today, score }: { day: DayKey; today: DayKey; score:
 					<Link
 						to="/"
 						search={{}}
-						className="mb-1 inline-flex items-center gap-1 font-medium text-accent text-small hover:underline"
+						className="mb-1 inline-flex items-center gap-1 rounded-xs font-medium text-accent-text text-small hover:underline"
 					>
 						<ArrowLeft className="size-3.5" />
 						{t("today.backToToday")}
@@ -126,35 +153,63 @@ function TodayHeader({ day, today, score }: { day: DayKey; today: DayKey; score:
 	);
 }
 
-function EmptyToday() {
-	const { t } = useT();
+/**
+ * No active habits. First run: invite the first habit (and sample data).
+ * Everything archived: say so and point at the Archived filter. The day's
+ * tasks stay visible either way.
+ */
+function NoActiveHabits() {
+	const { t, at } = useT();
 	const actions = useActions();
 	const locale = useLocale();
-	return (
-		<div className="mx-auto w-full max-w-[760px] animate-page-in px-5 pt-6 pb-10 md:px-8 md:pt-10">
-			<header className="mb-6">
-				<h1 className="font-display text-ink text-title md:text-hero">{t("today.title")}</h1>
-			</header>
+	const archived = useHabits({ archived: true });
+
+	if (archived.length) {
+		return (
 			<div className="rounded-2xl border border-line bg-surface shadow-card">
 				<EmptyState
-					title={t("today.emptyTitle")}
-					body={t("today.emptyBody")}
+					title={t("today.allArchivedTitle")}
+					body={t("today.allArchivedBody")}
 					action={
-						<Button asChild size="lg">
+						<Button asChild>
 							<Link to="/habits/new">
 								<Plus />
-								{t("today.emptyCta")}
+								{t("habits.new")}
 							</Link>
 						</Button>
 					}
 					secondary={
-						<Button variant="link" size="sm" onClick={() => actions.loadDemoData(locale)}>
-							{t("onboarding.explore")}
+						<Button asChild variant="link" size="sm">
+							<Link to="/habits" search={{ filter: "archived" }}>
+								<Archive />
+								{at("today.viewArchived")}
+							</Link>
 						</Button>
 					}
 				/>
 			</div>
-			<PrincipleCard className="mt-6" />
+		);
+	}
+
+	return (
+		<div className="rounded-2xl border border-line bg-surface shadow-card">
+			<EmptyState
+				title={t("today.emptyTitle")}
+				body={t("today.emptyBody")}
+				action={
+					<Button asChild size="lg">
+						<Link to="/habits/new">
+							<Plus />
+							{t("today.emptyCta")}
+						</Link>
+					</Button>
+				}
+				secondary={
+					<Button variant="link" size="sm" onClick={() => actions.loadDemoData(locale)}>
+						{t("onboarding.explore")}
+					</Button>
+				}
+			/>
 		</div>
 	);
 }

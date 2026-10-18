@@ -128,9 +128,9 @@ function AddBehavior() {
 					onChange={(event) => setLabel(event.target.value)}
 				/>
 			</div>
-			<div className="mt-3 flex items-center justify-between gap-3">
+			<div className="mt-3 flex flex-wrap items-center justify-between gap-3">
 				<RatingPicker value={rating} onChange={setRating} />
-				<Button type="submit" disabled={!label.trim()}>
+				<Button type="submit" disabled={!label.trim()} className="max-sm:flex-1">
 					<Plus />
 					{t("scorecard.add")}
 				</Button>
@@ -153,7 +153,13 @@ const RATING_STYLE: Record<ScorecardRating, string> = {
 function RatingPicker({
 	value,
 	onChange,
-}: { value: ScorecardRating; onChange(rating: ScorecardRating): void }) {
+	itemLabel,
+}: {
+	value: ScorecardRating;
+	onChange(rating: ScorecardRating): void;
+	/** The behavior this rating belongs to (rows), for a contextual name. */
+	itemLabel?: string;
+}) {
 	const { t, at } = useT();
 	const onKeyDown = (event: KeyboardEvent, index: number) => {
 		const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -166,7 +172,9 @@ function RatingPicker({
 	return (
 		<div
 			role="radiogroup"
-			aria-label={at("scorecard.rating")}
+			aria-label={
+				itemLabel ? at("scorecard.ratingFor", { label: itemLabel }) : at("scorecard.rating")
+			}
 			className="inline-flex shrink-0 gap-1"
 		>
 			{SCORECARD_RATINGS.map((rating, index) => (
@@ -194,7 +202,7 @@ function RatingPicker({
 }
 
 function ScorecardRow({ item }: { item: ScorecardItem }) {
-	const { t } = useT();
+	const { t, at } = useT();
 	const actions = useActions();
 	const navigate = useNavigate();
 	const [editing, setEditing] = useState(false);
@@ -226,48 +234,52 @@ function ScorecardRow({ item }: { item: ScorecardItem }) {
 	const kind = item.rating === "negative" ? "break" : "build";
 
 	return (
-		<div className="flex items-center gap-2 px-4 py-2.5 sm:gap-3 md:px-5">
-			<span className="w-10 shrink-0 text-ink-subtle text-small tabular-nums sm:w-12">
+		// Phones: the rating sits under the behavior so the label keeps the row's width.
+		<div className="flex items-start gap-2 px-4 py-2.5 sm:items-center sm:gap-3 md:px-5">
+			<span className="w-10 shrink-0 pt-2 text-ink-subtle text-small tabular-nums sm:w-12 sm:pt-0">
 				{item.time ?? "—"}
 			</span>
-			{editing ? (
-				<input
-					value={label}
-					// biome-ignore lint/a11y/noAutofocus: the field appears because the user clicked to edit it.
-					autoFocus
-					maxLength={160}
-					aria-label={t("common.edit")}
-					onChange={(event) => setLabel(event.target.value)}
-					onBlur={commit}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") commit();
-						if (event.key === "Escape") {
-							setLabel(item.label);
-							setEditing(false);
-						}
-					}}
-					className="h-9 min-w-0 flex-1 rounded-sm border border-accent bg-surface px-2 text-ink outline-none focus-visible:outline-none"
+			<div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+				{editing ? (
+					<input
+						value={label}
+						// biome-ignore lint/a11y/noAutofocus: the field appears because the user clicked to edit it.
+						autoFocus
+						maxLength={160}
+						aria-label={t("common.edit")}
+						onChange={(event) => setLabel(event.target.value)}
+						onBlur={commit}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") commit();
+							if (event.key === "Escape") {
+								setLabel(item.label);
+								setEditing(false);
+							}
+						}}
+						className="h-9 min-w-0 flex-1 rounded-sm border border-accent bg-surface px-2 text-ink outline-none focus-visible:outline-none"
+					/>
+				) : (
+					<button
+						type="button"
+						onClick={() => setEditing(true)}
+						className="line-clamp-2 min-w-0 flex-1 break-words rounded-sm py-1.5 text-left text-ink leading-snug"
+					>
+						{item.label}
+					</button>
+				)}
+				<RatingPicker
+					value={item.rating}
+					itemLabel={item.label}
+					onChange={(rating) => actions.updateScorecardItem(item.id, { rating })}
 				/>
-			) : (
-				<button
-					type="button"
-					onClick={() => setEditing(true)}
-					className="line-clamp-2 min-w-0 flex-1 rounded-sm py-1.5 text-left text-ink leading-snug"
-				>
-					{item.label}
-				</button>
-			)}
-			<RatingPicker
-				value={item.rating}
-				onChange={(rating) => actions.updateScorecardItem(item.id, { rating })}
-			/>
+			</div>
 			<Menu modal={false}>
 				<MenuTrigger asChild>
 					<IconButton
-						label={t("common.more")}
+						label={at("common.moreFor", { name: item.label })}
 						size="sm"
 						tooltip={false}
-						className="-mr-1.5 text-ink-subtle"
+						className="-mr-1.5 mt-0.5 text-ink-subtle sm:mt-0"
 					>
 						<Ellipsis />
 					</IconButton>

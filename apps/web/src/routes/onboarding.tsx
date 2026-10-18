@@ -2,6 +2,7 @@ import { LogoMark } from "@/components/brand/logo";
 import { CompoundChart } from "@/components/insights/compound-chart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
+import { focusHeading } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -10,7 +11,7 @@ import { useActions, useLocale, useSettings } from "@atomic/core/react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Check, PenLine, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/onboarding")({
 	component: OnboardingScreen,
@@ -40,6 +41,7 @@ function OnboardingScreen() {
 	const [identityKeys, setIdentityKeys] = useState<string[]>([]);
 	const [custom, setCustom] = useState<CustomIdentity[]>([]);
 	const [habitKeys, setHabitKeys] = useState<string[] | null>(null);
+	const mainRef = useRef<HTMLElement>(null);
 
 	const selectedTemplates = templates.filter((tpl) => identityKeys.includes(tpl.key));
 	const candidateHabits = selectedTemplates.flatMap((tpl) =>
@@ -144,8 +146,15 @@ function OnboardingScreen() {
 				</div>
 			</header>
 
-			<main className="mx-auto flex w-full max-w-[600px] flex-1 flex-col px-5 pb-8">
-				<AnimatePresence mode="wait" custom={direction} initial={false}>
+			<main ref={mainRef} className="mx-auto flex w-full max-w-[600px] flex-1 flex-col px-5 pb-8">
+				<AnimatePresence
+					mode="wait"
+					custom={direction}
+					initial={false}
+					// Each step brings its own buttons, so the focused one is gone: move
+					// focus to the new step's title (unless a field took it).
+					onExitComplete={() => requestAnimationFrame(() => focusHeading(mainRef.current))}
+				>
 					<motion.div
 						key={step}
 						custom={direction}

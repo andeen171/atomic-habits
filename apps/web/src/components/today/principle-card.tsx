@@ -20,7 +20,7 @@ export function PrincipleCard({ className }: { className?: string }) {
 			)}
 		>
 			<Quote aria-hidden="true" className="absolute top-4 right-4 size-10 text-accent/15" />
-			<div className="mb-3 flex items-center gap-2">
+			<div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 pr-12">
 				<span className="section-label">{t("today.principle")}</span>
 				{law ? (
 					<span className="rounded-full bg-sunken px-2 py-0.5 font-medium text-[10px] text-ink-muted uppercase tracking-wide">

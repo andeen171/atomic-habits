@@ -12,10 +12,10 @@ export const buttonVariants = cva(
 				secondary:
 					"border border-line bg-surface text-ink shadow-card hover:border-line-strong hover:bg-hover",
 				ghost: "text-ink-muted hover:bg-hover hover:text-ink",
-				soft: "bg-accent-soft text-accent hover:bg-accent-soft/80",
-				destructive: "bg-danger text-white hover:bg-danger/90",
+				soft: "bg-accent-soft text-accent-text hover:bg-accent-soft/80",
+				destructive: "bg-danger text-surface hover:bg-danger/90",
 				"destructive-ghost": "text-danger hover:bg-danger-soft",
-				link: "h-auto rounded-sm px-0 text-accent underline-offset-4 hover:underline active:scale-100",
+				link: "h-auto rounded-sm px-0 text-accent-text underline-offset-4 hover:underline active:scale-100",
 			},
 			size: {
 				sm: "h-8 px-3 text-small [&_svg]:size-4",

@@ -1,5 +1,5 @@
 import { useT } from "@/lib/messages";
-import { useColorScheme } from "@/lib/theme";
+import { readableOn, useColorScheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import {
 	EMOJI_CHOICES,
@@ -13,8 +13,8 @@ import {
 } from "@atomic/core";
 import { useAtomic } from "@atomic/core/react";
 import { habitColor } from "@atomic/core/theme";
-import { Check, Minus, Plus, ShieldOff, Sprout, X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { Check, Lock, Minus, Plus, ShieldOff, Sprout, X } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Field, Input } from "../ui/field";
 import { IconButton } from "../ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -44,27 +44,59 @@ export function KindToggle({
 						aria-pressed={selected}
 						onClick={() => onChange(option.kind)}
 						className={cn(
-							"flex items-start gap-3 rounded-lg border bg-surface p-3.5 text-left transition-[border-color,box-shadow] duration-(--atomic-duration-fast)",
+							// Icon above the text on phones so long labels (pt-BR) keep the full width.
+							"flex min-w-0 flex-col items-start gap-2.5 rounded-lg border bg-surface p-3.5 text-left transition-[border-color,box-shadow] duration-(--atomic-duration-fast) sm:flex-row sm:gap-3",
 							selected
 								? "border-accent shadow-[0_0_0_1px_var(--accent)]"
 								: "border-line hover:border-line-strong",
 						)}
 					>
-						<span
-							className={cn(
-								"grid size-9 shrink-0 place-items-center rounded-full [&_svg]:size-[18px]",
-								selected ? "bg-accent text-on-accent" : "bg-sunken text-ink-muted",
-							)}
-						>
-							{option.icon}
-						</span>
-						<span className="min-w-0">
-							<span className="block font-semibold text-ink">{t(`form.kind.${option.kind}`)}</span>
-							<span className="block text-ink-muted text-small leading-snug">{option.hint}</span>
+						<KindIcon selected={selected}>{option.icon}</KindIcon>
+						<span className="min-w-0 max-w-full">
+							<span className="block break-words font-semibold text-ink">
+								{t(`form.kind.${option.kind}`)}
+							</span>
+							<span className="block break-words text-ink-muted text-small leading-snug">
+								{option.hint}
+							</span>
 						</span>
 					</button>
 				);
 			})}
+		</fieldset>
+	);
+}
+
+function KindIcon({ selected, children }: { selected: boolean; children: ReactNode }) {
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"grid size-9 shrink-0 place-items-center rounded-full [&_svg]:size-[18px]",
+				selected ? "bg-accent text-on-accent" : "bg-sunken text-ink-muted",
+			)}
+		>
+			{children}
+		</span>
+	);
+}
+
+/** Editing: the kind is fixed once a habit exists (its history means opposite things). */
+export function KindReadOnly({ value }: { value: HabitKind }) {
+	const { t, at } = useT();
+	return (
+		<fieldset className="flex min-w-0 items-center gap-3 rounded-lg border border-line bg-sunken/50 p-3.5">
+			<legend className="sr-only">{t("form.kind")}</legend>
+			<span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface text-ink-muted [&_svg]:size-[18px]">
+				{value === "build" ? <Sprout aria-hidden="true" /> : <ShieldOff aria-hidden="true" />}
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="block font-semibold text-ink">{t(`form.kind.${value}`)}</span>
+				<span className="block text-ink-muted text-small leading-snug">
+					{at("form.kindLocked")}
+				</span>
+			</span>
+			<Lock aria-hidden="true" className="size-4 shrink-0 text-ink-subtle" />
 		</fieldset>
 	);
 }
@@ -116,7 +148,7 @@ export function EmojiPicker({
 					className="mt-3 flex gap-2"
 					onSubmit={(event) => {
 						event.preventDefault();
-						const chosen = [...custom.trim()].slice(0, 2).join("");
+						const chosen = firstGrapheme(custom.trim());
 						if (chosen) {
 							onChange(chosen);
 							setCustom("");
@@ -138,6 +170,16 @@ export function EmojiPicker({
 	);
 }
 
+/** First user-perceived character, so ZWJ sequences (👨‍👩‍👧, 🧘‍♀️) stay whole. */
+function firstGrapheme(value: string): string {
+	if (!value) return "";
+	if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+		const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value);
+		for (const { segment } of segments) return segment.slice(0, 16);
+	}
+	return value.slice(0, 16);
+}
+
 export function ColorPicker({
 	value,
 	onChange,
@@ -150,6 +192,7 @@ export function ColorPicker({
 			{HABIT_COLORS.map((color) => {
 				const selected = value === color;
 				const fill = habitColor(color, scheme).fill;
+				const check = readableOn(fill, 3);
 				return (
 					<button
 						key={color}
@@ -163,7 +206,9 @@ export function ColorPicker({
 						)}
 						style={{ background: fill, ["--tw-ring-color" as string]: fill }}
 					>
-						{selected ? <Check className="size-4 text-white" strokeWidth={3} /> : null}
+						{selected ? (
+							<Check className="size-4" style={{ color: check }} strokeWidth={3} />
+						) : null}
 					</button>
 				);
 			})}
@@ -185,6 +230,16 @@ export function Stepper({
 	label: string;
 }) {
 	const { t } = useT();
+	// The field may be empty or out of range while typing ("" on the way to
+	// "20"); it's clamped and committed on blur / Enter, not per keystroke.
+	const [text, setText] = useState(String(value));
+	useEffect(() => setText(String(value)), [value]);
+	const commit = () => {
+		const parsed = Number.parseInt(text, 10);
+		const next = Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : value;
+		setText(String(next));
+		if (next !== value) onChange(next);
+	};
 	return (
 		<div className="inline-flex h-11 items-center gap-1 rounded-full border border-line bg-sunken/60 p-1">
 			<IconButton
@@ -199,14 +254,24 @@ export function Stepper({
 				type="number"
 				inputMode="numeric"
 				aria-label={label}
-				value={value}
+				value={text}
 				min={min}
 				max={max}
 				onChange={(event) => {
-					const next = Number(event.target.value);
-					if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, Math.round(next))));
+					const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, String(max).length);
+					setText(raw);
+					const parsed = Number.parseInt(raw, 10);
+					// Keep the preview live whenever the typed value is valid.
+					if (Number.isFinite(parsed) && parsed >= min && parsed <= max) onChange(parsed);
 				}}
-				className="w-12 bg-transparent text-center font-semibold text-ink tabular-nums outline-none [appearance:textfield] focus-visible:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						event.preventDefault();
+						commit();
+					}
+				}}
+				className="w-12 rounded-sm bg-transparent text-center font-semibold text-ink tabular-nums outline-none [appearance:textfield] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-inner-spin-button]:appearance-none"
 			/>
 			<IconButton
 				label={t("habit.increment")}

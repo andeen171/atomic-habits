@@ -125,14 +125,14 @@ export function WeekStrip({ selected, onSelect }: WeekStripProps) {
 								{isSelected ? (
 									<motion.span
 										layoutId="week-strip-selection"
-										className="absolute inset-0 rounded-lg bg-sunken"
+										className="forced-selected absolute inset-0 rounded-lg bg-sunken"
 										transition={{ type: "spring", stiffness: 500, damping: 40 }}
 									/>
 								) : null}
 								<span
 									className={cn(
 										"relative font-semibold text-[11px] uppercase leading-none tracking-wide",
-										isToday ? "text-accent" : "text-ink-subtle",
+										isToday ? "text-accent-text" : "text-ink-subtle",
 									)}
 								>
 									{t.weekdayName(weekdayOf(day), "min")}
@@ -176,7 +176,7 @@ export function WeekStrip({ selected, onSelect }: WeekStripProps) {
 											perfect
 												? "font-semibold text-on-accent"
 												: isToday
-													? "font-semibold text-accent"
+													? "font-semibold text-accent-text"
 													: "text-ink",
 										)}
 									>

@@ -33,7 +33,12 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 				</h2>
 				<Menu modal={false}>
 					<MenuTrigger asChild>
-						<IconButton label={t("common.more")} size="sm" tooltip={false} className="-mr-1.5">
+						<IconButton
+							label={at("common.moreFor", { name: identity.statement })}
+							size="sm"
+							tooltip={false}
+							className="-mr-1.5"
+						>
 							<Ellipsis />
 						</IconButton>
 					</MenuTrigger>

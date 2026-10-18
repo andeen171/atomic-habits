@@ -1,10 +1,11 @@
+import { focusHeading } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import type { HabitTemplate } from "@atomic/core";
 import { useActions, useIdentities, useToday } from "@atomic/core/react";
 import { useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlueprintCard } from "../habit/blueprint-card";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
@@ -46,6 +47,16 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 	const [step, setStep] = useState<Step>("what");
 	const [direction, setDirection] = useState(1);
 	const [nameError, setNameError] = useState(false);
+	const stepRef = useRef<HTMLElement>(null);
+
+	// Focus scrolling must keep fields clear of the sticky header and footer.
+	useEffect(() => {
+		const root = document.documentElement;
+		root.dataset.stickyBars = "";
+		return () => {
+			delete root.dataset.stickyBars;
+		};
+	}, []);
 
 	const update = useCallback((patch: Partial<HabitDraft>) => {
 		setDraft((current) => ({ ...current, ...patch }));
@@ -132,6 +143,7 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 					nameError={nameError}
 					onNameEnter={next}
 					autoFocus={!editing}
+					editing={editing}
 				/>
 				{editing ? null : <TemplateList draft={draft} onPick={pickTemplate} />}
 			</>
@@ -160,6 +172,7 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 					<SegmentedControl<EditorMode>
 						label={`${t("form.guided")} / ${t("form.quick")}`}
 						size="sm"
+						className="shrink-0"
 						value={mode}
 						onChange={setMode}
 						options={[
@@ -171,7 +184,7 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 			</header>
 
 			<div className="mx-auto grid w-full max-w-[1080px] flex-1 grid-cols-1 gap-10 px-5 pt-6 pb-10 md:px-8 md:pt-10 lg:grid-cols-[minmax(0,1fr)_340px]">
-				<main className="min-w-0">
+				<main ref={stepRef} className="min-w-0">
 					{mode === "guided" ? (
 						<>
 							<div className="mb-6 flex items-center gap-3">
@@ -193,7 +206,18 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 								compact
 								className="mb-6 lg:hidden"
 							/>
-							<AnimatePresence mode="wait" initial={false} custom={direction}>
+							<AnimatePresence
+								mode="wait"
+								initial={false}
+								custom={direction}
+								// The old step's focused field is gone: land on the new step's title,
+								// or announce it when focus stayed on the footer buttons.
+								onExitComplete={() =>
+									requestAnimationFrame(() =>
+										focusHeading(stepRef.current, { announceOtherwise: true }),
+									)
+								}
+							>
 								<motion.section
 									key={step}
 									initial={{ opacity: 0, x: 12 * direction }}
@@ -291,7 +315,13 @@ function QuickForm({ draft, update, nameError, editing, onPickTemplate }: QuickF
 	return (
 		<div className="flex flex-col gap-8">
 			<QuickSection>
-				<BasicsFields draft={draft} update={update} nameError={nameError} autoFocus={!editing} />
+				<BasicsFields
+					draft={draft}
+					update={update}
+					nameError={nameError}
+					autoFocus={!editing}
+					editing={editing}
+				/>
 			</QuickSection>
 			<QuickSection title={t("form.identity")}>
 				<IdentityFields draft={draft} update={update} />
@@ -339,7 +369,7 @@ function LawBlock({ law, title, children }: { law: string; title: string; childr
 	return (
 		<div>
 			<div className="mb-4 flex items-center gap-2.5">
-				<span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-accent-soft px-1.5 font-semibold text-[11px] text-ink tabular-nums dark:text-accent">
+				<span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-accent-soft px-1.5 font-semibold text-[11px] text-ink tabular-nums dark:text-accent-text">
 					{law}
 				</span>
 				<h3 className="font-medium text-ink">{title}</h3>

@@ -87,6 +87,7 @@
 	--color-ink-subtle: var(--text-subtle);
 	--color-accent: var(--accent);
 	--color-accent-hover: var(--accent-hover);
+	--color-accent-text: var(--accent-text);
 	--color-accent-soft: var(--accent-soft);
 	--color-on-accent: var(--on-accent);
 	--color-success: var(--success);
@@ -170,6 +171,19 @@
 		text-rendering: optimizeLegibility;
 	}
 
+	/* Keep focused controls clear of the fixed mobile tab bar (WCAG 2.4.11). */
+	@media (max-width: 767.98px) {
+		html {
+			scroll-padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 12px);
+		}
+	}
+
+	/* Full-screen routes with a sticky header and footer (habit editor). */
+	html[data-sticky-bars] {
+		scroll-padding-top: 80px;
+		scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom) + 12px);
+	}
+
 	body {
 		min-height: 100dvh;
 		background: var(--bg);
@@ -190,6 +204,11 @@
 	:focus-visible {
 		outline: 2px solid var(--ring);
 		outline-offset: 2px;
+	}
+
+	/* Headings receive focus programmatically after navigation; they aren't controls. */
+	:is(h1, h2)[tabindex="-1"]:focus {
+		outline: none;
 	}
 
 	button,
@@ -227,5 +246,23 @@
 			transition-duration: 0.01ms !important;
 			scroll-behavior: auto !important;
 		}
+	}
+}
+
+/*
+ * Windows High Contrast: draw state with system colors, never with backgrounds
+ * alone. Unlayered so it wins over the utilities it corrects.
+ */
+@media (forced-colors: active) {
+	.habit-ring-done {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
+	.habit-ring-done path {
+		stroke: HighlightText;
+	}
+	.forced-selected {
+		outline: 2px solid Highlight;
+		outline-offset: -2px;
 	}
 }

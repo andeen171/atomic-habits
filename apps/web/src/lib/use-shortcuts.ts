@@ -34,6 +34,9 @@ export function useGlobalShortcuts(): void {
 
 			const key = event.key;
 			const pathname = router.state.location.pathname;
+			const search = router.state.location.search as { day?: unknown };
+			/** The day Today is showing (a past day from ?day=, else today). */
+			const viewed = isDayKey(search.day) && search.day < today ? search.day : today;
 
 			if (pendingG.current && Date.now() - pendingG.current < CHORD_MS) {
 				pendingG.current = 0;
@@ -54,7 +57,8 @@ export function useGlobalShortcuts(): void {
 				case "n":
 				case "N":
 					event.preventDefault();
-					ui.openTaskDialog({ mode: "create", date: pathname === "/" ? today : null });
+					// Same day as Today's inline "Add a task for …" field.
+					ui.openTaskDialog({ mode: "create", date: pathname === "/" ? viewed : null });
 					return;
 				case "h":
 				case "H":
@@ -68,9 +72,7 @@ export function useGlobalShortcuts(): void {
 				case "ArrowLeft":
 				case "ArrowRight": {
 					if (pathname !== "/") return;
-					const search = router.state.location.search as { day?: unknown };
-					const current = isDayKey(search.day) ? search.day : today;
-					const next = addDays(current, key === "ArrowLeft" ? -1 : 1);
+					const next = addDays(viewed, key === "ArrowLeft" ? -1 : 1);
 					if (next > today) return;
 					event.preventDefault();
 					void navigate({ to: "/", search: next === today ? {} : { day: next } });

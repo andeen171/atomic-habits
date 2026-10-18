@@ -50,7 +50,6 @@ function NoteForm({ habitId, date, onDone }: { habitId: string; date: string; on
 				<Textarea
 					aria-label={t("habit.notePlaceholder")}
 					value={note}
-					autoFocus
 					maxLength={500}
 					placeholder={t("habit.notePlaceholder")}
 					onChange={(event) => setNote(event.target.value)}

@@ -3,7 +3,7 @@ import { useHabitStyle } from "@/lib/theme";
 import { useHabitLogger } from "@/lib/use-habit-logger";
 import { cn } from "@/lib/utils";
 import { type AgendaItem, type DayKey, progressLabel } from "@atomic/core";
-import { useActions } from "@atomic/core/react";
+import { useActions, useToday } from "@atomic/core/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Minus, StickyNote } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -27,6 +27,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 	const { t, at } = useT();
 	const actions = useActions();
 	const navigate = useNavigate();
+	const today = useToday();
 	const { tap } = useHabitLogger();
 	const style = useHabitStyle(habit.color);
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -67,14 +68,15 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 		}, LONG_PRESS_MS);
 	};
 
+	const isToday = day === today;
+	const breakStatus =
+		count > 0
+			? t(isToday ? "habit.slipped" : "habit.slippedDay")
+			: t(isToday ? "habit.cleanToday" : "habit.cleanDay");
+
 	const secondary = (() => {
-		if (isBreak) {
-			return count > 0 ? (
-				<span className="text-danger">{t("habit.slipped")}</span>
-			) : (
-				t("habit.cleanToday")
-			);
-		}
+		if (isBreak)
+			return count > 0 ? <span className="text-danger">{breakStatus}</span> : breakStatus;
 		if (log?.skipped) return t("habit.skipped");
 		if (state === "rest") return t("habit.rest");
 		if (habit.schedule.type === "weekly") {
@@ -87,7 +89,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 	})();
 
 	const ringLabel = isBreak
-		? `${habit.name}, ${count > 0 ? t("habit.slipped") : t("habit.cleanToday")}`
+		? `${habit.name}, ${breakStatus}`
 		: counted
 			? `${habit.name}, ${progressLabel(habit, count, t)}`
 			: habit.name;
@@ -112,7 +114,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 			onPointerLeave={clearPress}
 			onPointerCancel={clearPress}
 			className={cn(
-				"group relative flex cursor-pointer select-none items-center gap-3.5 px-4 py-3 transition-colors duration-(--atomic-duration-fast) [-webkit-touch-callout:none] hover:bg-hover/70 md:px-5",
+				"group relative flex cursor-pointer select-none items-center gap-3 px-4 py-3 transition-colors duration-(--atomic-duration-fast) [-webkit-touch-callout:none] hover:bg-hover/70 sm:gap-3.5 md:px-5",
 				dimmed && "opacity-60",
 			)}
 		>
@@ -157,7 +159,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 							}
 						}}
 						className={cn(
-							"truncate rounded-xs font-medium text-ink outline-offset-2",
+							"line-clamp-2 min-w-0 break-words rounded-xs font-medium text-ink leading-snug outline-offset-2",
 							item.done && !isBreak && "text-ink-muted",
 						)}
 					>
@@ -171,13 +173,15 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 					) : null}
 				</div>
 				{secondary ? (
-					<p className="mt-0.5 truncate text-ink-muted text-small">{secondary}</p>
+					<p className="mt-0.5 line-clamp-2 break-words text-ink-muted text-small sm:line-clamp-1">
+						{secondary}
+					</p>
 				) : null}
 			</div>
 
 			{counted && count > 0 ? (
 				<IconButton
-					label={t("habit.decrement")}
+					label={at("habit.decrementFor", { habit: habit.name })}
 					size="sm"
 					className="hidden opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 md:inline-flex"
 					onClick={(event) => {

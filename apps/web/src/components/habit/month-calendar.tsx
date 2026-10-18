@@ -1,5 +1,6 @@
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
+import { useResetDay } from "@/lib/use-habit-logger";
 import { cn } from "@/lib/utils";
 import {
 	type DayKey,
@@ -16,8 +17,16 @@ import {
 	startOfMonth,
 } from "@atomic/core";
 import { useActions, useAtomic, useToday } from "@atomic/core/react";
-import { ChevronLeft, ChevronRight, Minus, Plus, SkipForward } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import {
+	ChevronLeft,
+	ChevronRight,
+	Minus,
+	Plus,
+	RotateCcw,
+	SkipForward,
+	Undo2,
+} from "lucide-react";
+import { type ReactNode, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -152,10 +161,40 @@ interface CountDayPopoverProps {
 function CountDayPopover({ habit, day, count, skipped, children }: CountDayPopoverProps) {
 	const { t } = useT();
 	const actions = useActions();
+	const today = useToday();
+	const resetDay = useResetDay();
+	const primary = useRef<HTMLButtonElement>(null);
+	// Skipping clears the count, so it's only offered before any progress.
+	const dayAction = skipped
+		? {
+				label: t("habit.unskip"),
+				icon: <Undo2 />,
+				run: () => actions.setSkipped(habit.id, day, false),
+			}
+		: count === 0
+			? {
+					label: day === today ? t("habit.skip") : t("habit.skipDay"),
+					icon: <SkipForward />,
+					run: () => actions.setSkipped(habit.id, day, true),
+				}
+			: {
+					label: t("habit.reset"),
+					icon: <RotateCcw />,
+					run: () => resetDay(habit, day),
+				};
 	return (
 		<Popover>
 			<PopoverTrigger asChild>{children}</PopoverTrigger>
-			<PopoverContent align="center" className="w-64">
+			<PopoverContent
+				align="center"
+				className="w-64"
+				onOpenAutoFocus={(event) => {
+					// Start on the main action, not on an icon button whose tooltip
+					// would swallow the first Esc.
+					event.preventDefault();
+					primary.current?.focus();
+				}}
+			>
 				<p className="mb-3 font-medium text-ink text-small">{t.formatDayLong(day)}</p>
 				<div className="flex items-center justify-between gap-2">
 					<IconButton
@@ -179,6 +218,7 @@ function CountDayPopover({ habit, day, count, skipped, children }: CountDayPopov
 				</div>
 				<div className="mt-3 flex gap-2">
 					<Button
+						ref={primary}
 						size="sm"
 						variant="soft"
 						className="flex-1"
@@ -186,12 +226,8 @@ function CountDayPopover({ habit, day, count, skipped, children }: CountDayPopov
 					>
 						{count >= habit.target ? t("habit.markUndone") : t("habit.markDone")}
 					</Button>
-					<IconButton
-						label={skipped ? t("habit.unskip") : t("habit.skip")}
-						size="sm"
-						onClick={() => actions.setSkipped(habit.id, day, !skipped)}
-					>
-						<SkipForward />
+					<IconButton label={dayAction.label} size="sm" onClick={dayAction.run}>
+						{dayAction.icon}
 					</IconButton>
 				</div>
 			</PopoverContent>

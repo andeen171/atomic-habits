@@ -32,7 +32,7 @@ export function useHabitLogger() {
 			if (habit.kind === "break") {
 				actions.toggleHabit(habit.id, day);
 				if (count > 0) {
-					announce(t("habit.undoSlip"));
+					announce(at("habit.unslipAnnounce", { habit: habit.name }));
 					return "unslipped";
 				}
 				toast(t("habit.slipLogged"), {
@@ -66,7 +66,7 @@ export function useHabitLogger() {
 				return "completed";
 			}
 			if (next < count) {
-				announce(t("habit.markUndone"));
+				announce(at("habit.undoneAnnounce", { habit: habit.name }));
 				return "undone";
 			}
 			return "progress";
@@ -75,4 +75,33 @@ export function useHabitLogger() {
 	);
 
 	return { tap };
+}
+
+/**
+ * "Reset day" clears a day's progress; it's reversible through the undo toast
+ * (no confirmation, per the spec).
+ */
+export function useResetDay() {
+	const store = useAtomicStore();
+	const actions = useActions();
+	const { t, at } = useT();
+	return useCallback(
+		(habit: Habit, day: DayKey) => {
+			const log = getLog(store.getState(), habit.id, day);
+			const count = log?.count ?? 0;
+			const skipped = log?.skipped ?? false;
+			actions.setCount(habit.id, day, 0);
+			if (skipped) actions.setSkipped(habit.id, day, false);
+			toast(at("habit.resetDone", { habit: habit.name }), {
+				action: {
+					label: t("common.undo"),
+					onClick: () => {
+						if (count > 0) actions.setCount(habit.id, day, count);
+						if (skipped) actions.setSkipped(habit.id, day, true);
+					},
+				},
+			});
+		},
+		[store, actions, t, at],
+	);
 }

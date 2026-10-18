@@ -94,7 +94,7 @@ export function HabitRingGraphic({
 				{done ? (
 					<motion.span
 						key="done"
-						className="absolute inset-0 grid place-items-center rounded-full bg-(--habit)"
+						className="habit-ring-done absolute inset-0 grid place-items-center rounded-full bg-(--habit)"
 						initial={{ scale: 0.55, opacity: 0 }}
 						animate={{ scale: 1, opacity: 1 }}
 						exit={{ scale: 0.7, opacity: 0 }}

@@ -74,7 +74,6 @@ function TaskForm({ onDone }: { onDone(): void }) {
 						<Input
 							{...props}
 							value={title}
-							autoFocus
 							maxLength={280}
 							onChange={(event) => setTitle(event.target.value)}
 						/>

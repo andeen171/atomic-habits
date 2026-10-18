@@ -1,3 +1,4 @@
+import { useReturnFocus } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -17,15 +18,21 @@ const sizes = { sm: "md:max-w-[420px]", md: "md:max-w-[560px]", lg: "md:max-w-[7
 /**
  * Bottom sheet on mobile (grabber, xxl radius), centered dialog on desktop
  * (xl radius, max 560px). Both sit on the palette scrim.
+ *
+ * Don't put `autoFocus` on fields inside: Radix focuses the first field on
+ * open, and only then does its focus trap (and our focus return) engage.
  */
 export function DialogContent({
 	className,
 	children,
 	hideClose,
 	size = "md",
+	onOpenAutoFocus,
+	onCloseAutoFocus,
 	...props
 }: DialogContentProps) {
 	const { t } = useT();
+	const focus = useReturnFocus({ onOpenAutoFocus, onCloseAutoFocus });
 	return (
 		<DialogPrimitive.Portal>
 			<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim backdrop-blur-[2px] data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in" />
@@ -39,6 +46,7 @@ export function DialogContent({
 					className,
 				)}
 				{...props}
+				{...focus}
 			>
 				<div
 					aria-hidden="true"
@@ -48,7 +56,7 @@ export function DialogContent({
 				{hideClose ? null : (
 					<DialogPrimitive.Close
 						aria-label={t("common.close")}
-						className="absolute top-4 right-4 hidden size-8 items-center justify-center rounded-full text-ink-subtle transition-colors hover:bg-hover hover:text-ink md:inline-flex"
+						className="absolute top-3 right-3 inline-flex size-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-hover hover:text-ink md:top-4 md:right-4 md:size-8"
 					>
 						<X className="size-[18px]" />
 					</DialogPrimitive.Close>
@@ -66,7 +74,7 @@ interface DialogHeaderProps {
 
 export function DialogHeader({ title, description, className }: DialogHeaderProps) {
 	return (
-		<div className={cn("px-5 pt-4 pb-1 md:px-6 md:pt-6 md:pr-14", className)}>
+		<div className={cn("px-5 pt-4 pr-14 pb-1 md:px-6 md:pt-6 md:pr-14", className)}>
 			<DialogPrimitive.Title className="font-semibold text-h3 text-ink">
 				{title}
 			</DialogPrimitive.Title>

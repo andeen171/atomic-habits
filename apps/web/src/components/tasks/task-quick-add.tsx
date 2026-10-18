@@ -42,7 +42,7 @@ export function TaskQuickAdd({ autoFocus }: { autoFocus?: boolean }) {
 	return (
 		<form
 			onSubmit={submit}
-			className="rounded-xl border border-line bg-surface shadow-card focus-within:border-line-strong"
+			className="rounded-xl border border-line bg-surface shadow-card transition-[border-color,box-shadow] duration-(--atomic-duration-fast) has-[input:focus-visible]:border-accent has-[input:focus-visible]:ring-3 has-[input:focus-visible]:ring-accent/15"
 		>
 			<div className="flex items-center gap-3 px-4 pt-3 md:px-5">
 				<Plus className="size-5 shrink-0 text-accent" />
@@ -66,7 +66,7 @@ export function TaskQuickAdd({ autoFocus }: { autoFocus?: boolean }) {
 					<CornerDownLeft className="size-3.5" />
 				</button>
 			</div>
-			<div className="scrollbar-none flex items-center gap-1.5 overflow-x-auto px-4 pt-2 pb-3 md:px-5">
+			<div className="flex flex-wrap items-center gap-1.5 px-4 pt-2 pb-3 md:px-5">
 				<Chip selected={choice === "today"} onClick={() => setChoice("today")}>
 					{t("tasks.date.today")}
 				</Chip>
@@ -88,7 +88,7 @@ export function TaskQuickAdd({ autoFocus }: { autoFocus?: boolean }) {
 						{choice === "pick" && picked ? taskDateLabel(picked, today, t) : t("tasks.date.pick")}
 					</Chip>
 				</DatePicker>
-				<span className="mx-1 h-5 w-px shrink-0 bg-line" />
+				<span aria-hidden="true" className="mx-1 hidden h-5 w-px shrink-0 bg-line sm:block" />
 				<PriorityMenu value={priority} onChange={setPriority} />
 			</div>
 		</form>

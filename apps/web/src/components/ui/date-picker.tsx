@@ -28,7 +28,22 @@ export function DatePicker({ value, onChange, children, align = "start" }: DateP
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>{children}</PopoverTrigger>
-			<PopoverContent align={align} className="w-72">
+			<PopoverContent
+				align={align}
+				className="w-72"
+				onOpenAutoFocus={(event) => {
+					// Start on the selected day (or today) rather than "Previous month",
+					// whose tooltip would swallow the first Esc.
+					const content = event.currentTarget as HTMLElement | null;
+					const day = content?.querySelector<HTMLElement>(
+						'[aria-pressed="true"], [aria-current="date"]',
+					);
+					if (day) {
+						event.preventDefault();
+						day.focus();
+					}
+				}}
+			>
 				<CalendarGrid
 					value={value}
 					onChange={(day) => {
@@ -83,11 +98,12 @@ function CalendarGrid({ value, onChange }: { value: DayKey | null; onChange(day:
 								type="button"
 								aria-label={t.formatDayLong(day)}
 								aria-pressed={selected}
+								aria-current={day === today ? "date" : undefined}
 								onClick={() => onChange(day)}
 								className={cn(
 									"grid aspect-square place-items-center rounded-full text-small tabular-nums transition-colors",
 									!isSameMonth(day, month) && "text-ink-subtle/60",
-									day === today && !selected && "font-semibold text-accent",
+									day === today && !selected && "font-semibold text-accent-text",
 									selected ? "bg-accent font-semibold text-on-accent" : "hover:bg-hover",
 								)}
 							>

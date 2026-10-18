@@ -42,7 +42,7 @@ export function AllDoneCard({ votes }: { votes: number }) {
 			<p className="font-display text-ink text-title">{t("today.allDone")}</p>
 			<p className="mt-1 max-w-md text-ink-muted">{t("today.allDoneBody")}</p>
 			{votes > 0 ? (
-				<p className="mt-3 font-semibold text-ink text-small dark:text-accent">
+				<p className="mt-3 font-semibold text-ink text-small dark:text-accent-text">
 					{tp("today.votesToday", votes)}
 				</p>
 			) : null}
@@ -50,12 +50,15 @@ export function AllDoneCard({ votes }: { votes: number }) {
 	);
 }
 
-export function NothingDueCard() {
+/** Nothing scheduled for the day; a viewed past day gets the past-tense title only. */
+export function NothingDueCard({ past }: { past?: boolean }) {
 	const { t } = useT();
 	return (
 		<div className="rounded-xl border border-line border-dashed bg-surface/50 p-5 text-center md:p-6">
-			<p className="font-display text-h2 text-ink">{t("today.nothingDue")}</p>
-			<p className="mt-1 text-ink-muted text-small">{t("today.nothingDueBody")}</p>
+			<p className="font-display text-h2 text-ink">
+				{past ? t("today.nothingDueDay") : t("today.nothingDue")}
+			</p>
+			{past ? null : <p className="mt-1 text-ink-muted text-small">{t("today.nothingDueBody")}</p>}
 		</div>
 	);
 }

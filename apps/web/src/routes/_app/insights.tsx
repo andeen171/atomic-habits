@@ -91,19 +91,33 @@ function InsightsScreen() {
 				className="mb-6"
 			/>
 
-			<div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+			{/* 1 + 2 + 2 on phones, 3 + 2 on tablets and small laptops, one row of 5 from 1280px. */}
+			<div className="grid grid-cols-2 gap-3 md:grid-cols-6 xl:grid-cols-5">
 				<StatTile
 					label={t("insights.consistency")}
 					value={t.percent(summary.consistency)}
-					className="col-span-2 md:col-span-1"
+					className="col-span-2 xl:col-span-1"
 				/>
-				<StatTile label={t("insights.perfectDays")} value={t.number(summary.perfectDays)} />
-				<StatTile label={t("insights.totalVotes")} value={t.number(summary.totalVotes)} />
+				<StatTile
+					label={t("insights.perfectDays")}
+					value={t.number(summary.perfectDays)}
+					className="md:col-span-2 xl:col-span-1"
+				/>
+				<StatTile
+					label={t("insights.totalVotes")}
+					value={t.number(summary.totalVotes)}
+					className="md:col-span-2 xl:col-span-1"
+				/>
 				<StatTile
 					label={t("insights.bestStreak")}
 					value={t.tp("common.days", summary.bestStreak)}
+					className="md:col-span-3 xl:col-span-1"
 				/>
-				<StatTile label={t("insights.activeHabits")} value={t.number(summary.activeHabits)} />
+				<StatTile
+					label={t("insights.activeHabits")}
+					value={t.number(summary.activeHabits)}
+					className="md:col-span-3 xl:col-span-1"
+				/>
 			</div>
 
 			<CompoundCard journeyDays={summary.journeyDays} />

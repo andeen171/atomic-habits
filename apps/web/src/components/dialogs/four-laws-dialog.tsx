@@ -24,7 +24,7 @@ export function FourLawsDialog() {
 						return (
 							<div key={law} className="rounded-lg border border-line p-4">
 								<div className="flex items-center gap-3">
-									<span className="grid size-7 place-items-center rounded-full bg-accent-soft font-semibold text-ink text-small dark:text-accent">
+									<span className="grid size-7 place-items-center rounded-full bg-accent-soft font-semibold text-ink text-small dark:text-accent-text">
 										{law}
 									</span>
 									<div>

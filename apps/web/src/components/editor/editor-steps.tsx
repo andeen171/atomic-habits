@@ -14,6 +14,7 @@ import {
 	type DraftUpdate,
 	EmojiPicker,
 	FrequencyField,
+	KindReadOnly,
 	KindToggle,
 	Stepper,
 	TimeOfDayField,
@@ -30,25 +31,36 @@ export function BasicsFields({
 	nameError,
 	onNameEnter,
 	autoFocus,
-}: StepProps & { nameError: boolean; onNameEnter?(): void; autoFocus?: boolean }) {
+	editing,
+}: StepProps & {
+	nameError: boolean;
+	onNameEnter?(): void;
+	autoFocus?: boolean;
+	/** An existing habit: its kind is shown but can't change. */
+	editing?: boolean;
+}) {
 	const { t } = useT();
 	const isBreak = draft.kind === "break";
 	return (
 		<div className="flex flex-col gap-5">
-			<KindToggle
-				value={draft.kind}
-				onChange={(kind) =>
-					update(
-						kind === "break"
-							? {
-									kind,
-									color: draft.color === "ember" ? "rose" : draft.color,
-									emoji: draft.emoji === "✨" ? "📵" : draft.emoji,
-								}
-							: { kind },
-					)
-				}
-			/>
+			{editing ? (
+				<KindReadOnly value={draft.kind} />
+			) : (
+				<KindToggle
+					value={draft.kind}
+					onChange={(kind) =>
+						update(
+							kind === "break"
+								? {
+										kind,
+										color: draft.color === "ember" ? "rose" : draft.color,
+										emoji: draft.emoji === "✨" ? "📵" : draft.emoji,
+									}
+								: { kind },
+						)
+					}
+				/>
+			)}
 			<Field label={t("form.name")} error={nameError ? t("form.nameRequired") : undefined}>
 				{(props) => (
 					<div className="flex items-center gap-2.5">

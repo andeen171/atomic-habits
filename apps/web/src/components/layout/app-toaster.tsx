@@ -1,3 +1,4 @@
+import { useT } from "@/lib/messages";
 import { useColorScheme } from "@/lib/theme";
 import { useIsMobile } from "@/lib/use-media-query";
 import { Toaster } from "sonner";
@@ -6,9 +7,11 @@ import { Toaster } from "sonner";
 export function AppToaster() {
 	const scheme = useColorScheme();
 	const mobile = useIsMobile();
+	const { at } = useT();
 	return (
 		<Toaster
 			theme={scheme}
+			containerAriaLabel={at("toast.region")}
 			position={mobile ? "bottom-center" : "bottom-right"}
 			offset={mobile ? { bottom: 88 } : 24}
 			mobileOffset={{ bottom: 88, left: 16, right: 16 }}
@@ -21,7 +24,7 @@ export function AppToaster() {
 					title: "!font-medium",
 					description: "!text-ink-muted",
 					actionButton:
-						"!bg-accent-soft !text-ink dark:!text-accent !font-semibold !rounded-full !h-7 !px-3",
+						"!bg-accent-soft !text-ink dark:!text-accent-text !font-semibold !rounded-full !h-7 !px-3",
 				},
 			}}
 		/>

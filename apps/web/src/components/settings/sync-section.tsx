@@ -22,7 +22,7 @@ export function SyncSection() {
 			title={t("settings.sync")}
 			description={t("settings.syncHint")}
 			badge={
-				<span className="rounded-full bg-accent-soft px-2 py-0.5 font-semibold text-[10px] text-ink uppercase tracking-wider dark:text-accent">
+				<span className="rounded-full bg-accent-soft px-2 py-0.5 font-semibold text-[10px] text-ink uppercase tracking-wider dark:text-accent-text">
 					{t("settings.syncBeta")}
 				</span>
 			}
@@ -195,7 +195,7 @@ function SignInForm() {
 					className="text-ink-muted text-small hover:text-ink"
 				>
 					{mode === "signIn" ? t("settings.noAccount") : t("settings.haveAccount")}{" "}
-					<span className="font-medium text-accent">
+					<span className="font-medium text-accent-text">
 						{mode === "signIn" ? t("settings.signUp") : t("settings.signIn")}
 					</span>
 				</button>

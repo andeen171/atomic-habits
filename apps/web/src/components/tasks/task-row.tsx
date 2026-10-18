@@ -16,7 +16,7 @@ interface TaskRowProps {
 }
 
 export function TaskRow({ task, hideDate }: TaskRowProps) {
-	const { t, at } = useT();
+	const { t } = useT();
 	const actions = useActions();
 	const today = useToday();
 	const openTaskDialog = useUI((s) => s.openTaskDialog);
@@ -39,13 +39,13 @@ export function TaskRow({ task, hideDate }: TaskRowProps) {
 				// biome-ignore lint/a11y/useSemanticElements: styled control with full ARIA state and keyboard support.
 				role="checkbox"
 				aria-checked={done}
-				aria-label={done ? at("task.markUndone") : at("task.markDone")}
+				aria-label={task.title}
 				onClick={toggle}
 				whileTap={{ scale: 0.85 }}
 				className={cn(
 					"mt-px grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] transition-colors duration-(--atomic-duration-fast)",
 					done
-						? "border-success bg-success text-white"
+						? "border-success bg-success text-surface"
 						: "border-line-strong hover:border-ink-subtle",
 				)}
 			>
