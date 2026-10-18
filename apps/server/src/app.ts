@@ -15,12 +15,16 @@ interface Bindings {
 	requestIP?: (request: Request) => { address: string } | null;
 }
 
-type AppEnv = { Bindings: Bindings };
+type AppEnv = { Bindings: Bindings; Variables: { clientIp: string | undefined } };
 
-/** Client IP for auth rate limiting: a trusted proxy header, else the TCP peer. */
+/**
+ * Client IP for auth rate limiting: a trusted proxy header, else the TCP peer.
+ * For list headers (`x-forwarded-for`) the right-most entry is the one the
+ * trusted proxy appended; entries to its left are client-controlled.
+ */
 function clientIp(c: Context<AppEnv>): string | undefined {
 	if (env.clientIpHeader) {
-		const value = c.req.header(env.clientIpHeader)?.split(",")[0]?.trim();
+		const value = c.req.header(env.clientIpHeader)?.split(",").at(-1)?.trim();
 		if (value) return value;
 	}
 	try {
@@ -49,10 +53,17 @@ app.use(
 
 app.get("/", (c) => c.text("OK"));
 
+// Resolve the client IP while `c.req.raw` is still the original request
+// (bodyLimit may replace it, and Bun only knows the peer of the original).
+app.use("*", async (c, next) => {
+	c.set("clientIp", clientIp(c));
+	await next();
+});
+
 // Better Auth: /api/auth/sign-up/email, /sign-in/email, /get-session, /sign-out…
 app.use("/api/auth/*", bodyLimit({ maxSize: 64 * 1024 }));
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
-	const response = await auth.handler(await bearerOnlyRequest(c.req.raw, clientIp(c)));
+	const response = await auth.handler(await bearerOnlyRequest(c.req.raw, c.get("clientIp")));
 	return withoutCookies(response);
 });
 
@@ -63,6 +74,8 @@ app.use(
 	trpcServer({
 		router: appRouter,
 		endpoint: "/trpc",
+		// Clients never batch; a batch would multiply one request's cost.
+		allowBatching: false,
 		createContext: (opts) => createContext({ headers: opts.req.headers }),
 		onError: ({ error, path }) => {
 			if (error.code === "INTERNAL_SERVER_ERROR") {

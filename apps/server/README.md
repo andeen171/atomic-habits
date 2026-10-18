@@ -15,8 +15,9 @@ bun dev:server                                  # http://localhost:3000
 ```
 
 Migrations run automatically on start. Data goes to `apps/server/local.db` unless `DATABASE_URL`
-says otherwise. Without `BETTER_AUTH_SECRET` the server uses an insecure development secret and
-prints a warning; with `NODE_ENV=production` it refuses to start instead.
+says otherwise. Without `BETTER_AUTH_SECRET` the server generates a random secret for that run
+(sessions end when it restarts) and prints a warning; with `NODE_ENV=production` it refuses to
+start instead.
 
 Inside `apps/server`:
 
@@ -38,10 +39,10 @@ migration, and the next startup migration can then fail.
 | `PORT` | `3000` | HTTP port |
 | `DATABASE_URL` | `file:./local.db` | `file:<path>` for SQLite, or `libsql://<db>-<org>.turso.io` |
 | `DATABASE_AUTH_TOKEN` | | Turso / remote libSQL token |
-| `BETTER_AUTH_SECRET` | dev fallback | **Required in production.** `openssl rand -base64 32`. Changing it invalidates every session |
+| `BETTER_AUTH_SECRET` | random per run | **Required in production.** `openssl rand -base64 32`. Changing it invalidates every session |
 | `BETTER_AUTH_URL` | inferred | Public URL, e.g. `https://sync.example.com` |
 | `CORS_ORIGINS` | any | Comma-separated browser origins allowed to call the API |
-| `CLIENT_IP_HEADER` | TCP peer | Header your proxy sets to the client IP (`fly-client-ip`, `x-real-ip`, `cf-connecting-ip`), used for rate limiting |
+| `CLIENT_IP_HEADER` | TCP peer | Header your proxy sets to the client IP (`fly-client-ip`, `cf-connecting-ip`, `x-forwarded-for`…), used for rate limiting. For list headers the right-most entry is used |
 
 Bun reads `.env` in the working directory automatically.
 
@@ -77,6 +78,10 @@ front of the server (the platforms below do it for you) and set `BETTER_AUTH_URL
 `fly secrets set BETTER_AUTH_SECRET=… BETTER_AUTH_URL=https://<app>.fly.dev CLIENT_IP_HEADER=fly-client-ip`.
 Set `internal_port = 3000`, then run `fly deploy`.
 
+Behind any proxy, set `CLIENT_IP_HEADER` to the header the platform overwrites with the caller's
+address; otherwise every client shares the proxy's address and sign-in rate limits apply to
+everyone at once.
+
 **Railway.** Create a service from the repo, set `RAILWAY_DOCKERFILE_PATH=apps/server/Dockerfile`
 and keep the root directory at `/`. Attach a volume at `/data`, then add `BETTER_AUTH_SECRET` and
 `BETTER_AUTH_URL`.
@@ -106,7 +111,7 @@ Clients use `createRemoteClient` from `@atomic/core`, which speaks this wire for
 | `POST /api/auth/sign-in/email` | `{ email, password }` → `{ token, user }` plus `set-auth-token` |
 | `GET /api/auth/get-session` | `Authorization: Bearer <token>` → `{ session, user }`, or `null` |
 | `POST /api/auth/sign-out` | Revokes the bearer token |
-| `POST /trpc/sync.push` | Body `{ records }` (≤ 500) → `{"result":{"data":{ accepted, cursor, rejected }}}` |
+| `POST /trpc/sync.push` | Body `{ records }` (≤ 500) → `{"result":{"data":{ accepted, cursor, rejected, conflicts }}}` |
 | `GET /trpc/sync.pull?input={"cursor":0,"limit":500}` | → `{"result":{"data":{ records, cursor, hasMore }}}` (limit ≤ 1000) |
 | `GET /trpc/me`, `GET /trpc/healthCheck` | Current user / public health check |
 
@@ -128,11 +133,15 @@ native apps are not affected.
   (`deletedAt` set) and follow the same rule.
 - Every accepted write gets the user's next sequence number. A push runs as a single database
   transaction. `accepted` counts the records written; `cursor` is the user's latest sequence.
-- A pull returns the records with `seq > cursor` in sequence order. `cursor` in the reply is the
-  last sequence returned; pull again while `hasMore` is true.
+- A pull returns the records with `seq > cursor` in sequence order (pages also stop at ~4 MB).
+  `cursor` in the reply is the last sequence returned; pull again while `hasMore` is true. A
+  cursor beyond the server's latest sequence (a database restored from an older copy) answers
+  `reset: true`, and the device re-uploads everything.
 - Each record's `data`, merged with the envelope's `id`/`updatedAt`/`deletedAt`, is validated
   against the collection schema from `@atomic/core`. Invalid records are skipped and reported in
-  `rejected` (`{ collection, id, reason }`); the rest of the batch is still stored. A malformed
+  `rejected` (`{ collection, id, reason }`); the rest of the batch is still stored. Records over
+  64 KB are rejected too. A pushed record that loses to a newer stored version comes back in
+  `conflicts` so the device adopts the winner immediately. A malformed
   request (unknown collection, more than 500 records, …) fails as a whole with HTTP 400.
   Unknown fields from newer clients are kept.
 - Users never see or overwrite each other's documents.

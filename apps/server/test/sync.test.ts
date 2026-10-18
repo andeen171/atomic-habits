@@ -48,7 +48,7 @@ describe("push / pull", () => {
 		const { token } = await signUp(app);
 		const records = [habit("h1", 100), task("t1", 200, { title: "Plan week", priority: 2 })];
 		const pushed = await pushOk(app, token, records);
-		expect(pushed).toEqual({ accepted: 2, cursor: 2, rejected: [] });
+		expect(pushed).toEqual({ accepted: 2, cursor: 2, rejected: [], conflicts: [] });
 
 		const page = await pullOk(app, token, { cursor: 0 });
 		expect(page.hasMore).toBe(false);
@@ -64,7 +64,12 @@ describe("push / pull", () => {
 
 	test("an empty push is a no-op", async () => {
 		const { token } = await signUp(app);
-		expect(await pushOk(app, token, [])).toEqual({ accepted: 0, cursor: 0, rejected: [] });
+		expect(await pushOk(app, token, [])).toEqual({
+			accepted: 0,
+			cursor: 0,
+			rejected: [],
+			conflicts: [],
+		});
 		expect(await pullOk(app, token, { cursor: 0 })).toEqual({
 			records: [],
 			cursor: 0,
@@ -259,5 +264,53 @@ describe("validation", () => {
 			expect((await push(app, token, records)).status).toBe(400);
 		}
 		expect((await pullOk(app, token, { cursor: 0 })).records).toHaveLength(0);
+	});
+});
+
+describe("hardening", () => {
+	test("a push that loses last-write-wins gets the stored winner back", async () => {
+		const { token } = await signUp(app);
+		await pushOk(app, token, [task("t1", 500, { title: "Newer" })]);
+		const result = await pushOk(app, token, [task("t1", 100, { title: "Older" })]);
+		expect(result.accepted).toBe(0);
+		expect(result.conflicts).toHaveLength(1);
+		expect(result.conflicts[0]?.updatedAt).toBe(500);
+		expect(result.conflicts[0]?.data.title).toBe("Newer");
+	});
+
+	test("a cursor ahead of the server asks the device to start over", async () => {
+		const { token } = await signUp(app);
+		await pushOk(app, token, [task("t1", 1)]);
+		expect(await pullOk(app, token, { cursor: 99 })).toEqual({
+			records: [],
+			cursor: 0,
+			hasMore: false,
+			reset: true,
+		});
+		expect((await pullOk(app, token, { cursor: 1 })).reset).toBeUndefined();
+	});
+
+	test("oversized records are rejected, the rest of the batch is stored", async () => {
+		const { token } = await signUp(app);
+		const huge = task("big", 1, { notes: "x".repeat(70_000) });
+		const result = await pushOk(app, token, [huge, task("ok", 1)]);
+		expect(result.accepted).toBe(1);
+		expect(result.rejected.map((r) => r.id)).toEqual(["big"]);
+	});
+
+	test("tRPC batching is disabled", async () => {
+		const { token } = await signUp(app);
+		const input = encodeURIComponent(JSON.stringify({ 0: { cursor: 0 }, 1: { cursor: 0 } }));
+		const response = await app.request(
+			`${BASE_URL}/trpc/sync.pull,sync.pull?batch=1&input=${input}`,
+			{ headers: bearer(token) },
+		);
+		expect(response.status).toBe(400);
+	});
+
+	test("unsafe timestamps are refused before they reach the database", async () => {
+		const { token } = await signUp(app);
+		const response = await push(app, token, [task("t1", 2 ** 60)]);
+		expect(response.status).toBe(400);
 	});
 });

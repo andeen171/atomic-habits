@@ -192,3 +192,25 @@ describe("clients on any origin", () => {
 		expect(response.headers.get("access-control-allow-credentials")).toBeNull();
 	});
 });
+
+describe("unused auth flows", () => {
+	test("email verification, email change and password reset are disabled", async () => {
+		const app = await setupApp();
+		for (const path of ["/api/auth/verify-email?token=x"]) {
+			const response = await app.request(`http://localhost${path}`);
+			expect(response.status).toBe(404);
+		}
+		for (const path of [
+			"/api/auth/request-password-reset",
+			"/api/auth/change-email",
+			"/api/auth/sign-in/social",
+		]) {
+			const response = await app.request(`http://localhost${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ email: "a@example.com", newEmail: "b@example.com" }),
+			});
+			expect(response.status).toBe(404);
+		}
+	});
+});

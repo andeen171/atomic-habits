@@ -118,6 +118,7 @@ export interface PushData {
 	accepted: number;
 	cursor: number;
 	rejected: { collection: string; id: string; reason: string }[];
+	conflicts: SyncRecord[];
 }
 
 export async function pushOk(

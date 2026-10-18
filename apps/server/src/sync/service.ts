@@ -1,7 +1,13 @@
-import { type Collection, collectionSchemas } from "@atomic/core";
-import type { PullInput, PullOutput, PushOutput, SyncRecord } from "@atomic/core/sync";
+import { COLLECTIONS, type Collection, collectionSchemas } from "@atomic/core";
+import {
+	MAX_RECORD_BYTES,
+	type PullInput,
+	type PullOutput,
+	type PushOutput,
+	type SyncRecord,
+} from "@atomic/core/sync";
 import type { InStatement, ResultSet } from "@libsql/client";
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import type { Database } from "../db";
 import { syncRecord } from "../db/schema";
 
@@ -11,6 +17,8 @@ import { syncRecord } from "../db/schema";
  */
 
 export const DEFAULT_PULL_LIMIT = 500;
+/** A pull page stops growing past this many bytes of record data (it then sets hasMore). */
+export const PULL_PAGE_BYTES = 4 * 1024 * 1024;
 
 export interface RejectedRecord {
 	collection: Collection;
@@ -21,6 +29,8 @@ export interface RejectedRecord {
 export interface PushResult extends PushOutput {
 	/** Records that failed validation and were not stored. */
 	rejected: RejectedRecord[];
+	/** Stored versions newer than what was pushed: the client adopts them. */
+	conflicts: SyncRecord[];
 }
 
 type Validation = { ok: true; data: Record<string, unknown> } | { ok: false; reason: string };
@@ -38,6 +48,9 @@ export function validateRecord(record: SyncRecord): Validation {
 		updatedAt: record.updatedAt,
 		deletedAt: record.deletedAt,
 	};
+	if (JSON.stringify(data).length > MAX_RECORD_BYTES) {
+		return { ok: false, reason: `Record larger than ${MAX_RECORD_BYTES} bytes` };
+	}
 	const result = collectionSchemas[record.collection].safeParse(data);
 	if (result.success) return { ok: true, data };
 	const issue = result.error.issues[0];
@@ -123,7 +136,56 @@ export async function pushRecords(
 	const results = await db.$client.batch(statements, "write");
 	const before = cursorFrom(results[1]);
 	const cursor = cursorFrom(results[results.length - 1]);
-	return { accepted: cursor - before, cursor, rejected };
+	const conflicts = await findConflicts(db, userId, records, rejected);
+	return { accepted: cursor - before, cursor, rejected, conflicts };
+}
+
+/**
+ * Pushed records that lost last-write-wins to a newer stored version. Sending
+ * the winners back lets the client converge right away; otherwise it would
+ * clear its pending change and never see the newer version again (its cursor
+ * may already be past it).
+ */
+async function findConflicts(
+	db: Database,
+	userId: string,
+	records: SyncRecord[],
+	rejected: RejectedRecord[],
+): Promise<SyncRecord[]> {
+	const skipped = new Set(rejected.map((r) => `${r.collection}/${r.id}`));
+	const pushed = new Map<string, number>();
+	for (const record of records) {
+		const key = `${record.collection}/${record.id}`;
+		if (skipped.has(key)) continue;
+		// Within one batch the newest copy of a document is the one that counts.
+		pushed.set(key, Math.max(pushed.get(key) ?? 0, record.updatedAt));
+	}
+	if (!pushed.size) return [];
+	const ids = [...new Set(records.map((r) => r.id))];
+	const conflicts: SyncRecord[] = [];
+	for (let i = 0; i < ids.length; i += 200) {
+		const rows = await db
+			.select({
+				collection: syncRecord.collection,
+				id: syncRecord.id,
+				updatedAt: syncRecord.updatedAt,
+				deletedAt: syncRecord.deletedAt,
+				data: syncRecord.data,
+			})
+			.from(syncRecord)
+			.where(and(eq(syncRecord.userId, userId), inArray(syncRecord.id, ids.slice(i, i + 200))));
+		for (const row of rows) {
+			const sent = pushed.get(`${row.collection}/${row.id}`);
+			if (sent !== undefined && row.updatedAt > sent && isCollection(row.collection)) {
+				conflicts.push({ ...row, collection: row.collection });
+			}
+		}
+	}
+	return conflicts;
+}
+
+function isCollection(value: string): value is Collection {
+	return (COLLECTIONS as readonly string[]).includes(value);
 }
 
 /** Everything the user changed after `cursor`, oldest first. */
@@ -132,6 +194,13 @@ export async function pullRecords(
 	userId: string,
 	{ cursor, limit = DEFAULT_PULL_LIMIT }: PullInput,
 ): Promise<PullOutput> {
+	if (cursor > 0) {
+		// A cursor beyond anything this server handed out means the database was
+		// restored from an older copy: tell the device to start over.
+		const latest = await db.$client.execute({ sql: READ_CURSOR, args: { ":user": userId } });
+		if (cursor > cursorFrom(latest)) return { records: [], cursor: 0, hasMore: false, reset: true };
+	}
+
 	const rows = await db
 		.select({
 			collection: syncRecord.collection,
@@ -146,10 +215,17 @@ export async function pullRecords(
 		.orderBy(asc(syncRecord.seq))
 		.limit(limit + 1);
 
-	const page = rows.slice(0, limit);
+	const page: typeof rows = [];
+	let bytes = 0;
+	for (const row of rows.slice(0, limit)) {
+		// Always return at least one record so a client can make progress.
+		if (page.length && bytes + JSON.stringify(row.data).length > PULL_PAGE_BYTES) break;
+		bytes += JSON.stringify(row.data).length;
+		page.push(row);
+	}
 	return {
 		records: page.map(({ seq: _seq, ...record }) => record),
 		cursor: page.at(-1)?.seq ?? cursor,
-		hasMore: rows.length > limit,
+		hasMore: rows.length > page.length,
 	};
 }

@@ -29,6 +29,21 @@ export const auth = betterAuth({
 	},
 	// Clients authenticate with `Authorization: Bearer <token>` only.
 	plugins: [bearer()],
+	// Atomic only signs up, signs in, reads the session and signs out. Every
+	// other built-in flow (email verification, email change, password reset,
+	// social sign-in) is switched off so it can't be abused as a side door.
+	disabledPaths: [
+		"/verify-email",
+		"/send-verification-email",
+		"/change-email",
+		"/request-password-reset",
+		"/forget-password",
+		"/reset-password",
+		"/sign-in/social",
+		"/callback/:id",
+		"/link-social",
+		"/unlink-account",
+	],
 	trustedOrigins: env.corsOrigins,
 	advanced: {
 		/*

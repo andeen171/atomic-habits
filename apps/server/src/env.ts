@@ -5,8 +5,6 @@
  * set real environment variables instead.
  */
 
-const DEV_SECRET = "atomic-dev-only-secret-6f1c0e9a4b7d2e8f3a5c1b9d7e2f4a6c";
-
 const isProduction = process.env.NODE_ENV === "production";
 
 function list(value: string | undefined): string[] {
@@ -29,10 +27,14 @@ function resolveSecret(): string {
 			"BETTER_AUTH_SECRET must be set in production. Generate one with `openssl rand -base64 32`.",
 		);
 	}
+	// Never a fixed fallback: a secret committed to the repo would let anyone
+	// forge tokens on a server someone forgot to configure. A random one per
+	// process is safe; sessions simply end when the server restarts.
 	console.warn(
-		"[atomic] BETTER_AUTH_SECRET is not set; using an insecure development secret. Set it before exposing this server.",
+		"[atomic] BETTER_AUTH_SECRET is not set; using a random secret for this run (sessions end on restart). Set it before exposing this server.",
 	);
-	return DEV_SECRET;
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return Buffer.from(bytes).toString("base64");
 }
 
 export const env = {

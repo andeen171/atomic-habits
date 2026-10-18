@@ -17,7 +17,6 @@
 	},
 	"dependencies": {
 		"@atomic/core": "workspace:*",
-		"@better-auth/expo": "^1.7.10",
 		"@hono/trpc-server": "^0.4.2",
 		"@libsql/client": "^0.15.15",
 		"@trpc/server": "^11.8.1",
