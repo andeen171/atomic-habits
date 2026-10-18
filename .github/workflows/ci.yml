@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, "claude/**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint (Biome)
+        run: bunx biome ci .
+
+      - name: Typecheck
+        run: |
+          bunx tsc --noEmit -p packages/core
+          bunx tsc --noEmit -p apps/server
+          bunx tsc --noEmit -p apps/web
+          bunx tsc --noEmit -p apps/native
+
+      - name: Test core
+        working-directory: packages/core
+        run: bun test
+
+      - name: Test server
+        working-directory: apps/server
+        run: bun test
+
+      - name: Build web
+        working-directory: apps/web
+        run: |
+          bun run build
+          bun run build:artifact
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atomic-web
+          path: |
+            apps/web/dist
+            apps/web/dist-artifact/atomic.html
+          retention-days: 14

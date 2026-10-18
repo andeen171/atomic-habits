@@ -1,0 +1,96 @@
+name: Android APK
+
+on:
+  push:
+    branches: [master, main, "claude/**"]
+    paths:
+      - "apps/native/**"
+      - "packages/core/**"
+      - "bun.lock"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      CI: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck and test shared core
+        run: |
+          bunx tsc --noEmit -p packages/core
+          bunx tsc --noEmit -p apps/native
+          cd packages/core && bun test
+
+      - name: Generate native Android project
+        working-directory: apps/native
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Build release (standalone) and debug (dev client) APKs
+        working-directory: apps/native/android
+        run: |
+          ./gradlew assembleRelease assembleDebug \
+            -PreactNativeArchitectures=arm64-v8a \
+            --no-daemon --stacktrace
+
+      - name: Collect APKs
+        id: apk
+        run: |
+          mkdir -p dist
+          SHORT_SHA="${GITHUB_SHA::7}"
+          cp apps/native/android/app/build/outputs/apk/release/app-release.apk "dist/atomic-${SHORT_SHA}.apk"
+          cp apps/native/android/app/build/outputs/apk/debug/app-debug.apk "dist/atomic-dev-client-${SHORT_SHA}.apk"
+          ls -la dist
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atomic-android-${{ steps.apk.outputs.short_sha }}
+          path: dist/*.apk
+          retention-days: 30
+
+      - name: Publish rolling "android-preview" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-preview --cleanup-tag --yes || true
+          gh release create android-preview dist/*.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Atomic for Android — preview (${{ steps.apk.outputs.short_sha }})" \
+            --notes "Built from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA}.
+
+          - **atomic-${{ steps.apk.outputs.short_sha }}.apk** — standalone app, install and open (Android 7+, arm64).
+          - **atomic-dev-client-${{ steps.apk.outputs.short_sha }}.apk** — development build (expo-dev-client). Run \`bun dev:native\` and open the app to connect to Metro.
+
+          Both are signed with the debug keystore — allow installs from unknown sources."

@@ -1,0 +1,74 @@
+name: Desktop (Tauri)
+
+on:
+  push:
+    branches: [master, main, "claude/**"]
+    paths:
+      - "apps/web/**"
+      - "packages/core/**"
+      - "bun.lock"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reset rolling "desktop-preview" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete desktop-preview --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create desktop-preview --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            --title "Atomic for desktop — preview (${GITHUB_SHA::7})" \
+            --notes "Built from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA}. Unsigned builds: on macOS right-click → Open; on Windows choose More info → Run anyway."
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+          - platform: windows-latest
+          - platform: macos-latest
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/web/src-tauri -> target
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/web
+          tauriScript: bunx tauri
+          tagName: desktop-preview
+          releaseName: Atomic for desktop — preview
+          prerelease: true
