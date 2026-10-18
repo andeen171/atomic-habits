@@ -1,12 +1,12 @@
+import { CircleCheck, Info, TriangleAlert } from "@/components/icons";
+import { Text } from "@/components/ui/text";
+import { makeStyles, useTheme } from "@/lib/theme";
+import { type Toast, dismissToast, useUI } from "@/lib/ui-store";
 import { usePathname } from "expo-router";
-import { CircleCheck, Info, TriangleAlert } from "lucide-react-native";
 import { useEffect } from "react";
 import { AccessibilityInfo, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeInDown, FadeOutDown, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Text } from "@/components/ui/text";
-import { makeStyles, useTheme } from "@/lib/theme";
-import { type Toast, dismissToast, useUI } from "@/lib/ui-store";
 import { TAB_BAR_HEIGHT } from "./tab-bar";
 
 const TAB_ROUTES = new Set(["/", "/habits", "/tasks", "/you"]);
@@ -36,7 +36,8 @@ function ToastItem({ toast }: { toast: Toast }) {
 		const timer = setTimeout(() => dismissToast(toast.id), toast.duration);
 		return () => clearTimeout(timer);
 	}, [toast]);
-	const Icon = toast.tone === "danger" ? TriangleAlert : toast.tone === "success" ? CircleCheck : Info;
+	const Icon =
+		toast.tone === "danger" ? TriangleAlert : toast.tone === "success" ? CircleCheck : Info;
 	const iconColor =
 		toast.tone === "danger"
 			? colors.danger

@@ -1,16 +1,20 @@
-import { Sparkles } from "lucide-react-native";
-import { View } from "react-native";
-import Animated, { ZoomIn } from "react-native-reanimated";
+import { Sparkles } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
+import { View } from "react-native";
+import Animated, { ZoomIn } from "react-native-reanimated";
 
 export function PerfectDayCard({ votes }: { votes: number }) {
 	const t = useT();
 	const { colors } = useTheme();
 	const styles = useStyles();
 	return (
-		<Animated.View entering={ZoomIn.springify().damping(16)} style={styles.card} accessibilityRole="summary">
+		<Animated.View
+			entering={ZoomIn.springify().damping(16)}
+			style={styles.card}
+			accessibilityRole="summary"
+		>
 			<View style={styles.badge}>
 				<Sparkles size={18} color={colors.onAccent} strokeWidth={2.2} />
 			</View>

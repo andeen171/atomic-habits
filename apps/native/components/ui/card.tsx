@@ -1,6 +1,6 @@
+import { useTheme } from "@/lib/theme";
 import type { ReactNode } from "react";
 import { type StyleProp, View, type ViewStyle } from "react-native";
-import { useTheme } from "@/lib/theme";
 
 export interface CardProps {
 	children?: ReactNode;

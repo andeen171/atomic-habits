@@ -1,3 +1,11 @@
+import { ChevronLeft, ChevronRight } from "@/components/icons";
+import { IconButton } from "@/components/ui/icon-button";
+import { ProgressRing } from "@/components/ui/progress-ring";
+import { Text } from "@/components/ui/text";
+import { haptics } from "@/lib/haptics";
+import { useT } from "@/lib/i18n";
+import { useReduceMotion } from "@/lib/motion";
+import { makeStyles, useTheme } from "@/lib/theme";
 import {
 	type DayKey,
 	type Weekday,
@@ -8,19 +16,11 @@ import {
 	weekdayOf,
 } from "@atomic/core";
 import { useAtomic, useLogIndex, useToday } from "@atomic/core/react";
-import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { FadeInLeft, FadeInRight } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { IconButton } from "@/components/ui/icon-button";
-import { ProgressRing } from "@/components/ui/progress-ring";
-import { Text } from "@/components/ui/text";
-import { haptics } from "@/lib/haptics";
-import { useT } from "@/lib/i18n";
-import { useReduceMotion } from "@/lib/motion";
-import { makeStyles, useTheme } from "@/lib/theme";
 
 export interface WeekStripProps {
 	selected: DayKey;
@@ -50,7 +50,10 @@ export function WeekStrip({ selected, onSelect }: WeekStripProps) {
 		setWeekStart(start);
 	}, [selected, weekStartsOn]);
 
-	const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+	const days = useMemo(
+		() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+		[weekStart],
+	);
 	const scores = useMemo(() => {
 		const habits = Object.values(habitsMap);
 		return days.map((day) => (day > today ? null : dayScore(habits, index, day, weekStartsOn)));
@@ -150,19 +153,12 @@ export function WeekStrip({ selected, onSelect }: WeekStripProps) {
 									color={colors.accent}
 									track={perfect ? colors.accent : colors.border}
 								>
-									<View
-										style={[
-											styles.dateDisc,
-											perfect && { backgroundColor: colors.accent },
-										]}
-									>
+									<View style={[styles.dateDisc, perfect && { backgroundColor: colors.accent }]}>
 										<Text
 											variant="small"
 											weight={isToday || isSelected ? "bold" : "medium"}
 											tabular
-											color={
-												perfect ? colors.onAccent : isToday ? colors.accent : undefined
-											}
+											color={perfect ? colors.onAccent : isToday ? colors.accent : undefined}
 										>
 											{Number(day.slice(8))}
 										</Text>

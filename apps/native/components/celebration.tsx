@@ -1,3 +1,5 @@
+import { useReduceMotion } from "@/lib/motion";
+import { useUI } from "@/lib/ui-store";
 import { HABIT_COLORS } from "@atomic/core";
 import { useAtomic } from "@atomic/core/react";
 import { habitColors } from "@atomic/core/theme";
@@ -11,8 +13,6 @@ import Animated, {
 	withTiming,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { useReduceMotion } from "@/lib/motion";
-import { useUI } from "@/lib/ui-store";
 
 const COUNT = 42;
 const DURATION = 2200;
@@ -73,9 +73,16 @@ function Confetti({ onDone }: { onDone: () => void }) {
 	}, [progress]);
 
 	return (
-		<View pointerEvents="none" style={StyleSheet.absoluteFill} accessibilityElementsHidden>
+		<View pointerEvents="none" style={StyleSheet.absoluteFill} aria-hidden>
 			{particles.map((p) => (
-				<Atom key={p.id} particle={p} progress={progress} originX={width / 2} originY={height * 0.42} gravity={height * 1.5} />
+				<Atom
+					key={p.id}
+					particle={p}
+					progress={progress}
+					originX={width / 2}
+					originY={height * 0.42}
+					gravity={height * 1.5}
+				/>
 			))}
 		</View>
 	);

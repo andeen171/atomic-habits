@@ -46,6 +46,7 @@ const en = {
 	"editor.whenWhere": "When and where",
 	"editor.goal": "Goal",
 	"editor.details": "Details",
+	"editor.created": "{habit} added. Start with two minutes.",
 
 	"tasks.showCompleted": "Show completed",
 	"tasks.hideCompleted": "Hide completed",
@@ -123,6 +124,7 @@ const ptBR: Record<AppMessageKey, string> = {
 	"editor.whenWhere": "Quando e onde",
 	"editor.goal": "Meta",
 	"editor.details": "Detalhes",
+	"editor.created": "{habit} adicionado. Comece com dois minutos.",
 
 	"tasks.showCompleted": "Mostrar concluídas",
 	"tasks.hideCompleted": "Ocultar concluídas",
@@ -146,7 +148,8 @@ const ptBR: Record<AppMessageKey, string> = {
 	"settings.exported": "Backup pronto para compartilhar",
 	"settings.syncUpToDate": "Sincronizado",
 	"settings.syncSetup": "Configurar sincronização",
-	"settings.privacy": "Seus dados nunca saem deste aparelho, a menos que você ative a sincronização.",
+	"settings.privacy":
+		"Seus dados nunca saem deste aparelho, a menos que você ative a sincronização.",
 	"settings.remindersEnable": "Permitir notificações",
 
 	"onboarding.attribution": "— James Clear",

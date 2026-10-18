@@ -1,8 +1,8 @@
-import { router } from "expo-router";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
 import { useT } from "@/lib/i18n";
+import { router } from "expo-router";
 
 export default function NotFoundScreen() {
 	const t = useT();
@@ -11,7 +11,9 @@ export default function NotFoundScreen() {
 			<EmptyState
 				title={t.t("notFound.title")}
 				body={t.t("notFound.body")}
-				action={<Button label={t.t("today.backToToday")} size="lg" onPress={() => router.replace("/")} />}
+				action={
+					<Button label={t.t("today.backToToday")} size="lg" onPress={() => router.replace("/")} />
+				}
 			/>
 		</Screen>
 	);

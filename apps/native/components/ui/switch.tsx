@@ -1,3 +1,5 @@
+import { haptics } from "@/lib/haptics";
+import { useTheme } from "@/lib/theme";
 import { motion } from "@atomic/core/theme";
 import { Pressable } from "react-native";
 import Animated, {
@@ -6,8 +8,6 @@ import Animated, {
 	useDerivedValue,
 	withSpring,
 } from "react-native-reanimated";
-import { haptics } from "@/lib/haptics";
-import { useTheme } from "@/lib/theme";
 
 export interface SwitchProps {
 	value: boolean;
@@ -22,7 +22,13 @@ const H = 30;
 const KNOB = 24;
 
 /** A calm, consistent switch on both platforms. */
-export function Switch({ value, onValueChange, accessibilityLabel, disabled, testID }: SwitchProps) {
+export function Switch({
+	value,
+	onValueChange,
+	accessibilityLabel,
+	disabled,
+	testID,
+}: SwitchProps) {
 	const { colors } = useTheme();
 	const progress = useDerivedValue(() => withSpring(value ? 1 : 0, motion.spring), [value]);
 	const trackStyle = useAnimatedStyle(() => ({
@@ -45,7 +51,9 @@ export function Switch({ value, onValueChange, accessibilityLabel, disabled, tes
 			accessibilityState={{ checked: value, disabled: Boolean(disabled) }}
 			style={{ opacity: disabled ? 0.45 : 1 }}
 		>
-			<Animated.View style={[{ width: W, height: H, borderRadius: H / 2, justifyContent: "center" }, trackStyle]}>
+			<Animated.View
+				style={[{ width: W, height: H, borderRadius: H / 2, justifyContent: "center" }, trackStyle]}
+			>
 				<Animated.View
 					style={[
 						{

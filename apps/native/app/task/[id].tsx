@@ -1,8 +1,4 @@
-import { useActions, useAtomic } from "@atomic/core/react";
-import { router, useLocalSearchParams } from "expo-router";
-import { CircleCheck, RotateCcw, Trash2 } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import { CircleCheck, RotateCcw, Trash2 } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { DateChips, PriorityPicker } from "@/components/tasks/task-fields";
 import { Button } from "@/components/ui/button";
@@ -11,6 +7,10 @@ import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { showToast } from "@/lib/ui-store";
+import { useActions, useAtomic } from "@atomic/core/react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { View } from "react-native";
 
 /** Task editor presented as a bottom sheet over the current screen. */
 export default function TaskSheetRoute() {
@@ -126,11 +126,18 @@ export default function TaskSheetRoute() {
 					/>
 					<View style={{ gap: 8 }}>
 						<Text variant="label">{t.t("tasks.date")}</Text>
-						<DateChips value={live.date} onChange={(date) => actions.updateTask(live.id, { date })} />
+						<DateChips
+							value={live.date}
+							onChange={(date) => actions.updateTask(live.id, { date })}
+							bleed={20}
+						/>
 					</View>
 					<View style={{ gap: 8 }}>
 						<Text variant="label">{t.t("tasks.priority")}</Text>
-						<PriorityPicker value={live.priority} onChange={(priority) => actions.updateTask(live.id, { priority })} />
+						<PriorityPicker
+							value={live.priority}
+							onChange={(priority) => actions.updateTask(live.id, { priority })}
+						/>
 					</View>
 				</View>
 			) : null}

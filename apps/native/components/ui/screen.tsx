@@ -1,5 +1,8 @@
+import { ChevronLeft } from "@/components/icons";
+import { TAB_BAR_HEIGHT } from "@/components/tab-bar";
+import { useT } from "@/lib/i18n";
+import { makeStyles, useTheme } from "@/lib/theme";
 import { router } from "expo-router";
-import { ChevronLeft } from "lucide-react-native";
 import type { ReactNode, Ref } from "react";
 import {
 	KeyboardAvoidingView,
@@ -16,9 +19,6 @@ import Animated, {
 	useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { TAB_BAR_HEIGHT } from "@/components/tab-bar";
-import { useT } from "@/lib/i18n";
-import { makeStyles, useTheme } from "@/lib/theme";
 import { IconButton } from "./icon-button";
 import { Text } from "./text";
 
@@ -78,7 +78,9 @@ export function Screen({
 
 	const body = (
 		<View style={styles.root} testID={testID}>
-			<Animated.View style={[styles.bar, { paddingTop: insets.top, height: insets.top + barHeight }, barStyle]}>
+			<Animated.View
+				style={[styles.bar, { paddingTop: insets.top, height: insets.top + barHeight }, barStyle]}
+			>
 				{hasBar ? (
 					<View style={styles.barRow}>
 						{back ? (
@@ -88,7 +90,9 @@ export function Screen({
 								size={38}
 								iconSize={22}
 								accessibilityLabel={t.t("common.back")}
-								onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace("/")))}
+								onPress={
+									onBack ?? (() => (router.canGoBack() ? router.back() : router.replace("/")))
+								}
 								testID="back-button"
 							/>
 						) : (
@@ -121,7 +125,9 @@ export function Screen({
 				{children}
 			</Animated.ScrollView>
 			{footer ? (
-				<View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>{footer}</View>
+				<View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
+					{footer}
+				</View>
 			) : null}
 		</View>
 	);
@@ -129,7 +135,10 @@ export function Screen({
 	if (!keyboard) return body;
 	return (
 		// Edge-to-edge Android no longer resizes the window for the keyboard, so pad on both platforms.
-		<KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "web" ? undefined : "padding"}>
+		<KeyboardAvoidingView
+			style={styles.root}
+			behavior={Platform.OS === "web" ? undefined : "padding"}
+		>
 			{body}
 		</KeyboardAvoidingView>
 	);

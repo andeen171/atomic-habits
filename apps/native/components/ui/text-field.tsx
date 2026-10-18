@@ -1,12 +1,6 @@
-import { type ReactNode, forwardRef, useState } from "react";
-import {
-	type StyleProp,
-	TextInput,
-	type TextInputProps,
-	View,
-	type ViewStyle,
-} from "react-native";
 import { fonts, makeStyles, useTheme } from "@/lib/theme";
+import { type ReactNode, forwardRef, useState } from "react";
+import { type StyleProp, TextInput, type TextInputProps, View, type ViewStyle } from "react-native";
 import { Text } from "./text";
 
 export interface TextFieldProps extends TextInputProps {

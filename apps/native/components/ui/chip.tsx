@@ -1,7 +1,7 @@
-import type { LucideIcon } from "lucide-react-native";
+import type { LucideIcon } from "@/components/icons";
+import { useTheme } from "@/lib/theme";
 import type { ReactNode } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
-import { useTheme } from "@/lib/theme";
 import { PressableScale } from "./pressable-scale";
 import { Text } from "./text";
 
@@ -59,10 +59,14 @@ export function Chip({
 			]}
 		>
 			{leading}
-			{Icon ? <Icon size={size === "sm" ? 14 : 16} color={iconColor ?? fg} strokeWidth={2} /> : null}
-			<Text variant="small" weight="medium" color={fg} numberOfLines={1}>
-				{label}
-			</Text>
+			{Icon ? (
+				<Icon size={size === "sm" ? 14 : 16} color={iconColor ?? fg} strokeWidth={2} />
+			) : null}
+			{label ? (
+				<Text variant="small" weight="medium" color={fg} numberOfLines={1}>
+					{label}
+				</Text>
+			) : null}
 		</PressableScale>
 	);
 }

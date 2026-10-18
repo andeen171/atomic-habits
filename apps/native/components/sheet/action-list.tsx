@@ -1,7 +1,7 @@
-import type { LucideIcon } from "lucide-react-native";
-import { Pressable, View } from "react-native";
+import type { LucideIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { makeStyles, useTheme } from "@/lib/theme";
+import { Pressable, View } from "react-native";
 
 export interface SheetAction {
 	key: string;
@@ -51,7 +51,10 @@ export function ActionList({ actions }: { actions: readonly SheetAction[] }) {
 							<Icon size={18} color={color} strokeWidth={2} />
 						</View>
 						<View style={styles.text}>
-							<Text weight="medium" color={action.tone === "default" || !action.tone ? undefined : color}>
+							<Text
+								weight="medium"
+								color={action.tone === "default" || !action.tone ? undefined : color}
+							>
 								{action.label}
 							</Text>
 							{action.hint ? (

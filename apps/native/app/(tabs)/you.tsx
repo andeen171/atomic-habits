@@ -1,5 +1,3 @@
-import { useAllHabitStats, useAllHabits, useAtomic, useIdentityStats, useSyncState } from "@atomic/core/react";
-import { router } from "expo-router";
 import {
 	ChartColumn,
 	ClipboardList,
@@ -8,9 +6,7 @@ import {
 	Fingerprint,
 	Flame,
 	Settings,
-} from "lucide-react-native";
-import { useMemo } from "react";
-import { Pressable, View } from "react-native";
+} from "@/components/icons";
 import { Card } from "@/components/ui/card";
 import { ListGroup, ListRow, ListSeparator } from "@/components/ui/list-row";
 import { Screen, ScreenTitle } from "@/components/ui/screen";
@@ -19,6 +15,16 @@ import { Text } from "@/components/ui/text";
 import { useT } from "@/lib/i18n";
 import { syncController } from "@/lib/sync";
 import { makeStyles, useTheme } from "@/lib/theme";
+import {
+	useAllHabitStats,
+	useAllHabits,
+	useAtomic,
+	useIdentityStats,
+	useSyncState,
+} from "@atomic/core/react";
+import { router } from "expo-router";
+import { useMemo } from "react";
+import { Pressable, View } from "react-native";
 
 export default function YouScreen() {
 	const t = useT();
@@ -37,7 +43,8 @@ export default function YouScreen() {
 			const s = stats.get(habit.id);
 			if (!s) continue;
 			votes += s.votes;
-			if (habit.kind === "build" && s.streak.unit === "days") best = Math.max(best, s.streak.current);
+			if (habit.kind === "build" && s.streak.unit === "days")
+				best = Math.max(best, s.streak.current);
 		}
 		return { votes, best, active: habits.filter((h) => !h.archivedAt).length };
 	}, [habits, stats]);
@@ -84,7 +91,11 @@ export default function YouScreen() {
 			<SectionLabel
 				right={
 					identities.length ? (
-						<Pressable onPress={() => router.push("/identity")} hitSlop={10} accessibilityRole="link">
+						<Pressable
+							onPress={() => router.push("/identity")}
+							hitSlop={10}
+							accessibilityRole="link"
+						>
 							<Text variant="tiny" weight="semibold" tone="accent">
 								{t.t("common.seeAll")}
 							</Text>
@@ -210,7 +221,12 @@ const useStyles = makeStyles((t) => ({
 		paddingTop: 14,
 	},
 	heroStat: { flex: 1, gap: 2 },
-	heroDivider: { width: 1, alignSelf: "stretch", backgroundColor: t.colors.border, marginHorizontal: 16 },
+	heroDivider: {
+		width: 1,
+		alignSelf: "stretch",
+		backgroundColor: t.colors.border,
+		marginHorizontal: 16,
+	},
 	inline: { flexDirection: "row", alignItems: "center", gap: 6 },
 	block: { marginBottom: 24 },
 	identities: { gap: 10 },
@@ -225,7 +241,13 @@ const useStyles = makeStyles((t) => ({
 		borderColor: t.colors.border,
 		...t.cardShadow,
 	},
-	identityEmoji: { width: 46, height: 46, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+	identityEmoji: {
+		width: 46,
+		height: 46,
+		borderRadius: 15,
+		alignItems: "center",
+		justifyContent: "center",
+	},
 	emojiText: { fontSize: 22, lineHeight: 28 },
 	votes: { alignItems: "flex-end" },
 	attribution: { marginTop: 4, paddingHorizontal: 24 },

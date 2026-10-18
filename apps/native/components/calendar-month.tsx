@@ -1,3 +1,8 @@
+import { ChevronLeft, ChevronRight } from "@/components/icons";
+import { IconButton } from "@/components/ui/icon-button";
+import { Text } from "@/components/ui/text";
+import { useT } from "@/lib/i18n";
+import { makeStyles, useTheme } from "@/lib/theme";
 import {
 	type DayKey,
 	type Weekday,
@@ -9,13 +14,8 @@ import {
 	startOfMonth,
 } from "@atomic/core";
 import { useAtomic } from "@atomic/core/react";
-import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
-import { IconButton } from "@/components/ui/icon-button";
-import { Text } from "@/components/ui/text";
-import { useT } from "@/lib/i18n";
-import { makeStyles, useTheme } from "@/lib/theme";
 
 export interface CalendarMonthProps {
 	month: DayKey;
@@ -62,7 +62,14 @@ export function CalendarMonth({ month, onMonthChange, renderDay, maxMonth }: Cal
 			</View>
 			<View style={styles.week}>
 				{orderedWeekdays(weekStartsOn).map((d) => (
-					<Text key={d} variant="tiny" weight="semibold" tone="subtle" align="center" style={styles.cell}>
+					<Text
+						key={d}
+						variant="tiny"
+						weight="semibold"
+						tone="subtle"
+						align="center"
+						style={styles.cell}
+					>
 						{t.weekdayName(d, "min")}
 					</Text>
 				))}

@@ -1,5 +1,3 @@
-import type { MessageKey } from "@atomic/core";
-import type { BottomTabBarProps } from "expo-router/tabs";
 import {
 	CircleUserRound,
 	ListChecks,
@@ -7,16 +5,18 @@ import {
 	Orbit,
 	Plus,
 	SunMedium,
-} from "lucide-react-native";
-import { useEffect } from "react";
-import { Pressable, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+} from "@/components/icons";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
+import type { MessageKey } from "@atomic/core";
+import type { BottomTabBarProps } from "expo-router/tabs";
+import { useEffect } from "react";
+import { Pressable, View } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
 /** Height of the bar above the bottom safe-area inset. */
 export const TAB_BAR_HEIGHT = 62;
@@ -48,7 +48,11 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
 				focused={focused}
 				testID={`tab-${route.name}`}
 				onPress={() => {
-					const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+					const event = navigation.emit({
+						type: "tabPress",
+						target: route.key,
+						canPreventDefault: true,
+					});
 					if (!focused && !event.defaultPrevented) {
 						haptics.selection();
 						navigation.navigate(route.name, route.params);

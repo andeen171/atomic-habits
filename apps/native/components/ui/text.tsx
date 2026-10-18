@@ -1,6 +1,6 @@
+import { fonts, useTheme } from "@/lib/theme";
 import type { Palette } from "@atomic/core/theme";
 import { Text as RNText, type TextProps as RNTextProps, type TextStyle } from "react-native";
-import { fonts, useTheme } from "@/lib/theme";
 
 export type TextVariant =
 	| "hero"

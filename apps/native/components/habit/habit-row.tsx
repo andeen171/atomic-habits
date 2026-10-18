@@ -1,15 +1,15 @@
-import { type AgendaItem, type DayKey, progressLabel, streakLabel } from "@atomic/core";
-import { router } from "expo-router";
-import { Flame, TriangleAlert } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, View } from "react-native";
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import { Flame, TriangleAlert } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
+import { type AgendaItem, type DayKey, progressLabel, streakLabel } from "@atomic/core";
+import { router } from "expo-router";
+import { useState } from "react";
+import { Pressable, View } from "react-native";
+import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { HabitRing } from "./habit-ring";
 
 export interface HabitRowProps {
@@ -50,14 +50,22 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 		if (state === "skipped") return t.t("habit.skipped");
 		if (state === "rest") return t.x("habit.restDay");
 		if (habit.schedule.type === "weekly") {
-			const week = t.t("habit.weekProgress", { done: item.week.done, required: item.week.required });
+			const week = t.t("habit.weekProgress", {
+				done: item.week.done,
+				required: item.week.required,
+			});
 			return habit.target > 1 ? `${progressLabel(habit, count, t)} · ${week}` : week;
 		}
 		if (count === 0 && habit.twoMinute) return habit.twoMinute;
 		if (habit.target > 1) return progressLabel(habit, count, t);
 		return item.identity?.statement ?? null;
 	})();
-	const italic = !isBreak && count === 0 && Boolean(habit.twoMinute) && habit.schedule.type !== "weekly" && state !== "skipped";
+	const italic =
+		!isBreak &&
+		count === 0 &&
+		Boolean(habit.twoMinute) &&
+		habit.schedule.type !== "weekly" &&
+		state !== "skipped";
 
 	const ringLabel = [
 		habit.name,
@@ -90,7 +98,10 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 				accessibilityRole="button"
 				accessibilityLabel={habit.name}
 				accessibilityHint={t.t("habit.viewDetails")}
-				accessibilityActions={[{ name: "activate" }, { name: "longpress", label: t.t("common.more") }]}
+				accessibilityActions={[
+					{ name: "activate" },
+					{ name: "longpress", label: t.t("common.more") },
+				]}
 				onAccessibilityAction={(event) => {
 					if (event.nativeEvent.actionName === "longpress") openActions();
 				}}
@@ -101,20 +112,12 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 					pressed && { backgroundColor: colors.hover },
 				]}
 			>
-				<HabitRing
-					testID={`habit-ring-${habit.id}`}
-					habit={habit}
-					count={count}
-					progress={item.progress}
-					state={state}
-					size={46}
-					onPress={onRingPress}
-					onLongPress={openActions}
-					shakeKey={shakeKey}
-					accessibilityLabel={ringLabel}
-				/>
 				<View style={styles.body}>
-					<Text weight="medium" numberOfLines={2} style={item.done && !isBreak ? styles.doneName : undefined}>
+					<Text
+						weight="medium"
+						numberOfLines={2}
+						style={item.done && !isBreak ? styles.doneName : undefined}
+					>
 						{habit.name}
 					</Text>
 					{secondary ? (
@@ -133,13 +136,20 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 						style={[styles.chip, { backgroundColor: chipBg }]}
 						accessible
 						accessibilityLabel={
-							streak.atRisk ? `${t.t("streak.atRisk")}, ${streakLabel(habit, streak, t)}` : streakLabel(habit, streak, t)
+							streak.atRisk
+								? `${t.t("streak.atRisk")}, ${streakLabel(habit, streak, t)}`
+								: streakLabel(habit, streak, t)
 						}
 					>
 						{streak.atRisk ? (
 							<TriangleAlert size={13} color={chipColor} strokeWidth={2.4} />
 						) : (
-							<Flame size={13} color={chipColor} strokeWidth={2.4} fill={hot ? chipColor : "transparent"} />
+							<Flame
+								size={13}
+								color={chipColor}
+								strokeWidth={2.4}
+								fill={hot ? chipColor : "transparent"}
+							/>
 						)}
 						<Text variant="tiny" weight="bold" color={chipColor} tabular>
 							{shortStreak}
@@ -147,18 +157,43 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 					</View>
 				) : null}
 			</Pressable>
+			{/* Sibling (not nested) so web never renders a button inside a button. */}
+			<View style={styles.ringSlot} pointerEvents="box-none">
+				<HabitRing
+					testID={`habit-ring-${habit.id}`}
+					habit={habit}
+					count={count}
+					progress={item.progress}
+					state={state}
+					size={RING}
+					onPress={onRingPress}
+					onLongPress={openActions}
+					shakeKey={shakeKey}
+					accessibilityLabel={ringLabel}
+				/>
+			</View>
 		</Animated.View>
 	);
 }
+
+const RING = 46;
 
 const useStyles = makeStyles((t) => ({
 	row: {
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 14,
-		paddingHorizontal: 14,
+		paddingLeft: 14 + RING + 14,
+		paddingRight: 14,
 		paddingVertical: 12,
 		minHeight: 72,
+	},
+	ringSlot: {
+		position: "absolute",
+		left: 14,
+		top: 0,
+		bottom: 0,
+		justifyContent: "center",
 	},
 	separator: { borderTopWidth: 1, borderTopColor: t.colors.border },
 	firstRow: { borderTopLeftRadius: t.radii.xl - 3, borderTopRightRadius: t.radii.xl - 3 },

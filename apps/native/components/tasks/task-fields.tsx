@@ -1,15 +1,15 @@
-import { type DayKey, type TaskPriority, addDays, startOfMonth } from "@atomic/core";
-import { useToday } from "@atomic/core/react";
-import { CalendarDays, Flag } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
 import { CalendarMonth } from "@/components/calendar-month";
+import { CalendarDays, Flag } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { Chip } from "@/components/ui/chip";
 import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { type Theme, makeStyles, useTheme } from "@/lib/theme";
+import { type DayKey, type TaskPriority, addDays, startOfMonth } from "@atomic/core";
+import { useToday } from "@atomic/core/react";
+import { useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
 
 export function priorityColor(priority: TaskPriority, theme: Theme): string {
 	if (priority === 3) return theme.colors.danger;
@@ -23,10 +23,13 @@ export function DateChips({
 	value,
 	onChange,
 	size = "md",
+	bleed = 0,
 }: {
 	value: DayKey | null;
 	onChange: (day: DayKey | null) => void;
 	size?: "sm" | "md";
+	/** Let the scroller run to the container edges (sheets with side padding). */
+	bleed?: number;
 }) {
 	const t = useT();
 	const today = useToday();
@@ -38,21 +41,35 @@ export function DateChips({
 			<ScrollView
 				horizontal
 				showsHorizontalScrollIndicator={false}
-				contentContainerStyle={{ gap: 8, paddingRight: 8 }}
+				style={bleed ? { marginHorizontal: -bleed } : undefined}
+				contentContainerStyle={{ gap: 8, paddingRight: 8 + bleed, paddingLeft: bleed }}
 				keyboardShouldPersistTaps="always"
 			>
-				<Chip size={size} label={t.t("tasks.date.today")} selected={value === today} onPress={() => onChange(today)} />
+				<Chip
+					size={size}
+					label={t.t("tasks.date.today")}
+					selected={value === today}
+					onPress={() => onChange(today)}
+				/>
 				<Chip
 					size={size}
 					label={t.t("tasks.date.tomorrow")}
 					selected={value === tomorrow}
 					onPress={() => onChange(tomorrow)}
 				/>
-				<Chip size={size} label={t.t("tasks.date.someday")} selected={value === null} onPress={() => onChange(null)} />
+				<Chip
+					size={size}
+					label={t.t("tasks.date.someday")}
+					selected={value === null}
+					onPress={() => onChange(null)}
+				/>
 				<Chip
 					size={size}
 					icon={CalendarDays}
-					label={custom && value ? t.formatDayShort(value) : t.t("tasks.date.pick")}
+					label={
+						custom && value ? t.formatDayShort(value) : size === "sm" ? "" : t.t("tasks.date.pick")
+					}
+					accessibilityLabel={custom && value ? t.formatDayLong(value) : t.t("tasks.date.pick")}
 					selected={custom}
 					onPress={() => setPicking(true)}
 				/>
@@ -141,7 +158,11 @@ export function PriorityPicker({
 	const styles = useStyles();
 	const options: TaskPriority[] = [0, 1, 2, 3];
 	return (
-		<View style={styles.flags} accessibilityRole="radiogroup" accessibilityLabel={t.t("tasks.priority")}>
+		<View
+			style={styles.flags}
+			accessibilityRole="radiogroup"
+			accessibilityLabel={t.t("tasks.priority")}
+		>
 			{options.map((p) => {
 				const selected = value === p;
 				const color = priorityColor(p, theme);
@@ -166,9 +187,18 @@ export function PriorityPicker({
 							},
 						]}
 					>
-						<Flag size={15} color={color} fill={p > 0 && selected ? color : "transparent"} strokeWidth={2.2} />
+						<Flag
+							size={15}
+							color={color}
+							fill={p > 0 && selected ? color : "transparent"}
+							strokeWidth={2.2}
+						/>
 						{compact ? null : (
-							<Text variant="small" weight={selected ? "semibold" : "medium"} tone={selected ? "default" : "muted"}>
+							<Text
+								variant="small"
+								weight={selected ? "semibold" : "medium"}
+								tone={selected ? "default" : "muted"}
+							>
 								{label}
 							</Text>
 						)}

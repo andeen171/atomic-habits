@@ -1,8 +1,8 @@
-import { Minus, Plus } from "lucide-react-native";
-import { View } from "react-native";
+import { Minus, Plus } from "@/components/icons";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles } from "@/lib/theme";
+import { View } from "react-native";
 import { IconButton } from "./icon-button";
 import { Text } from "./text";
 

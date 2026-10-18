@@ -1,3 +1,8 @@
+import { Flame, ShieldCheck } from "@/components/icons";
+import { PressableScale } from "@/components/ui/pressable-scale";
+import { Text } from "@/components/ui/text";
+import { useT } from "@/lib/i18n";
+import { makeStyles, useTheme } from "@/lib/theme";
 import {
 	type DayKey,
 	type Habit,
@@ -13,13 +18,8 @@ import {
 } from "@atomic/core";
 import { useAtomic, useToday } from "@atomic/core/react";
 import { router } from "expo-router";
-import { Flame } from "lucide-react-native";
 import { View, type ViewStyle } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
-import { PressableScale } from "@/components/ui/pressable-scale";
-import { Text } from "@/components/ui/text";
-import { useT } from "@/lib/i18n";
-import { makeStyles, useTheme } from "@/lib/theme";
 
 export interface HabitCardProps {
 	habit: Habit;
@@ -41,6 +41,7 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 	const strength = stats?.strength ?? 0;
 	const rate = stats?.last30.rate ?? 0;
 	const archived = Boolean(habit.archivedAt);
+	const streakColor = streak && streak.current >= 3 ? colors.accent : colors.textMuted;
 	const meta = [
 		isBreak ? t.t("habits.filter.break") : scheduleLabel(habit, t, weekStartsOn),
 		habit.timeOfDay !== "anytime" ? t.t(`time.${habit.timeOfDay}`) : null,
@@ -49,7 +50,11 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 		.join(" · ");
 
 	return (
-		<Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(150)} layout={LinearTransition.springify().damping(20)}>
+		<Animated.View
+			entering={FadeIn.duration(220)}
+			exiting={FadeOut.duration(150)}
+			layout={LinearTransition.springify().damping(20)}
+		>
 			<PressableScale
 				testID={`habit-card-${habit.id}`}
 				scaleTo={0.985}
@@ -76,13 +81,22 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 					</View>
 					{streak && streak.current > 0 ? (
 						<View style={styles.streak}>
-							<Flame
-								size={14}
-								color={streak.current >= 3 ? colors.accent : colors.textMuted}
-								fill={streak.current >= 3 ? colors.accent : "transparent"}
-								strokeWidth={2.2}
-							/>
-							<Text variant="small" weight="bold" tabular color={streak.current >= 3 ? colors.accent : colors.textMuted}>
+							{isBreak ? (
+								<ShieldCheck size={14} color={colors.success} strokeWidth={2.2} />
+							) : (
+								<Flame
+									size={14}
+									color={streakColor}
+									fill={streak.current >= 3 ? streakColor : "transparent"}
+									strokeWidth={2.2}
+								/>
+							)}
+							<Text
+								variant="small"
+								weight="bold"
+								tabular
+								color={isBreak ? colors.success : streakColor}
+							>
 								{t.number(streak.current)}
 							</Text>
 						</View>
@@ -108,7 +122,12 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 							</Text>
 						</View>
 						<View style={[styles.bar, { backgroundColor: tone.soft }]}>
-							<View style={[styles.barFill, { width: `${Math.round(strength * 100)}%`, backgroundColor: tone.fill }]} />
+							<View
+								style={[
+									styles.barFill,
+									{ width: `${Math.round(strength * 100)}%`, backgroundColor: tone.fill },
+								]}
+							/>
 						</View>
 						<Text variant="tiny" tone="subtle" tabular>
 							{`${t.t("habits.last30")} · ${t.percent(rate)}`}
@@ -135,12 +154,24 @@ function WeekDots({ habit, index, today }: { habit: Habit; index: LogIndex; toda
 				const state = dayState(habit, day, logs.get(day), today);
 				let style: ViewStyle = { backgroundColor: colors.heat0 };
 				if (state === "done" || state === "clean") style = { backgroundColor: tone.fill };
-				else if (state === "partial") style = { backgroundColor: tone.soft, borderWidth: 1.5, borderColor: tone.fill };
+				else if (state === "partial")
+					style = { backgroundColor: tone.soft, borderWidth: 1.5, borderColor: tone.fill };
 				else if (state === "slipped") style = { backgroundColor: colors.danger };
-				else if (state === "missed") style = { backgroundColor: "transparent", borderWidth: 1.5, borderColor: colors.borderStrong };
+				else if (state === "missed")
+					style = {
+						backgroundColor: "transparent",
+						borderWidth: 1.5,
+						borderColor: colors.borderStrong,
+					};
 				else if (state === "skipped")
-					style = { backgroundColor: "transparent", borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.borderStrong };
-				else if (state === "pending") style = { backgroundColor: "transparent", borderWidth: 1.5, borderColor: tone.fill };
+					style = {
+						backgroundColor: "transparent",
+						borderWidth: 1.5,
+						borderStyle: "dashed",
+						borderColor: colors.borderStrong,
+					};
+				else if (state === "pending")
+					style = { backgroundColor: "transparent", borderWidth: 1.5, borderColor: tone.fill };
 				return (
 					<View key={day} style={styles.dotCol}>
 						<View style={[styles.dot, style]} />
@@ -167,7 +198,13 @@ const useStyles = makeStyles((t) => ({
 	},
 	archived: { opacity: 0.7 },
 	top: { flexDirection: "row", alignItems: "center", gap: 12 },
-	emoji: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+	emoji: {
+		width: 48,
+		height: 48,
+		borderRadius: 16,
+		alignItems: "center",
+		justifyContent: "center",
+	},
 	emojiText: { fontSize: 24, lineHeight: 30 },
 	titleBlock: { flex: 1, gap: 2 },
 	streak: {

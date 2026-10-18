@@ -1,11 +1,5 @@
-import { type HabitTemplate, type IdentityTemplate, identityTemplates } from "@atomic/core";
-import { useActions } from "@atomic/core/react";
-import { Check, ChevronLeft, PenLine } from "lucide-react-native";
-import { useMemo, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
-import Animated, { FadeIn, FadeInRight, FadeOutLeft } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CompoundChart } from "@/components/charts/compound-chart";
+import { Check, ChevronLeft, PenLine } from "@/components/icons";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -16,9 +10,16 @@ import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
 import { makeStyles, useTheme } from "@/lib/theme";
+import { type HabitTemplate, type IdentityTemplate, identityTemplates } from "@atomic/core";
+import { useActions } from "@atomic/core/react";
+import { type ReactNode, useMemo, useState } from "react";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
+import Animated, { FadeIn, FadeInRight, FadeOutLeft } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const STEPS = 7;
 const MAX_PICKS = 3;
+const STEP_IDS = Array.from({ length: STEPS }, (_, i) => i);
 
 type TemplateHabit = HabitTemplate & { identityKey: string };
 
@@ -62,7 +63,8 @@ export default function OnboardingScreen() {
 				});
 				ids.set(identity.key, created.id);
 			}
-			if (custom.trim()) actions.createIdentity({ statement: custom.trim(), emoji: "🌱", color: "ember" });
+			if (custom.trim())
+				actions.createIdentity({ statement: custom.trim(), emoji: "🌱", color: "ember" });
 			for (const habit of starter.filter((h) => chosenHabits.includes(h.key))) {
 				const { key: _key, identityKey, ...fields } = habit;
 				actions.createHabit({ ...fields, identityId: ids.get(identityKey) ?? null });
@@ -106,13 +108,26 @@ export default function OnboardingScreen() {
 	};
 
 	const primaryLabel =
-		step === 0 ? t.t("onboarding.begin") : step === STEPS - 1 ? t.t("onboarding.start") : t.t("common.continue");
+		step === 0
+			? t.t("onboarding.begin")
+			: step === STEPS - 1
+				? t.t("onboarding.start")
+				: t.t("common.continue");
 
 	return (
-		<KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "web" ? undefined : "padding"}>
+		<KeyboardAvoidingView
+			style={styles.root}
+			behavior={Platform.OS === "web" ? undefined : "padding"}
+		>
 			<View style={[styles.top, { paddingTop: insets.top + 8 }]}>
 				{step > 0 ? (
-					<IconButton icon={ChevronLeft} variant="soft" size={38} accessibilityLabel={t.t("common.back")} onPress={back} />
+					<IconButton
+						icon={ChevronLeft}
+						variant="soft"
+						size={38}
+						accessibilityLabel={t.t("common.back")}
+						onPress={back}
+					/>
 				) : (
 					<View style={{ width: 38 }} />
 				)}
@@ -121,8 +136,11 @@ export default function OnboardingScreen() {
 					accessible
 					accessibilityLabel={t.x("onboarding.stepA11y", { current: step + 1, total: STEPS })}
 				>
-					{Array.from({ length: STEPS }, (_, i) => (
-						<View key={i} style={[styles.dot, i === step && styles.dotActive, i < step && styles.dotDone]} />
+					{STEP_IDS.map((i) => (
+						<View
+							key={i}
+							style={[styles.dot, i === step && styles.dotActive, i < step && styles.dotDone]}
+						/>
 					))}
 				</View>
 				<Pressable
@@ -222,7 +240,9 @@ export default function OnboardingScreen() {
 											key={habit.key}
 											habit={habit}
 											selected={chosenHabits.includes(habit.key)}
-											disabled={!chosenHabits.includes(habit.key) && chosenHabits.length >= MAX_PICKS}
+											disabled={
+												!chosenHabits.includes(habit.key) && chosenHabits.length >= MAX_PICKS
+											}
 											onPress={() => toggleHabit(habit.key)}
 										/>
 									))}
@@ -255,7 +275,11 @@ export default function OnboardingScreen() {
 	);
 }
 
-function StepBody({ title, body, children }: { title: string; body?: string; children?: React.ReactNode }) {
+function StepBody({
+	title,
+	body,
+	children,
+}: { title: string; body?: string; children?: ReactNode }) {
 	return (
 		<View style={{ gap: 12 }}>
 			<Text variant="title" accessibilityRole="header">
@@ -296,7 +320,9 @@ function Systems() {
 			<Text variant="label" tone="accent">
 				{t.t("onboarding.systemsTitle")}
 			</Text>
-			<View style={{ borderLeftWidth: 3, borderLeftColor: colors.accent, paddingLeft: 18, gap: 10 }}>
+			<View
+				style={{ borderLeftWidth: 3, borderLeftColor: colors.accent, paddingLeft: 18, gap: 10 }}
+			>
 				<Text variant="title" italic>
 					{`“${t.t("onboarding.systemsQuote")}”`}
 				</Text>
@@ -360,7 +386,9 @@ function IdentityTile({
 				<Text style={{ fontSize: 26, lineHeight: 32 }} allowFontScaling={false}>
 					{identity.emoji}
 				</Text>
-				<View style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}>
+				<View
+					style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
+				>
 					{selected ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
 				</View>
 			</View>
@@ -408,7 +436,9 @@ function HabitTile({
 					</Text>
 				) : null}
 			</View>
-			<View style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}>
+			<View
+				style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
+			>
 				{selected ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
 			</View>
 		</PressableScale>
@@ -473,7 +503,13 @@ const useStyles = makeStyles((t) => ({
 		borderColor: t.colors.border,
 		backgroundColor: t.colors.surface,
 	},
-	habitEmoji: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+	habitEmoji: {
+		width: 44,
+		height: 44,
+		borderRadius: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
 	readyBadge: {
 		width: 96,
 		height: 96,

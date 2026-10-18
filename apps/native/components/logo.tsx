@@ -1,5 +1,5 @@
-import Svg, { Circle, Ellipse } from "react-native-svg";
 import { useTheme } from "@/lib/theme";
+import Svg, { Circle, Ellipse } from "react-native-svg";
 
 /** The Atomic mark: two orbits, an ember nucleus and one electron. */
 export function Logo({ size = 64, ink, accent }: { size?: number; ink?: string; accent?: string }) {

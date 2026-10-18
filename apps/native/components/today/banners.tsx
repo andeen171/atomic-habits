@@ -1,10 +1,10 @@
-import type { AgendaItem } from "@atomic/core";
-import { RefreshCw, TriangleAlert } from "lucide-react-native";
-import { View } from "react-native";
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import { RefreshCw, TriangleAlert } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
+import type { AgendaItem } from "@atomic/core";
+import { View } from "react-native";
+import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 
 /** Warm nudge after a single miss — never guilt, always a specific next step. */
 export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {

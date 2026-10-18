@@ -1,7 +1,7 @@
-import { ChevronRight, type LucideIcon } from "lucide-react-native";
+import { ChevronRight, type LucideIcon } from "@/components/icons";
+import { makeStyles, useTheme } from "@/lib/theme";
 import type { ReactNode } from "react";
 import { Pressable, type StyleProp, View, type ViewStyle } from "react-native";
-import { makeStyles, useTheme } from "@/lib/theme";
 import { Text } from "./text";
 
 export interface ListRowProps {
@@ -82,7 +82,10 @@ export function ListRow({
 }
 
 /** Grouped container with hairline separators between rows. */
-export function ListGroup({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function ListGroup({
+	children,
+	style,
+}: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
 	const styles = useStyles();
 	return <View style={[styles.group, style]}>{children}</View>;
 }

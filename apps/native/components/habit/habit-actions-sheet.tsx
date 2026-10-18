@@ -1,6 +1,3 @@
-import { getLog, progressLabel } from "@atomic/core";
-import { useActions, useAtomic, useHabit, useToday } from "@atomic/core/react";
-import { router } from "expo-router";
 import {
 	Check,
 	Eye,
@@ -12,19 +9,22 @@ import {
 	SkipForward,
 	StickyNote,
 	Undo2,
-} from "lucide-react-native";
-import { useEffect, useState } from "react";
-import { View } from "react-native";
+} from "@/components/icons";
 import { ActionList, type SheetAction } from "@/components/sheet/action-list";
 import { Sheet } from "@/components/sheet/sheet";
 import { Button } from "@/components/ui/button";
-import { TextField } from "@/components/ui/text-field";
 import { Text } from "@/components/ui/text";
+import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import { showToast, ui, useUI } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
+import { getLog, progressLabel } from "@atomic/core";
+import { useActions, useAtomic, useHabit, useToday } from "@atomic/core/react";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import { View } from "react-native";
 
 /** Long-press actions for a habit on a day (global, opened via `ui.openHabitActions`). */
 export function HabitActionsSheet() {
@@ -34,7 +34,9 @@ export function HabitActionsSheet() {
 		if (target) setLast(target);
 	}, [target]);
 	const current = target ?? last;
-	return <HabitActionsContent open={Boolean(target)} habitId={current?.habitId} day={current?.day} />;
+	return (
+		<HabitActionsContent open={Boolean(target)} habitId={current?.habitId} day={current?.day} />
+	);
 }
 
 function HabitActionsContent({
@@ -53,7 +55,9 @@ function HabitActionsContent({
 	const today = useToday();
 	const habit = useHabit(habitId);
 	const log = useAtomic((s) => (habitId && day ? getLog(s, habitId, day) : undefined));
-	const identity = useAtomic((s) => (habit?.identityId ? s.data.identities[habit.identityId] : undefined));
+	const identity = useAtomic((s) =>
+		habit?.identityId ? s.data.identities[habit.identityId] : undefined,
+	);
 	const [mode, setMode] = useState<"actions" | "note">("actions");
 	const [note, setNote] = useState("");
 

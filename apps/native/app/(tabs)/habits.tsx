@@ -1,16 +1,16 @@
-import type { Identity } from "@atomic/core";
-import { useAllHabitStats, useAtomic, useHabits, useLogIndex } from "@atomic/core/react";
-import { router } from "expo-router";
-import { Plus } from "lucide-react-native";
-import { useMemo, useState } from "react";
-import { View } from "react-native";
 import { EmptyState } from "@/components/empty-state";
 import { HabitCard } from "@/components/habit/habit-card";
+import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Screen, ScreenTitle } from "@/components/ui/screen";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { useT } from "@/lib/i18n";
+import type { Identity } from "@atomic/core";
+import { useAllHabitStats, useAtomic, useHabits, useLogIndex } from "@atomic/core/react";
+import { router } from "expo-router";
+import { useMemo, useState } from "react";
+import { View } from "react-native";
 
 type Filter = "all" | "build" | "break" | "archived";
 
@@ -70,7 +70,12 @@ export default function HabitsScreen() {
 					body={emptyCopy.body}
 					action={
 						filter === "archived" ? undefined : (
-							<Button label={t.t("habits.new")} icon={Plus} size="lg" onPress={() => router.push("/habit/editor")} />
+							<Button
+								label={t.t("habits.new")}
+								icon={Plus}
+								size="lg"
+								onPress={() => router.push("/habit/editor")}
+							/>
 						)
 					}
 				/>

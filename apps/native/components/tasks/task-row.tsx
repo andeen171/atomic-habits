@@ -1,3 +1,10 @@
+import { Check, Flag } from "@/components/icons";
+import { Text } from "@/components/ui/text";
+import { haptics } from "@/lib/haptics";
+import { useT } from "@/lib/i18n";
+import { useReduceMotion } from "@/lib/motion";
+import { makeStyles, useTheme } from "@/lib/theme";
+import { showToast } from "@/lib/ui-store";
 import {
 	type DayKey,
 	type Task,
@@ -10,7 +17,6 @@ import {
 import { useActions, useToday } from "@atomic/core/react";
 import { motion } from "@atomic/core/theme";
 import { router } from "expo-router";
-import { Check, Flag } from "lucide-react-native";
 import { useEffect } from "react";
 import { Pressable, View } from "react-native";
 import Animated, {
@@ -23,12 +29,6 @@ import Animated, {
 	withSpring,
 	withTiming,
 } from "react-native-reanimated";
-import { Text } from "@/components/ui/text";
-import { haptics } from "@/lib/haptics";
-import { useT } from "@/lib/i18n";
-import { useReduceMotion } from "@/lib/motion";
-import { makeStyles, useTheme } from "@/lib/theme";
-import { showToast } from "@/lib/ui-store";
 import { priorityColor } from "./task-fields";
 
 export interface TaskRowProps {
@@ -60,7 +60,9 @@ export function TaskRow({ task, hideDate, first }: TaskRowProps) {
 	const pop = useSharedValue(1);
 
 	useEffect(() => {
-		fill.value = reduceMotion ? withTiming(done ? 1 : 0, { duration: 1 }) : withSpring(done ? 1 : 0, motion.spring);
+		fill.value = reduceMotion
+			? withTiming(done ? 1 : 0, { duration: 1 })
+			: withSpring(done ? 1 : 0, motion.spring);
 	}, [done, reduceMotion, fill]);
 
 	const boxStyle = useAnimatedStyle(() => ({
@@ -74,7 +76,8 @@ export function TaskRow({ task, hideDate, first }: TaskRowProps) {
 	}));
 
 	const toggle = () => {
-		if (!reduceMotion) pop.value = withSequence(withTiming(0.82, { duration: 80 }), withSpring(1, motion.spring));
+		if (!reduceMotion)
+			pop.value = withSequence(withTiming(0.82, { duration: 80 }), withSpring(1, motion.spring));
 		actions.toggleTask(task.id);
 		if (done) {
 			haptics.selection();
@@ -107,22 +110,6 @@ export function TaskRow({ task, hideDate, first }: TaskRowProps) {
 				accessibilityLabel={[task.title, ...meta].join(", ")}
 				accessibilityHint={t.t("tasks.edit")}
 			>
-				<Pressable
-					testID={`task-check-${task.id}`}
-					onPress={toggle}
-					hitSlop={10}
-					accessibilityRole="checkbox"
-					accessibilityState={{ checked: done }}
-					accessibilityLabel={
-						done ? t.x("a11y.reopenTask", { task: task.title }) : t.x("a11y.completeTask", { task: task.title })
-					}
-				>
-					<Animated.View style={[styles.box, boxStyle]}>
-						<Animated.View style={checkStyle}>
-							<Check size={14} color="#FFFFFF" strokeWidth={3} />
-						</Animated.View>
-					</Animated.View>
-				</Pressable>
 				<View style={styles.body}>
 					<Text
 						weight="medium"
@@ -146,8 +133,16 @@ export function TaskRow({ task, hideDate, first }: TaskRowProps) {
 							) : null}
 							{showFlag ? (
 								<View style={styles.flag}>
-									<Flag size={11} color={priorityColor(task.priority, theme)} fill={priorityColor(task.priority, theme)} />
-									<Text variant="tiny" weight="semibold" color={priorityColor(task.priority, theme)}>
+									<Flag
+										size={11}
+										color={priorityColor(task.priority, theme)}
+										fill={priorityColor(task.priority, theme)}
+									/>
+									<Text
+										variant="tiny"
+										weight="semibold"
+										color={priorityColor(task.priority, theme)}
+									>
 										{t.t(`tasks.priority.${task.priority}`)}
 									</Text>
 								</View>
@@ -156,6 +151,26 @@ export function TaskRow({ task, hideDate, first }: TaskRowProps) {
 					) : null}
 				</View>
 			</Pressable>
+			<View style={styles.checkSlot}>
+				<Pressable
+					testID={`task-check-${task.id}`}
+					onPress={toggle}
+					hitSlop={10}
+					accessibilityRole="checkbox"
+					accessibilityState={{ checked: done }}
+					accessibilityLabel={
+						done
+							? t.x("a11y.reopenTask", { task: task.title })
+							: t.x("a11y.completeTask", { task: task.title })
+					}
+				>
+					<Animated.View style={[styles.box, boxStyle]}>
+						<Animated.View style={checkStyle}>
+							<Check size={14} color="#FFFFFF" strokeWidth={3} />
+						</Animated.View>
+					</Animated.View>
+				</Pressable>
+			</View>
 		</Animated.View>
 	);
 }
@@ -166,9 +181,11 @@ const useStyles = makeStyles((t) => ({
 		flexDirection: "row",
 		alignItems: "flex-start",
 		gap: 14,
-		paddingHorizontal: 16,
+		paddingLeft: 16 + 24 + 14,
+		paddingRight: 16,
 		paddingVertical: 14,
 	},
+	checkSlot: { position: "absolute", left: 16, top: 14 },
 	box: {
 		width: 24,
 		height: 24,

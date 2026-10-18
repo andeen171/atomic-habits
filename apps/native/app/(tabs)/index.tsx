@@ -1,12 +1,6 @@
-import { type AgendaItem, TIMES_OF_DAY, greetingKey } from "@atomic/core";
-import { useActions, useAtomic, useDayAgenda, useToday } from "@atomic/core/react";
-import { router } from "expo-router";
-import { ArrowLeft, Check } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
-import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 import { EmptyState } from "@/components/empty-state";
 import { HabitRow } from "@/components/habit/habit-row";
+import { ArrowLeft, Check } from "@/components/icons";
 import { FreshStartCard, NeverMissTwiceBanner } from "@/components/today/banners";
 import { PerfectDayCard } from "@/components/today/perfect-day-card";
 import { PrincipleCard } from "@/components/today/principle-card";
@@ -23,6 +17,12 @@ import { useT } from "@/lib/i18n";
 import { claimCelebration } from "@/lib/prefs";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
+import { type AgendaItem, TIMES_OF_DAY, greetingKey } from "@atomic/core";
+import { useActions, useAtomic, useDayAgenda, useToday } from "@atomic/core/react";
+import { router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, View } from "react-native";
+import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 
 export default function TodayScreen() {
 	const t = useT();
@@ -135,7 +135,12 @@ export default function TodayScreen() {
 			) : null}
 
 			{groups.map((group) => (
-				<HabitGroup key={group.time} label={t.t(`time.${group.time}`)} items={group.items} day={day} />
+				<HabitGroup
+					key={group.time}
+					label={t.t(`time.${group.time}`)}
+					items={group.items}
+					day={day}
+				/>
 			))}
 			{agenda.doneForWeek.length ? (
 				<HabitGroup label={t.t("today.doneForWeek")} items={agenda.doneForWeek} day={day} dimmed />
@@ -163,7 +168,11 @@ function HabitGroup({
 }) {
 	const styles = useStyles();
 	return (
-		<Animated.View layout={LinearTransition.springify().damping(20)} entering={FadeIn} style={styles.block}>
+		<Animated.View
+			layout={LinearTransition.springify().damping(20)}
+			entering={FadeIn}
+			style={styles.block}
+		>
 			<SectionLabel>{label}</SectionLabel>
 			<Card padding={0}>
 				{items.map((item, index) => (
@@ -240,7 +249,13 @@ function Header({
 					accessible
 					accessibilityLabel={t.t("today.progress", { done: done ?? 0, total: due ?? 0 })}
 				>
-					<ProgressRing progress={ratio ?? 0} size={62} stroke={5} color={colors.accent} track={colors.sunken}>
+					<ProgressRing
+						progress={ratio ?? 0}
+						size={62}
+						stroke={5}
+						color={colors.accent}
+						track={colors.sunken}
+					>
 						{allDone ? (
 							<Check size={24} color={colors.accent} strokeWidth={2.6} />
 						) : (
@@ -267,7 +282,13 @@ const useStyles = makeStyles(() => ({
 		marginBottom: 14,
 	},
 	headerText: { flex: 1, gap: 2, paddingTop: 4 },
-	back: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, alignSelf: "flex-start" },
+	back: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		marginTop: 6,
+		alignSelf: "flex-start",
+	},
 	score: { alignItems: "center", gap: 6, paddingTop: 4 },
 	strip: { marginBottom: 18 },
 	block: { marginBottom: 20 },

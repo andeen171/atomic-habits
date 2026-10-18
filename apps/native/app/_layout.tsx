@@ -1,3 +1,12 @@
+import { Celebration } from "@/components/celebration";
+import { GlobalSheets } from "@/components/global-sheets";
+import { Logo } from "@/components/logo";
+import { PortalProvider } from "@/components/sheet/portal";
+import { ToastHost } from "@/components/toast-host";
+import { useAppLifecycle } from "@/lib/lifecycle";
+import { appMessages } from "@/lib/messages";
+import { store } from "@/lib/store";
+import { ThemeProvider, useTheme } from "@/lib/theme";
 import { AtomicProvider, useAtomic, useHydrated } from "@atomic/core/react";
 import { Geist_400Regular } from "@expo-google-fonts/geist/400Regular";
 import { Geist_400Regular_Italic } from "@expo-google-fonts/geist/400Regular_Italic";
@@ -9,7 +18,12 @@ import { InstrumentSerif_400Regular_Italic } from "@expo-google-fonts/instrument
 import { useFonts } from "expo-font";
 import { getLocales } from "expo-localization";
 import { NavigationBar } from "expo-navigation-bar";
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider } from "expo-router";
+import {
+	DarkTheme,
+	DefaultTheme,
+	ThemeProvider as NavigationThemeProvider,
+	Stack,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
@@ -17,15 +31,6 @@ import { useEffect, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { Celebration } from "@/components/celebration";
-import { GlobalSheets } from "@/components/global-sheets";
-import { Logo } from "@/components/logo";
-import { PortalProvider } from "@/components/sheet/portal";
-import { ToastHost } from "@/components/toast-host";
-import { useAppLifecycle } from "@/lib/lifecycle";
-import { appMessages } from "@/lib/messages";
-import { store } from "@/lib/store";
-import { ThemeProvider, useTheme } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 

@@ -10,7 +10,7 @@ import {
 	typeScale,
 	withAlpha,
 } from "@atomic/core/theme";
-import { type ReactNode, createContext, useContext, useMemo } from "react";
+import { type ReactNode, createContext, useContext } from "react";
 import { StyleSheet, type ViewStyle, useColorScheme } from "react-native";
 
 /** Font families registered in the root layout (one file per weight). */
@@ -85,7 +85,8 @@ const ThemeContext = createContext<Theme>(themes.light);
 export function ThemeProvider({ children }: { children: ReactNode }) {
 	const setting = useAtomic((s) => s.settings.theme);
 	const system = useColorScheme();
-	const scheme: ColorScheme = setting === "system" ? (system === "dark" ? "dark" : "light") : setting;
+	const scheme: ColorScheme =
+		setting === "system" ? (system === "dark" ? "dark" : "light") : setting;
 	return <ThemeContext.Provider value={themes[scheme]}>{children}</ThemeContext.Provider>;
 }
 
@@ -98,14 +99,12 @@ export function makeStyles<T extends StyleSheet.NamedStyles<T>>(factory: (theme:
 	const cache = new Map<ColorScheme, T>();
 	return function useStyles(): T {
 		const theme = useTheme();
-		return useMemo(() => {
-			let styles = cache.get(theme.scheme);
-			if (!styles) {
-				styles = StyleSheet.create(factory(theme));
-				cache.set(theme.scheme, styles);
-			}
-			return styles;
-		}, [theme]);
+		let styles = cache.get(theme.scheme);
+		if (!styles) {
+			styles = StyleSheet.create(factory(theme));
+			cache.set(theme.scheme, styles);
+		}
+		return styles;
 	};
 }
 

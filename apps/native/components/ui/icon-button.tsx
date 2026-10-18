@@ -1,6 +1,6 @@
-import type { LucideIcon } from "lucide-react-native";
-import type { StyleProp, ViewStyle } from "react-native";
+import type { LucideIcon } from "@/components/icons";
 import { useTheme } from "@/lib/theme";
+import type { StyleProp, ViewStyle } from "react-native";
 import { PressableScale } from "./pressable-scale";
 
 export interface IconButtonProps {

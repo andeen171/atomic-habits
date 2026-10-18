@@ -1,6 +1,10 @@
+import { Check, ShieldAlert, ShieldCheck } from "@/components/icons";
+import { Text } from "@/components/ui/text";
+import { useT } from "@/lib/i18n";
+import { useReduceMotion } from "@/lib/motion";
+import { useTheme } from "@/lib/theme";
 import type { DayState, Habit } from "@atomic/core";
 import { motion } from "@atomic/core/theme";
-import { Check, ShieldAlert, ShieldCheck } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated, {
@@ -13,10 +17,6 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import { scheduleOnRN } from "react-native-worklets";
-import { Text } from "@/components/ui/text";
-import { useT } from "@/lib/i18n";
-import { useReduceMotion } from "@/lib/motion";
-import { useTheme } from "@/lib/theme";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -146,7 +146,10 @@ export function HabitRing({
 								},
 							]}
 						>
-							<Text style={{ fontSize: emojiSize, lineHeight: emojiSize * 1.2 }} allowFontScaling={false}>
+							<Text
+								style={{ fontSize: emojiSize, lineHeight: emojiSize * 1.2 }}
+								allowFontScaling={false}
+							>
 								{habit.emoji}
 							</Text>
 						</View>
@@ -205,7 +208,12 @@ export function HabitRing({
 			</Pressable>
 			{isBreak ? <BreakBadge slipped={slipped} size={size} /> : null}
 			{showVotes && !isBreak ? (
-				<VoteFloats count={count} target={habit.target} reduceMotion={reduceMotion} color={tone.text} />
+				<VoteFloats
+					count={count}
+					target={habit.target}
+					reduceMotion={reduceMotion}
+					color={tone.text}
+				/>
 			) : null}
 		</View>
 	);
@@ -291,7 +299,10 @@ function VoteFloat({ votes, color, onDone }: { votes: number; color: string; onD
 	}, [progress]);
 	const style = useAnimatedStyle(() => ({
 		opacity: progress.value < 0.2 ? progress.value / 0.2 : 1 - (progress.value - 0.2) / 0.8,
-		transform: [{ translateY: -10 - progress.value * 30 }, { scale: 0.85 + Math.min(1, progress.value * 3) * 0.15 }],
+		transform: [
+			{ translateY: -10 - progress.value * 30 },
+			{ scale: 0.85 + Math.min(1, progress.value * 3) * 0.15 },
+		],
 	}));
 	return (
 		<Animated.View style={[styles.float, style]}>

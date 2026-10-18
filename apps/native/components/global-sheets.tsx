@@ -1,10 +1,5 @@
-import type { DayKey, TaskPriority } from "@atomic/core";
-import { useActions } from "@atomic/core/react";
-import { router } from "expo-router";
-import { ChevronRight, ListChecks, type LucideIcon, Orbit } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
-import { type TextInput, View } from "react-native";
 import { HabitActionsSheet } from "@/components/habit/habit-actions-sheet";
+import { ChevronRight, ListChecks, type LucideIcon, Orbit } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { DateChips, PriorityPicker } from "@/components/tasks/task-fields";
 import { Button } from "@/components/ui/button";
@@ -15,6 +10,11 @@ import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui, useUI } from "@/lib/ui-store";
+import { type DayKey, type TaskPriority, toDayKey } from "@atomic/core";
+import { useActions } from "@atomic/core/react";
+import { router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { type TextInput, View } from "react-native";
 
 /** Sheets that can open from anywhere (tab bar ⊕, long-press, quick add). */
 export function GlobalSheets() {
@@ -55,7 +55,7 @@ function CreateSheet() {
 					testID="create-task"
 					onPress={() => {
 						ui.closeCreate();
-						setTimeout(() => ui.openComposer(null), 160);
+						setTimeout(() => ui.openComposer(toDayKey()), 160);
 					}}
 				/>
 			</View>
@@ -164,7 +164,7 @@ function TaskComposerSheet() {
 				/>
 				<View style={{ gap: 8 }}>
 					<Text variant="label">{t.t("tasks.date")}</Text>
-					<DateChips value={date} onChange={setDate} />
+					<DateChips value={date} onChange={setDate} bleed={20} />
 				</View>
 				<View style={{ gap: 8 }}>
 					<Text variant="label">{t.t("tasks.priority")}</Text>

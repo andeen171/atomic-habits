@@ -1,13 +1,20 @@
-import { compounding } from "@atomic/core";
-import { useEffect, useMemo, useState } from "react";
-import { type LayoutChangeEvent, View } from "react-native";
-import Animated, { Easing, useAnimatedProps, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
-import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
 import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
 import { fonts, useTheme } from "@/lib/theme";
+import { compounding } from "@atomic/core";
+import { useEffect, useMemo, useState } from "react";
+import { type LayoutChangeEvent, View } from "react-native";
+import Animated, {
+	Easing,
+	useAnimatedProps,
+	useSharedValue,
+	withDelay,
+	withTiming,
+} from "react-native-reanimated";
+import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+const PAD = { top: 22, right: 54, bottom: 26, left: 8 };
 
 export interface CompoundChartProps {
 	/** Days on the x axis (e.g. 365, or the journey length). */
@@ -25,15 +32,14 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 	const reduceMotion = useReduceMotion();
 	const [width, setWidth] = useState(0);
 	const draw = useSharedValue(animate && !reduceMotion ? 0 : 1);
-	const pad = { top: 22, right: 54, bottom: 26, left: 8 };
 
 	const geometry = useMemo(() => {
 		if (!width) return null;
-		const w = width - pad.left - pad.right;
-		const h = height - pad.top - pad.bottom;
+		const w = width - PAD.left - PAD.right;
+		const h = height - PAD.top - PAD.bottom;
 		const max = compounding(days).better;
-		const x = (d: number) => pad.left + (d / days) * w;
-		const y = (v: number) => pad.top + h - (v / max) * h;
+		const x = (d: number) => PAD.left + (d / days) * w;
+		const y = (v: number) => PAD.top + h - (v / max) * h;
 		const steps = 90;
 		let better = "";
 		let worse = "";
@@ -57,13 +63,16 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 				? { x: x(Math.min(marker, days)), y: y(compounding(Math.min(marker, days)).better) }
 				: null;
 		return { better, worse, length: length + w, end, x, y, h, w, markerPoint, baseY: y(1) };
-	}, [width, height, days, marker, pad.left, pad.right, pad.top, pad.bottom]);
+	}, [width, height, days, marker]);
 
 	useEffect(() => {
 		if (!geometry) return;
 		if (animate && !reduceMotion) {
 			draw.value = 0;
-			draw.value = withDelay(150, withTiming(1, { duration: 1400, easing: Easing.out(Easing.cubic) }));
+			draw.value = withDelay(
+				150,
+				withTiming(1, { duration: 1400, easing: Easing.out(Easing.cubic) }),
+			);
 		} else draw.value = 1;
 	}, [geometry, animate, reduceMotion, draw]);
 
@@ -72,7 +81,7 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 	const worseProps = useAnimatedProps(() => ({ strokeDashoffset: total * (1 - draw.value) }));
 
 	const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
-	const label = (value: number) => `${t.number(value, value < 10 ? 1 : 0)}×`;
+	const label = (value: number) => `${t.number(value, value < 1 ? 2 : value < 10 ? 1 : 0)}×`;
 
 	return (
 		<View
@@ -85,8 +94,8 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 			{geometry ? (
 				<Svg width={width} height={height}>
 					<Line
-						x1={pad.left}
-						x2={pad.left + geometry.w}
+						x1={PAD.left}
+						x2={PAD.left + geometry.w}
 						y1={geometry.baseY}
 						y2={geometry.baseY}
 						stroke={colors.border}
@@ -113,8 +122,8 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 						animatedProps={betterProps}
 					/>
 					<SvgText
-						x={pad.left + geometry.w + 8}
-						y={pad.top + 4}
+						x={PAD.left + geometry.w + 8}
+						y={PAD.top + 4}
 						fill={colors.accent}
 						fontSize={15}
 						fontFamily={fonts.semibold}
@@ -122,7 +131,7 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 						{label(geometry.end.better)}
 					</SvgText>
 					<SvgText
-						x={pad.left + geometry.w + 8}
+						x={PAD.left + geometry.w + 8}
 						y={geometry.y(geometry.end.worse) + 4}
 						fill={colors.textMuted}
 						fontSize={13}
@@ -130,11 +139,17 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 					>
 						{label(geometry.end.worse)}
 					</SvgText>
-					<SvgText x={pad.left} y={height - 6} fill={colors.textSubtle} fontSize={11} fontFamily={fonts.medium}>
+					<SvgText
+						x={PAD.left}
+						y={height - 6}
+						fill={colors.textSubtle}
+						fontSize={11}
+						fontFamily={fonts.medium}
+					>
 						{t.x("insights.dayN", { count: 1 })}
 					</SvgText>
 					<SvgText
-						x={pad.left + geometry.w}
+						x={PAD.left + geometry.w}
 						y={height - 6}
 						fill={colors.textSubtle}
 						fontSize={11}
@@ -149,7 +164,7 @@ export function CompoundChart({ days, marker, height = 180, animate = true }: Co
 								x1={geometry.markerPoint.x}
 								x2={geometry.markerPoint.x}
 								y1={geometry.markerPoint.y}
-								y2={pad.top + geometry.h}
+								y2={PAD.top + geometry.h}
 								stroke={colors.accent}
 								strokeOpacity={0.35}
 								strokeWidth={1.5}

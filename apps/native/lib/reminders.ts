@@ -170,11 +170,15 @@ export function useNotificationRouting() {
 			const habitId = typeof data?.habitId === "string" ? data.habitId : null;
 			if (habitId) router.push({ pathname: "/habit/[id]", params: { id: habitId } });
 		};
+		// Cold start from a notification: wait until the navigator has mounted.
 		const last = Notifications.getLastNotificationResponse();
-		if (last) open(last.notification.request.content.data);
+		const timer = last ? setTimeout(() => open(last.notification.request.content.data), 350) : null;
 		const sub = Notifications.addNotificationResponseReceivedListener((response) =>
 			open(response.notification.request.content.data),
 		);
-		return () => sub.remove();
+		return () => {
+			if (timer) clearTimeout(timer);
+			sub.remove();
+		};
 	}, []);
 }

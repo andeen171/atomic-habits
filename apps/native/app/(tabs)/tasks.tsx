@@ -1,10 +1,5 @@
-import { type DayKey, type Task, type TaskBucket, type TaskPriority, groupTasks } from "@atomic/core";
-import { useActions, useTasks, useToday } from "@atomic/core/react";
-import { ChevronDown, Plus } from "lucide-react-native";
-import { useMemo, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
-import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 import { EmptyState } from "@/components/empty-state";
+import { ChevronDown, Plus } from "@/components/icons";
 import { DateChips, PriorityPicker } from "@/components/tasks/task-fields";
 import { TaskRow } from "@/components/tasks/task-row";
 import { Card } from "@/components/ui/card";
@@ -15,8 +10,25 @@ import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { fonts, makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
+import {
+	type DayKey,
+	type Task,
+	type TaskBucket,
+	type TaskPriority,
+	groupTasks,
+} from "@atomic/core";
+import { useActions, useTasks, useToday } from "@atomic/core/react";
+import { useMemo, useState } from "react";
+import { Pressable, TextInput, View } from "react-native";
+import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 
-const OPEN_BUCKETS: Exclude<TaskBucket, "done">[] = ["overdue", "today", "tomorrow", "upcoming", "inbox"];
+const OPEN_BUCKETS: Exclude<TaskBucket, "done">[] = [
+	"overdue",
+	"today",
+	"tomorrow",
+	"upcoming",
+	"inbox",
+];
 
 export default function TasksScreen() {
 	const t = useT();
@@ -121,7 +133,11 @@ function TaskGroup({
 	const styles = useStyles();
 	const t = useT();
 	return (
-		<Animated.View layout={LinearTransition.springify().damping(20)} entering={FadeIn} style={styles.group}>
+		<Animated.View
+			layout={LinearTransition.springify().damping(20)}
+			entering={FadeIn}
+			style={styles.group}
+		>
 			<SectionLabel
 				tone={tone}
 				right={
@@ -171,9 +187,16 @@ function QuickAdd() {
 					disabled={!title.trim()}
 					accessibilityRole="button"
 					accessibilityLabel={t.t("common.add")}
-					style={[styles.addButton, { backgroundColor: title.trim() ? colors.accent : colors.sunken }]}
+					style={[
+						styles.addButton,
+						{ backgroundColor: title.trim() ? colors.accent : colors.sunken },
+					]}
 				>
-					<Plus size={18} color={title.trim() ? colors.onAccent : colors.textMuted} strokeWidth={2.4} />
+					<Plus
+						size={18}
+						color={title.trim() ? colors.onAccent : colors.textMuted}
+						strokeWidth={2.4}
+					/>
 				</Pressable>
 				<TextInput
 					testID="tasks-quick-input"
@@ -223,7 +246,13 @@ const useStyles = makeStyles((t) => ({
 		minHeight: 32,
 	},
 	quick: { marginBottom: 24, paddingBottom: 12 },
-	quickRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingTop: 8 },
+	quickRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 12,
+		paddingHorizontal: 12,
+		paddingTop: 8,
+	},
 	addButton: {
 		width: 32,
 		height: 32,
@@ -237,6 +266,7 @@ const useStyles = makeStyles((t) => ({
 		fontSize: 16,
 		color: t.colors.text,
 		paddingVertical: 12,
+		outlineWidth: 0,
 	},
 	quickMeta: { flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingTop: 4 },
 	quickPriority: {

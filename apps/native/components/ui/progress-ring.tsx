@@ -1,9 +1,14 @@
+import { useReduceMotion } from "@/lib/motion";
 import { motion } from "@atomic/core/theme";
 import { type ReactNode, useEffect } from "react";
 import { StyleSheet, View } from "react-native";
-import Animated, { useAnimatedProps, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import Animated, {
+	useAnimatedProps,
+	useSharedValue,
+	withSpring,
+	withTiming,
+} from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
-import { useReduceMotion } from "@/lib/motion";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 

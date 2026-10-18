@@ -1,14 +1,14 @@
+import { Text } from "@/components/ui/text";
+import { makeStyles, useTheme } from "@/lib/theme";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import Svg, { Circle, Ellipse, G } from "react-native-svg";
-import { Text } from "@/components/ui/text";
-import { makeStyles, useTheme } from "@/lib/theme";
 
 /** Orbit-lines-and-atoms illustration in accent + border colors. */
 export function AtomIllustration({ size = 132 }: { size?: number }) {
 	const { colors } = useTheme();
 	return (
-		<Svg width={size} height={size} viewBox="0 0 120 120" accessibilityElementsHidden>
+		<Svg width={size} height={size} viewBox="0 0 120 120" aria-hidden>
 			<Circle cx={60} cy={60} r={56} fill={colors.accentSoft} opacity={0.55} />
 			<G>
 				{[0, 60, 120].map((angle) => (

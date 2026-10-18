@@ -1,8 +1,15 @@
-import { X } from "lucide-react-native";
+import { X } from "@/components/icons";
+import { IconButton } from "@/components/ui/icon-button";
+import { Text } from "@/components/ui/text";
+import { useT } from "@/lib/i18n";
+import { useKeyboardHeight } from "@/lib/keyboard";
+import { useReduceMotion } from "@/lib/motion";
+import { makeStyles, useTheme } from "@/lib/theme";
 import { type ReactNode, useEffect, useState } from "react";
 import {
 	BackHandler,
 	type LayoutChangeEvent,
+	Platform,
 	Pressable,
 	ScrollView,
 	StyleSheet,
@@ -20,12 +27,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
-import { IconButton } from "@/components/ui/icon-button";
-import { Text } from "@/components/ui/text";
-import { useT } from "@/lib/i18n";
-import { useKeyboardHeight } from "@/lib/keyboard";
-import { useReduceMotion } from "@/lib/motion";
-import { makeStyles, useTheme } from "@/lib/theme";
 import { Portal } from "./portal";
 
 const SPRING = { damping: 26, stiffness: 260, mass: 0.9 } as const;
@@ -97,9 +98,7 @@ function SheetFrame({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: animate on open changes only
 	useEffect(() => {
 		if (open) {
-			translateY.value = reduceMotion
-				? withTiming(0, { duration: 1 })
-				: withSpring(0, SPRING);
+			translateY.value = reduceMotion ? withTiming(0, { duration: 1 }) : withSpring(0, SPRING);
 			return;
 		}
 		translateY.value = withTiming(
@@ -112,7 +111,7 @@ function SheetFrame({
 	}, [open]);
 
 	useEffect(() => {
-		if (!open) return;
+		if (!open || Platform.OS === "web") return;
 		const sub = BackHandler.addEventListener("hardwareBackPress", () => {
 			onClose();
 			return true;
@@ -181,7 +180,9 @@ function SheetFrame({
 
 	return (
 		<GestureHandlerRootView style={StyleSheet.absoluteFill} testID={testID}>
-			<Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}>
+			<Animated.View
+				style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}
+			>
 				<Pressable
 					style={StyleSheet.absoluteFill}
 					onPress={onClose}

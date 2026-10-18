@@ -1,11 +1,11 @@
-import type { DayKey, MessageKey } from "@atomic/core";
-import { principleOfTheDay } from "@atomic/core";
-import { Quote } from "lucide-react-native";
-import { View } from "react-native";
+import { Quote } from "@/components/icons";
 import { Card } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
+import type { DayKey, MessageKey } from "@atomic/core";
+import { principleOfTheDay } from "@atomic/core";
+import { View } from "react-native";
 
 /** "Principle of the day" — a quiet reminder of the philosophy. */
 export function PrincipleCard({ day }: { day: DayKey }) {

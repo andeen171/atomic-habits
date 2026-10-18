@@ -1,6 +1,6 @@
-import { Tabs } from "expo-router/tabs";
 import { TabBar } from "@/components/tab-bar";
 import { useTheme } from "@/lib/theme";
+import { Tabs } from "expo-router/tabs";
 
 export default function TabsLayout() {
 	const { colors } = useTheme();

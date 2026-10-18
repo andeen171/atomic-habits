@@ -1,8 +1,4 @@
-import { type DayKey, tasksForDay } from "@atomic/core";
-import { useActions, useTasks, useToday } from "@atomic/core/react";
-import { Plus } from "lucide-react-native";
-import { useMemo, useState } from "react";
-import { TextInput, View } from "react-native";
+import { Plus } from "@/components/icons";
 import { TaskRow } from "@/components/tasks/task-row";
 import { Card } from "@/components/ui/card";
 import { SectionLabel } from "@/components/ui/section-label";
@@ -10,6 +6,10 @@ import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { fonts, makeStyles, useTheme } from "@/lib/theme";
+import { type DayKey, tasksForDay } from "@atomic/core";
+import { useActions, useTasks, useToday } from "@atomic/core/react";
+import { useMemo, useState } from "react";
+import { TextInput, View } from "react-native";
 
 /** Tasks due on the day (plus overdue ones today) with inline quick add. */
 export function TodayTasks({ day }: { day: DayKey }) {
@@ -105,6 +105,7 @@ const useStyles = makeStyles((t) => ({
 		fontSize: 15,
 		color: t.colors.text,
 		paddingVertical: 14,
+		outlineWidth: 0,
 	},
 	empty: { marginTop: 8, marginLeft: 4 },
 }));
