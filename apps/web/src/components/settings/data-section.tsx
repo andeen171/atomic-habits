@@ -19,9 +19,10 @@ export function DataSection() {
 	const fileRef = useRef<HTMLInputElement>(null);
 	const [confirm, setConfirm] = useState<"demo" | "reset" | null>(null);
 
-	const exportBackup = () => {
-		downloadJson(`atomic-backup-${today}.json`, actions.exportData());
-		toast.success(at("settings.exported"));
+	const exportBackup = async () => {
+		const saved = await downloadJson(`atomic-backup-${today}.json`, actions.exportData());
+		if (saved) toast.success(at("settings.exported"));
+		else toast.error(at("settings.exportUnavailable"));
 	};
 
 	const importBackup = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -43,7 +44,7 @@ export function DataSection() {
 	return (
 		<SettingsSection title={t("settings.data")} description={t("settings.dataHint")}>
 			<SettingsRow label={t("settings.export")} stack>
-				<Button variant="secondary" size="sm" onClick={exportBackup}>
+				<Button variant="secondary" size="sm" onClick={() => void exportBackup()}>
 					<Download />
 					{t("settings.export")}
 				</Button>

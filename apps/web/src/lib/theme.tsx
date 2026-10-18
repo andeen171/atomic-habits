@@ -8,6 +8,7 @@ import {
 	useContext,
 	useLayoutEffect,
 	useMemo,
+	useSyncExternalStore,
 } from "react";
 import { useMediaQuery } from "./use-media-query";
 
@@ -23,7 +24,9 @@ const ColorSchemeContext = createContext<ColorScheme>("light");
 export function ThemeProvider({ children }: { children: ReactNode }) {
 	const { theme } = useSettings();
 	const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
-	const scheme: ColorScheme = theme === "system" ? (systemDark ? "dark" : "light") : theme;
+	const hostTheme = useHostTheme();
+	const system: ColorScheme = hostTheme ?? (systemDark ? "dark" : "light");
+	const scheme: ColorScheme = theme === "system" ? system : theme;
 
 	useLayoutEffect(() => {
 		const root = document.documentElement;
@@ -40,6 +43,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 	}, [scheme, theme]);
 
 	return <ColorSchemeContext.Provider value={scheme}>{children}</ColorSchemeContext.Provider>;
+}
+
+/**
+ * An embedding host (the claude.ai Artifact viewer) may pin light or dark with
+ * `data-theme` on <html>; "system" then follows the host instead of the OS.
+ */
+function readHostTheme(): ColorScheme | null {
+	const value = document.documentElement.getAttribute("data-theme");
+	return value === "dark" || value === "light" ? value : null;
+}
+
+function subscribeHostTheme(onChange: () => void): () => void {
+	const observer = new MutationObserver(onChange);
+	observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+	return () => observer.disconnect();
+}
+
+function useHostTheme(): ColorScheme | null {
+	return useSyncExternalStore(subscribeHostTheme, readHostTheme, () => null);
 }
 
 export function useColorScheme(): ColorScheme {

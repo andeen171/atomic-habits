@@ -15,9 +15,12 @@
 				try {
 					theme = localStorage.getItem("atomic-theme") || "system";
 				} catch (e) {}
+				var host = document.documentElement.getAttribute("data-theme");
 				var dark =
 					theme === "dark" ||
-					(theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+					(theme !== "light" &&
+						(host === "dark" ||
+							(host !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches)));
 				document.documentElement.classList.toggle("dark", dark);
 			})();
 		</script>
