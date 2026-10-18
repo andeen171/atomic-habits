@@ -10,8 +10,9 @@ on:
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
+# Every branch publishes the same rolling "android-preview" release: one run at a time, newest wins.
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-preview
   cancel-in-progress: true
 
 permissions:

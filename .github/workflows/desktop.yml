@@ -10,8 +10,9 @@ on:
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
+# Every branch publishes the same rolling "desktop-preview" release: one run at a time, newest wins.
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-preview
   cancel-in-progress: true
 
 permissions:

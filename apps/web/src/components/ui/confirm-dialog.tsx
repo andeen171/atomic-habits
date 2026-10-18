@@ -1,7 +1,14 @@
 import { useT } from "@/lib/messages";
 import type { ReactNode } from "react";
 import { Button } from "./button";
-import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "./dialog";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+} from "./dialog";
 
 interface ConfirmDialogProps {
 	open: boolean;
@@ -26,8 +33,11 @@ export function ConfirmDialog({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent size="sm" hideClose role="alertdialog">
-				<DialogHeader title={title} />
-				<DialogBody className="pt-1 text-ink-muted">{body}</DialogBody>
+				<DialogHeader title={title} description={false} />
+				{/* The body (what will be lost, how to back up) is what screen readers announce. */}
+				<DialogDescription asChild>
+					<DialogBody className="pt-1 text-ink-muted">{body}</DialogBody>
+				</DialogDescription>
 				<DialogFooter className="border-t-0">
 					<Button variant="secondary" onClick={() => onOpenChange(false)}>
 						{t("common.cancel")}

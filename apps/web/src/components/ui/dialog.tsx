@@ -66,9 +66,12 @@ export function DialogContent({
 	);
 }
 
+export const DialogDescription = DialogPrimitive.Description;
+
 interface DialogHeaderProps {
 	title: ReactNode;
-	description?: ReactNode;
+	/** `false` when the dialog renders its own `DialogDescription` elsewhere. */
+	description?: ReactNode | false;
 	className?: string;
 }
 
@@ -82,7 +85,7 @@ export function DialogHeader({ title, description, className }: DialogHeaderProp
 				<DialogPrimitive.Description className="mt-1 text-ink-muted text-small">
 					{description}
 				</DialogPrimitive.Description>
-			) : (
+			) : description === false ? null : (
 				<DialogPrimitive.Description className="sr-only">{title}</DialogPrimitive.Description>
 			)}
 		</div>

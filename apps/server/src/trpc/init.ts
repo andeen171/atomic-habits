@@ -4,9 +4,14 @@ import type { Context } from "./context";
 // No transformer: clients speak plain JSON (see `@atomic/core/remote`).
 const t = initTRPC.context<Context>().create({
 	// Internal errors are logged server-side (see app.ts); clients only get a
-	// generic message, never SQL text or bound values.
-	errorFormatter: ({ shape, error }) =>
-		error.code === "INTERNAL_SERVER_ERROR" ? { ...shape, message: "Internal server error" } : shape,
+	// generic message, never SQL text or bound values. Stacks never leave the
+	// server (tRPC adds them whenever NODE_ENV isn't "production").
+	errorFormatter: ({ shape, error }) => {
+		const { stack: _stack, ...data } = shape.data;
+		const message =
+			error.code === "INTERNAL_SERVER_ERROR" ? "Internal server error" : shape.message;
+		return { ...shape, message, data };
+	},
 });
 
 export const router = t.router;
