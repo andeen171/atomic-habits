@@ -430,7 +430,13 @@ native apps are not affected.
   afterwards (busy, timeout, upstream error, unusable answer) is refunded. A client that goes away
   is refunded only while it was still queued: once the model has the request the call counts, as
   a delivered one would (otherwise hanging up after each call would buy unlimited model calls and
-  drain `AI_GLOBAL_DAILY_REQUESTS` for everyone).
+  drain `AI_GLOBAL_DAILY_REQUESTS` for everyone). For the same reason, failures after the model
+  had the request are refunded only up to the plan's daily limit per user and UTC day (in the
+  quota's units: requests, or characters); past that they stay charged, and the `ai` log line
+  says `charged`. An input crafted to make the model answer unusably can therefore cost at most
+  one extra quota's worth of model calls a day. Refusals before the model is asked (quota, cap,
+  full queue) are always refunded and never count. The budget is kept in memory (a restart
+  resets it).
 - **One deadline.** `AI_TIMEOUT_MS` (translation: `AI_TRANSLATE_TIMEOUT_MS`; at most 240000 each)
   covers the queue wait and every attempt; past it the model call is aborted and the answer is
   504 `timeout`. A client that disconnects aborts the model call too. The AI routes set Bun's idle

@@ -737,6 +737,77 @@ describe("the upstream call", () => {
 		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(0);
 		expect((await account(unreachable.app, other.token)).usage.aiRequestsToday).toBe(0);
 	});
+
+	test("failures after the model was asked are refunded up to the daily limit, then charged", async () => {
+		// Regression: an input that makes the model fail every time was refunded
+		// every time, while each call still took a model slot and the global cap.
+		let clock = Date.UTC(2026, 9, 20, 12);
+		const server = await aiServer({
+			env: { LIMIT_PRO_AI_REQUESTS: "2" },
+			deps: { now: () => clock },
+		});
+		const { token } = await member(server.app);
+		const usage = async () => (await account(server.app, token)).usage.aiRequestsToday;
+		fake.fallback = () => ({ status: 500, body: "boom" });
+		for (const expected of [0, 0, 1]) {
+			expect(await refusal(await suggest(server.app, token))).toMatchObject({
+				status: 502,
+				reason: "failed",
+			});
+			expect(await usage()).toBe(expected);
+		}
+		const charged = server.logs.filter((l) => l.line.includes("charged=true"));
+		expect(charged).toHaveLength(1);
+		canned();
+		expect((await suggest(server.app, token)).status).toBe(200);
+		expect(await refusal(await suggest(server.app, token))).toMatchObject({
+			status: 429,
+			reason: "quota",
+		});
+		expect(fake.requests).toHaveLength(4);
+
+		// A new UTC day: a new budget.
+		clock += 24 * 3600_000;
+		fake.fallback = () => ({ status: 500, body: "boom" });
+		expect((await suggest(server.app, token)).status).toBe(502);
+		expect(await usage()).toBe(0);
+	});
+
+	test("translation failures are refunded up to the daily characters, then charged", async () => {
+		const server = await aiServer({ env: { LIMIT_PRO_AI_TRANSLATE_CHARS: "30" } });
+		const { token } = await member(server.app);
+		fake.fallback = () => ({ status: 500, body: "boom" });
+		const body = { target: "en", items: [{ id: "a", text: "Ler 10 páginas" }] }; // 14 chars
+		for (const expected of [0, 0, 14]) {
+			expect((await translate(server.app, token, body)).status).toBe(502);
+			expect((await account(server.app, token)).usage.aiTranslateCharsToday).toBe(expected);
+		}
+	});
+
+	test("failures before the model is asked never use the refund budget", async () => {
+		fake.fallback = () => ({ content: CANNED.habit_name, delayMs: 300 });
+		const server = await aiServer({
+			env: { LIMIT_PRO_AI_REQUESTS: "1", AI_MAX_CONCURRENCY: "1", AI_QUEUE_MAX: "0" },
+		});
+		const holder = await member(server.app);
+		const { token } = await member(server.app);
+		// Three refusals while the only model slot is taken: busy, refunded.
+		for (let i = 0; i < 3; i++) {
+			const first = suggest(server.app, holder.token);
+			await waitFor(() => fake.requests.length === i + 1);
+			expect(await refusal(await suggest(server.app, token))).toMatchObject({
+				status: 503,
+				reason: "busy",
+			});
+			await first;
+			holder.token = (await member(server.app)).token; // a fresh quota for the holder
+		}
+		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(0);
+		// The budget (1) is still whole: one failure after the model was asked is refunded.
+		fake.fallback = () => ({ status: 500, body: "boom" });
+		expect((await suggest(server.app, token)).status).toBe(502);
+		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(0);
+	});
 });
 
 describe("one end-to-end deadline", () => {

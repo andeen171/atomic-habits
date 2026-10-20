@@ -40,6 +40,14 @@ import { Semaphore, SemaphoreError } from "./semaphore";
  *   has the request, the work is done whether or not anyone reads the
  *   answer (otherwise hanging up after each call would give unlimited model
  *   calls on any quota, and drain the server's daily cap for everyone).
+ * - **Refund budget:** failures after the model had the request are
+ *   refunded up to the plan's daily limit per user and UTC day, in the
+ *   quota's own units (requests, or translated characters); past that they
+ *   stay charged. An input crafted to make the model answer unusably would
+ *   otherwise be refunded every time, each call still using a model slot
+ *   and the server's daily cap (which stays taken once the model was
+ *   asked). A failure before the model was asked (quota, a full queue, the
+ *   daily cap) is always refunded and never counts.
  * - **Privacy:** prompts and answers are never logged, cached or stored;
  *   the `ai` log line carries the operation, the kind, the outcome, the
  *   attempt count, timings and the upstream status only.
@@ -118,6 +126,18 @@ export function createAiService(deps: AiServiceDeps): AiService {
 	let global = { day: "", count: 0 };
 	/** The latest upstream answer refused the credentials (401/403). */
 	let rejected = false;
+	/** Quota refunded today after the model had the request, per user and field. */
+	let refunds = { day: "", given: new Map<string, number>() };
+
+	/** Whether `amount` more fits in the user's refund budget for today (and books it). */
+	const takeRefund = (day: string, job: Job<unknown>): boolean => {
+		if (refunds.day !== day) refunds = { day, given: new Map() };
+		const key = `${job.call.userId}\u0000${job.field}`;
+		const given = refunds.given.get(key) ?? 0;
+		if (given + job.amount > job.limit) return false;
+		refunds.given.set(key, given + job.amount);
+		return true;
+	};
 
 	const takeGlobal = (day: string): boolean => {
 		if (global.day !== day) global = { day, count: 0 };
@@ -146,7 +166,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
 		let reservation: Reservation | null = null;
 		let globalTaken = false;
 		let release: (() => void) | null = null;
-		const finish = (outcome: string) => {
+		const finish = (outcome: string, charged?: boolean) => {
 			const ms = Math.round(performance.now() - started);
 			const fields = {
 				msg: "ai",
@@ -156,6 +176,8 @@ export function createAiService(deps: AiServiceDeps): AiService {
 				attempts,
 				ms,
 				upstream: upstreamStatus,
+				// A failure that stays charged (hung up after the model was asked, or the refund budget is spent).
+				charged: charged || undefined,
 			};
 			if (outcome === "ok") log.info(fields);
 			else log.warn(fields);
@@ -219,12 +241,15 @@ export function createAiService(deps: AiServiceDeps): AiService {
 			}
 		} catch (error) {
 			const failure = error instanceof AiError ? error : new AiError("failed");
-			finish(failure.kind);
 			// Nothing was delivered: give the quota back, unless the client hung up
-			// after the model was asked (and the global slot only when it never was).
-			const charged = failure.kind === "aborted" && attempts > 0;
+			// after the model was asked, or the user's refund budget for today is
+			// spent (and the global slot only when the model was never asked).
+			const asked = attempts > 0;
+			const charged =
+				reservation !== null && asked && (failure.kind === "aborted" || !takeRefund(day, job));
+			finish(failure.kind, charged);
 			if (reservation && !charged) await refundQuota(db, reservation).catch(() => {});
-			if (globalTaken && attempts === 0) giveGlobal(day);
+			if (globalTaken && !asked) giveGlobal(day);
 			throw failure;
 		} finally {
 			clearTimeout(timer);
