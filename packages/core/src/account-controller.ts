@@ -166,7 +166,8 @@ export function createAccountController({
 		refreshedAt: null,
 	};
 	const listeners = new Set<() => void>();
-	let inflight: Promise<AccountInfo | null> | null = null;
+	/** The refresh in flight, and whose account it fetches (never shared across users). */
+	let inflight: { owner: string; promise: Promise<AccountInfo | null> } | null = null;
 	/** The user the state belongs to (`serverUrl` + id). */
 	let owner: string | null = null;
 
@@ -231,10 +232,11 @@ export function createAccountController({
 	const refresh = (): Promise<AccountInfo | null> => {
 		const session = sync.getSession();
 		if (!session) return Promise.resolve(null);
-		if (inflight) return inflight;
-		const forOwner = ownerOf(session);
+		const forOwner = ownerOf(session) ?? "";
+		// A refresh for a previous user resolves to null: don't hand it to the new one.
+		if (inflight?.owner === forOwner) return inflight.promise;
 		setState({ status: "loading", error: null });
-		inflight = api(session)
+		const promise: Promise<AccountInfo | null> = api(session)
 			.account(session.token)
 			.then(async (account) => {
 				if (ownerOf(sync.getSession()) !== forOwner) return null;
@@ -262,9 +264,10 @@ export function createAccountController({
 				return null;
 			})
 			.finally(() => {
-				inflight = null;
+				if (inflight?.promise === promise) inflight = null;
 			});
-		return inflight;
+		inflight = { owner: forOwner, promise };
+		return promise;
 	};
 
 	/** Follows the sync controller: a new user loads (cache, then server); none clears. */
@@ -343,6 +346,16 @@ export function createAccountController({
 		},
 		async deleteAccount({ password, googleIdToken, googleNonce, eraseLocal }) {
 			const session = requireSession();
+			// A password-less account confirms with Google right before the delete
+			// (spec §4.5); without that, ask for it instead of trying an old session.
+			if (
+				password === undefined &&
+				!googleIdToken &&
+				ownerOf(session) === owner &&
+				state.account?.hasPassword === false
+			) {
+				throw new RemoteError("Confirm with Google first", 403, "SESSION_EXPIRED");
+			}
 			const client = sync.remoteClient(session.serverUrl);
 			const account = createRemoteAccount(client);
 			let token = session.token;

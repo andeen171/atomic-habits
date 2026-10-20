@@ -8,8 +8,11 @@ export interface TrackerActions {
 	 * the timer or the writing pad, or a one-tap clock log.
 	 */
 	openTracker(habit: Habit, day: DayKey): void;
-	/** Wake / bedtime: logs "now" with an Undo toast and an announcement. */
-	logClock(habit: Habit): void;
+	/**
+	 * Wake / bedtime: logs "now" with an Undo toast and an announcement;
+	 * false when it opened the composer instead.
+	 */
+	logClock(habit: Habit): boolean;
 	/** Slip tracker: removes the day's latest slip entry (Undo toast). */
 	undoLatestSlip(habit: Habit, day: DayKey): void;
 }
@@ -23,7 +26,7 @@ export function useTrackerActions(): TrackerActions {
 	return useMemo(
 		() => ({
 			openTracker: (habit, day) => ui.openEntryComposer({ habitId: habit.id, day }),
-			logClock: () => {},
+			logClock: () => false,
 			undoLatestSlip: () => {},
 		}),
 		[],

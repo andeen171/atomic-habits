@@ -161,7 +161,7 @@ Clients use `createRemoteClient` from `@atomic/core`, which speaks this wire for
 | `POST /trpc/ai.setConsent {suggestions, translate}` | → `{ consentAt, translate }`. Withdrawing (`suggestions: false`) also turns translation off. Granting needs AI on (501 otherwise) |
 | `POST /trpc/ai.suggest {kind, locale, input}` | AI only → `{ output, quota }` (below). 6 per minute per user |
 | `POST /trpc/ai.translate {target, items}` | AI only → `{ items: {id, text}[], quota }` (quota in characters). 6 per minute per user |
-| `POST /trpc/blobs.missing {hashes}` | Photo backup → `{ missing }`: which of ≤ 500 hashes the server doesn't hold for this user (request order, no repeats). 60 per minute per user |
+| `POST /trpc/blobs.missing {hashes}` | Photo backup → `{ missing }`: which of ≤ 500 hashes the server doesn't hold for this user (request order, no repeats). 300 per minute per user |
 | `PUT /blobs/<sha256>` | Photo backup: the raw bytes of one JPEG or WebP → 201 `{ sha256, size, mime, created }` (200 when already stored). 120 per minute per user. Refusals below |
 | `GET /blobs/<sha256>` | Photo backup: the user's own blob (404 for any other), immutable and privately cacheable |
 | `POST /trpc/sync.push` | Body `{ records }` (≤ 500) → `{"result":{"data":{ accepted, cursor, rejected, conflicts, serverTime }}}`. 60 per minute per user (429 with `Retry-After`) |
@@ -228,18 +228,25 @@ native apps are not affected.
   they never call Stripe or the plugin's `/api/auth/subscription/*` routes (404). The Stripe
   customer is created at the first checkout, not at sign-up. Checkout is card-only, accepts
   promotion codes, uses the app language (`X-Atomic-Locale`) and offers `STRIPE_TRIAL_DAYS` once
-  per account. A subscriber choosing the other interval confirms the switch in the portal. With
+  per account. A subscriber choosing the other interval confirms the switch in the portal. A
+  subscriber on the same interval (active or trialing) or with a failed payment (`past_due`) gets
+  409 `already-subscribed`: the portal is where they manage it, never a second subscription. With
   email on, an unconfirmed address gets 412 `unverified`.
 - **Coming back.** Stripe returns the browser to `/billing/return`: `web` is redirected to
   `returnTo` (an `APP_WEB_URL` origin only) with `billing=success|cancel|portal` added (inside the
   hash for `#/` routes); `native` opens `atomic://billing?result=…` and shows an "Open Atomic"
-  button; `desktop` shows "go back to Atomic". The page never changes the plan: webhooks do, and
-  the apps poll `account.get`.
+  button; `desktop` shows "go back to Atomic". After paying, Stripe first sends the browser
+  through `/api/auth/subscription/success?checkoutSessionId=…`, which asks Stripe about that
+  checkout and stores its subscription (only a completed checkout of the same user, for a price
+  this server sells; at most 4 seconds, then it redirects anyway), so the apps' `account.get`
+  poll sees Pro without waiting for the webhook. Both hops count against 30 per minute per IP.
 - **Webhooks.** Point a Stripe webhook endpoint at `https://<server>/api/auth/stripe/webhook` with
   `checkout.session.completed` and `customer.subscription.created`, `.updated` and `.deleted`, and
   put its signing secret in `STRIPE_WEBHOOK_SECRET`. Signatures older than 5 minutes are refused.
   Each subscription event is re-read from Stripe before it is stored, so late or repeated
-  deliveries can't roll a subscription back. Logs carry event types only.
+  deliveries can't roll a subscription back; if Stripe can't be reached (also while recording a
+  completed checkout), the webhook answers 400 and Stripe delivers the event again later. Logs
+  carry event types only.
 - **In the Stripe Dashboard:** one Product with a monthly price (and optionally a yearly one) whose
   ids go in `STRIPE_PRICE_PRO_*`; the customer portal with payment method, invoices, switching
   between the prices and cancel at period end; Smart Retries for 2 weeks, then cancel.
@@ -254,7 +261,9 @@ native apps are not affected.
   (`response_format.json_schema`, strict), `json_object` asks for any JSON object, `prompt` only
   describes the schema in the system prompt (for servers without structured output). Run
   llama.cpp with `--no-slots` (its `/slots` endpoint shows live prompts), `--api-key` and without
-  `-v`, on the internal network only.
+  `-v`, on the internal network only. llama.cpp's `-n` caps every reply below the `max_tokens`
+  asked for: a translation asks for up to 1024 tokens, so `-n 512` can cut a long batch (the
+  answer is then unusable and the call fails, refunded); `-n 1024` avoids that.
 - **Kinds** (`ai.suggest`, schemas in `packages/core/src/ai.ts`): `habit.name`, `habit.twoMinute`,
   `habit.intention`, `habit.stack`, `habit.laws`, `habit.setupTasks`, `identity.statement`,
   `task.firstStep`. Prompts use the book's wording (implementation intention, habit stacking,
@@ -271,14 +280,19 @@ native apps are not affected.
 - **Quotas.** A suggestion costs one request (`LIMIT_*_AI_REQUESTS`); a translation costs the
   characters sent (`LIMIT_*_AI_TRANSLATE_CHARS`). Days are UTC. A call that fails afterwards
   (busy, timeout, upstream error, unusable answer, client gone) is refunded.
-- **One deadline.** `AI_TIMEOUT_MS` (translation: `AI_TRANSLATE_TIMEOUT_MS`) covers the queue wait
-  and every attempt; past it the model call is aborted and the answer is 504 `timeout`. A client
-  that disconnects aborts the model call too. `max_tokens` is 256 per suggestion, and
-  `min(1024, ⌈chars/2⌉ + 64 + 10 × items)` per translation.
+- **One deadline.** `AI_TIMEOUT_MS` (translation: `AI_TRANSLATE_TIMEOUT_MS`; at most 240000 each)
+  covers the queue wait and every attempt; past it the model call is aborted and the answer is
+  504 `timeout`. A client that disconnects aborts the model call too. The AI routes set Bun's idle
+  window for their request to the deadline plus 10 s, so the deadline, never Bun's `idleTimeout`
+  (10 s), ends a call that waits silently for the model. `max_tokens` is 256 per suggestion, and
+  `min(1024, ⌈chars/2⌉ + 64 + 10 × items)` per translation (the spec's formula plus the JSON
+  envelope of each item, which short items would otherwise run out of).
 - **Untrusted answers.** The user's text travels as JSON marked as data, never inside the
-  instructions. Answers must parse as the kind's schema; only the schema's keys are kept; texts
-  are trimmed and unquoted; items with links, echoes of the input, duplicates or out-of-range
-  lengths are dropped (never truncated). An answer with nothing usable is retried once at
+  instructions. Replies over 256 KB are refused while they are read. Answers must parse as the
+  kind's schema; only the schema's keys are kept; texts are trimmed and unquoted, and lose control
+  characters, zero-width spaces and bidi overrides (text that would display differently from what
+  it says); items with links, echoes of the input, duplicates or out-of-range lengths are dropped
+  (never truncated). An answer with nothing usable is retried once at
   temperature 0.2 if at least 8 seconds remain, else 502 `failed`. Translations must return
   every item exactly once, each at most 2 × its source + 40 characters and without new links.
 - **Privacy.** AI calls are POST only. Prompts and answers are never logged, cached
@@ -302,12 +316,23 @@ variables keeps photos in `./blobs`):
   `HASH_MISMATCH`), and the plan's `LIMIT_*_BLOB_MB` (413 `QUOTA_EXCEEDED`: stop uploading; the
   photo stays on the device). Uploading bytes the user already has is idempotent: it only moves
   the row's `last_seen_at` (and rewrites the object if storage lost it). A storage outage is 503
-  `STORAGE_UNAVAILABLE` and writes nothing.
+  `STORAGE_UNAVAILABLE` and writes nothing. `Bun.S3Client` has no timeout of its own (a call to
+  an endpoint that never answers was still pending after 5 minutes), so each S3 request gives up
+  after 30 s (a constant in `src/blobs/storage.ts`, not a variable): a silent endpoint can't hold
+  a user's photo lock, or the hourly maintenance, indefinitely.
 - **Downloads** (`GET /blobs/<sha256>`) serve the sniffed type with
   `Cache-Control: private, max-age=31536000, immutable`, `ETag` (304 on `If-None-Match`),
   `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'` and
   `Vary: Authorization`. Another user's blob is 404, exactly like a missing one. Over quota,
   stored photos stay downloadable.
+- **What the server vouches for.** `blobs.missing` answers from the `blob` rows, and clients
+  re-upload only what it reports (each device revalidates every photo it holds once a day; 300
+  calls a minute covers a full Pro account, about 33,000 blobs, in one pass). A row must
+  therefore never outlive its object: a download that finds the row but not the object (storage
+  restored from an older copy than the database, a purge that failed midway) drops the row, so
+  the next `blobs.missing` reports the blob and a device that still holds the photo uploads it
+  again. Objects without rows (a failed GC delete, an upload that timed out late) are never
+  served and are removed with the account; a re-upload adopts them.
 - **Garbage collection** (hourly maintenance, each user at most once a day): a blob is removed
   when no live tracker entry references it, no entry deleted less than 30 days ago (the undo
   window) references it, and it wasn't uploaded in the last 7 days. Any SHA-256-shaped string in
@@ -315,7 +340,14 @@ variables keeps photos in `./blobs`):
   then objects: a failed object delete leaves an orphan, never a row without its photo. GC,
   uploads and the account purge of one user run under one in-process lock.
 - **Account deletion** removes every object of the user (under the same lock; uploads are refused
-  afterwards), then the rows go with the account.
+  afterwards; on S3, 8 deletes at a time), then the user's `blob` rows, so a deletion that fails
+  after this step leaves an empty, consistent account rather than rows vouching for deleted
+  photos. A storage failure aborts the deletion with 503 `PURGE_BLOBS_FAILED` before any row
+  changes; retrying finishes it.
+- **Switching photo backup off** (`BLOB_STORAGE=off`) keeps the stored objects and rows but no
+  longer serves or deletes them: account deletion then can't erase those photos. Erase
+  `BLOB_DIR` (or the bucket) yourself when you turn it off for good, or switch it back on before
+  users delete their accounts.
 - `account.get` reports `usage.blobBytes` / `blobCount` against `entitlements.limits.blobBytes`;
   `meta.features.blobs` is `{ maxFileBytes, mimes }`, or `null` when photo backup is off (then
   the routes answer 501 `BLOBS_DISABLED` and `blobs.missing` `NOT_IMPLEMENTED`). The export

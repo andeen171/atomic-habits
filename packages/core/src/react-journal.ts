@@ -20,13 +20,19 @@ import {
 } from "./journal";
 import {
 	type CheckinReason,
+	type GoldilocksSuggestion,
 	type JournalNudge,
+	type ReviewSnapshot,
+	applyGoldilocks,
 	checkinReason,
+	goldilocksSuggestion,
 	journalNudge,
+	reviewSnapshot,
 } from "./journal-review";
-import type { JournalEntry } from "./model";
+import type { CheckinDifficulty, Habit, JournalEntry, JournalRange } from "./model";
 import { levelUpSuggestion } from "./month";
 import { useAtomic, useAtomicStore, useLogIndex, useToday } from "./react-context";
+import { useLevelUpSuggestion } from "./react-month";
 
 /**
  * Journal hooks (Annex J §3.4). React module: exported from `react.ts` only
@@ -166,6 +172,53 @@ export function useJournalNudge(dismissed: ReadonlySet<string>): JournalNudge | 
 			dismissed,
 		});
 	}, [today, habits, identities, index, journal, cadence, weekStartsOn, dismissed]);
+}
+
+/** The review editor's live numbers for a period (Annex J §1.7), or null without a range. */
+export function useReviewSnapshot(range: JournalRange | null): ReviewSnapshot | null {
+	const journal = useJournal();
+	const habits = useAtomic((s) => s.data.habits);
+	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
+	const index = useLogIndex();
+	const today = useToday();
+	const from = range?.from;
+	const to = range?.to;
+	return useMemo(
+		() =>
+			from && to
+				? reviewSnapshot({
+						range: { from, to },
+						today,
+						habits: Object.values(habits),
+						index,
+						journal,
+						weekStartsOn,
+					})
+				: null,
+		[from, to, today, habits, index, journal, weekStartsOn],
+	);
+}
+
+/**
+ * The Goldilocks block (Annex J §1.8): the check-in's suggestion for a habit
+ * (on "too easy", the month's level-up target when there is one, D9) and
+ * `apply()`, which writes it and returns an Undo (or null when nothing
+ * changed). Null suggestion before a difficulty is chosen.
+ */
+export function useGoldilocks(
+	habit: Habit | undefined,
+	difficulty: CheckinDifficulty | null,
+): { suggestion: GoldilocksSuggestion; apply(): (() => void) | null } {
+	const store = useAtomicStore();
+	const levelUp = useLevelUpSuggestion(habit);
+	return useMemo(() => {
+		const suggestion =
+			habit && difficulty ? goldilocksSuggestion(habit, difficulty, levelUp) : null;
+		return {
+			suggestion,
+			apply: () => (habit ? applyGoldilocks(store, habit.id, suggestion, levelUp) : null),
+		};
+	}, [store, habit, difficulty, levelUp]);
 }
 
 export interface JournalEditorState {

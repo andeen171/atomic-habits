@@ -120,17 +120,63 @@ export function billingReturnPage(
 	});
 }
 
+/** Stripe's checkout session ids (`cs_test_…`, `cs_live_…`). */
+const CHECKOUT_SESSION_RE = /^cs_[A-Za-z0-9_]{1,250}$/;
+
+/** How long the success hop waits for `confirmCheckout` before redirecting anyway. */
+export const CONFIRM_WAIT_MS = 4_000;
+
+const localeOf = (c: Context<AppEnv>) =>
+	requestLocale({ lang: c.req.query("lang"), headers: c.req.raw.headers });
+
+/** The public pages' limit (30/min per IP); a 429 page when it is used up. */
+function pagesLimited(c: Context<AppEnv>, services: Services): Response | null {
+	const result = services.limiter.hit(
+		"pages",
+		c.get("clientIp") ?? "unknown",
+		PAGES_RATE_LIMIT.max,
+		PAGES_RATE_LIMIT.windowMs,
+	);
+	if (result.ok) return null;
+	return htmlResponse(tooManyPage(localeOf(c)), 429, {
+		"Retry-After": String(retryAfterSeconds(result.retryAt, services.now())),
+	});
+}
+
+/** Waits for `task` at most `ms`; it keeps running (and handles its own errors) after that. */
+async function within(task: Promise<unknown>, ms: number): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, ms);
+	});
+	try {
+		await Promise.race([task, timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 /**
  * `@better-auth/stripe` always sends checkout's success URL through its own
- * `GET /api/auth/subscription/success?callbackURL=…`. That endpoint needs a
- * cookie session, which a browser never has here (bearer tokens only), so
- * it would only redirect. This answers instead, and only towards this
- * server's `/billing/return` (never an open redirect); the plugin's
- * `/subscription/*` routes stay disabled.
+ * `GET /api/auth/subscription/success?callbackURL=…&checkoutSessionId=…`.
+ * That endpoint needs a cookie session, which a browser never has here
+ * (bearer tokens only), so it would only redirect. This answers instead:
+ *
+ * 1. only towards this server's `/billing/return` (never an open redirect);
+ * 2. with a checkout session id, it first asks the billing provider to store
+ *    that checkout's subscription (`confirmCheckout`, at most
+ *    `CONFIRM_WAIT_MS`), as the plugin's endpoint does, so the app's
+ *    "Confirming your payment…" poll doesn't depend on webhook latency;
+ * 3. 30 per minute per IP, like the other public pages (each hop may cost
+ *    two Stripe calls).
+ *
+ * The plugin's `/subscription/*` routes stay disabled.
  */
 export function subscriptionSuccessHandler(services: Services) {
 	const expected = new URL(`${services.config.authUrl ?? ""}/billing/return`);
-	return (c: Context<AppEnv>) => {
+	return async (c: Context<AppEnv>) => {
+		const limited = pagesLimited(c, services);
+		if (limited) return limited;
 		let target: URL | null = null;
 		try {
 			target = new URL(c.req.query("callbackURL") ?? "");
@@ -140,29 +186,20 @@ export function subscriptionSuccessHandler(services: Services) {
 		if (!target || target.origin !== expected.origin || target.pathname !== expected.pathname) {
 			return c.json({ message: "Not found" }, 404);
 		}
+		const sessionId = c.req.query("checkoutSessionId");
+		const provider = services.billing;
+		if (provider?.confirmCheckout && sessionId && CHECKOUT_SESSION_RE.test(sessionId)) {
+			await within(provider.confirmCheckout(sessionId), CONFIRM_WAIT_MS);
+		}
 		return redirect(target.href);
 	};
 }
 
 /** `GET /billing/return` (billing on only): public, 30/min per IP. */
 export function registerBillingRoutes(app: Hono<AppEnv>, services: Services) {
-	const { config, limiter } = services;
+	const { config } = services;
 
-	const localeOf = (c: Context<AppEnv>) =>
-		requestLocale({ lang: c.req.query("lang"), headers: c.req.raw.headers });
-
-	app.use("/billing/*", async (c, next) => {
-		const result = limiter.hit(
-			"pages",
-			c.get("clientIp") ?? "unknown",
-			PAGES_RATE_LIMIT.max,
-			PAGES_RATE_LIMIT.windowMs,
-		);
-		if (result.ok) return next();
-		return htmlResponse(tooManyPage(localeOf(c)), 429, {
-			"Retry-After": String(retryAfterSeconds(result.retryAt, services.now())),
-		});
-	});
+	app.use("/billing/*", async (c, next) => pagesLimited(c, services) ?? next());
 
 	app.get("/billing/return", (c) => {
 		// An unknown outcome gets the neutral portal wording, never "payment received".

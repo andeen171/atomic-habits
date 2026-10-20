@@ -72,7 +72,72 @@ export function createDiskStorage(dir: string): BlobStorage {
 	};
 }
 
-export function createS3Storage(config: Extract<BlobConfig, { storage: "s3" }>): BlobStorage {
+/**
+ * How long one S3 request may take. `Bun.S3Client` has no timeout of its own
+ * (an endpoint that accepts the connection and never answers keeps the call
+ * pending indefinitely), and every storage call runs under the user's blob
+ * lock: without a deadline, one silent request would block that user's
+ * uploads, GC and account deletion, and the hourly maintenance pass with
+ * them. A 2 MiB upload fits comfortably.
+ */
+export const S3_REQUEST_TIMEOUT_MS = 30_000;
+/** S3 deletes in flight while the purge empties an account (no batch delete in Bun). */
+export const S3_DELETE_CONCURRENCY = 8;
+
+/** A storage request passed its deadline (logged by name only). */
+export class StorageTimeoutError extends Error {
+	override readonly name = "StorageTimeoutError";
+	constructor() {
+		super("storage request timed out");
+	}
+}
+
+/**
+ * `request`, or a `StorageTimeoutError` after `ms`. The request itself can't
+ * be aborted; its late outcome is ignored (an object written late, with no
+ * row, is an orphan: never served, re-adopted by a re-upload, removed with
+ * the account).
+ */
+function withDeadline<T>(request: Promise<T>, ms: number): Promise<T> {
+	request.catch(() => {}); // a late rejection must not surface as unhandled
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new StorageTimeoutError()), ms);
+	});
+	return Promise.race([request, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Runs `work` over `items`, `limit` at a time; the first failure stops new work and is thrown. */
+async function eachLimit<T>(
+	items: readonly T[],
+	limit: number,
+	work: (item: T) => Promise<void>,
+): Promise<void> {
+	let next = 0;
+	let failure: { error: unknown } | null = null;
+	const lane = async () => {
+		while (next < items.length && !failure) {
+			const item = items[next++] as T;
+			try {
+				await work(item);
+			} catch (error) {
+				failure ??= { error };
+			}
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+	if (failure) throw (failure as { error: unknown }).error;
+}
+
+export interface S3StorageOptions {
+	/** Per-request deadline (default `S3_REQUEST_TIMEOUT_MS`; tests shorten it). */
+	timeoutMs?: number;
+}
+
+export function createS3Storage(
+	config: Extract<BlobConfig, { storage: "s3" }>,
+	options: S3StorageOptions = {},
+): BlobStorage {
 	const client = new Bun.S3Client({
 		endpoint: config.endpoint,
 		bucket: config.bucket,
@@ -80,14 +145,18 @@ export function createS3Storage(config: Extract<BlobConfig, { storage: "s3" }>):
 		secretAccessKey: config.secretAccessKey,
 		region: config.region,
 	});
+	const timeoutMs = options.timeoutMs ?? S3_REQUEST_TIMEOUT_MS;
+	const timed = <T>(request: () => Promise<T>) => withDeadline(request(), timeoutMs);
 	const keyOf = (userId: string, sha: string) => `u/${checkUser(userId)}/${checkSha(sha)}`;
 	return {
 		async put(userId, sha, bytes, mime) {
-			await client.write(keyOf(userId, sha), bytes, mime ? { type: mime } : undefined);
+			const key = keyOf(userId, sha);
+			await timed(() => client.write(key, bytes, mime ? { type: mime } : undefined));
 		},
 		async get(userId, sha) {
+			const key = keyOf(userId, sha);
 			try {
-				return await client.file(keyOf(userId, sha)).bytes();
+				return await timed(() => client.file(key).bytes());
 			} catch (error) {
 				// One request instead of HEAD + GET; only "no such object" means null.
 				if ((error as { code?: unknown })?.code === "NoSuchKey") return null;
@@ -95,19 +164,29 @@ export function createS3Storage(config: Extract<BlobConfig, { storage: "s3" }>):
 			}
 		},
 		async exists(userId, sha) {
-			return client.file(keyOf(userId, sha)).exists();
+			const key = keyOf(userId, sha);
+			return timed(() => client.file(key).exists());
 		},
 		async delete(userId, sha) {
-			await client.delete(keyOf(userId, sha));
+			const key = keyOf(userId, sha);
+			await timed(() => client.delete(key));
 		},
 		async deleteUser(userId) {
 			const prefix = `u/${checkUser(userId)}/`;
 			let continuationToken: string | undefined;
 			do {
-				const page = await client.list({ prefix, continuationToken, maxKeys: 1000 });
-				for (const object of page.contents ?? []) {
-					if (object.key.startsWith(prefix)) await client.delete(object.key);
-				}
+				const token = continuationToken;
+				const page = await timed(() =>
+					client.list({ prefix, continuationToken: token, maxKeys: 1000 }),
+				);
+				const keys = (page.contents ?? [])
+					.map((object) => object.key)
+					.filter((key) => key.startsWith(prefix));
+				// A full account is ~33,000 objects: one at a time would keep the
+				// delete-user request open for many minutes.
+				await eachLimit(keys, S3_DELETE_CONCURRENCY, async (key) => {
+					await timed(() => client.delete(key));
+				});
 				continuationToken = page.isTruncated ? page.nextContinuationToken : undefined;
 			} while (continuationToken);
 		},

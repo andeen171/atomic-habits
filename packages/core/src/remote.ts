@@ -1,5 +1,12 @@
 import type { z } from "zod";
-import { type ServerInfo, serverInfoSchema } from "./account";
+import { type ServerInfo, blobsMissingSchema, serverInfoSchema } from "./account";
+import {
+	type AttachmentMime,
+	type BlobSource,
+	type BlobTransport,
+	SHA256_RE,
+	isAttachmentMime,
+} from "./attachments";
 import { V1_COLLECTIONS } from "./model";
 import type { PullInput, PullOutput, PushInput, PushOutput, SyncTransport } from "./sync";
 
@@ -18,7 +25,8 @@ import type { PullInput, PullOutput, PushInput, PushOutput, SyncTransport } from
  * client relies on are parsed with the core schemas: anything else raises
  * `RemoteError("Malformed response")`.
  *
- * Account, billing and AI-consent calls live in `remote-account.ts`.
+ * Account, billing and AI-consent calls live in `remote-account.ts`; photo
+ * backup (`blobTransport`) is here.
  */
 
 export interface RemoteUser {
@@ -235,9 +243,26 @@ export interface RemoteClient {
 	/** Ends the session on the server; never throws (signing out locally always works). */
 	signOut(token: string): Promise<void>;
 	transport(token: string): SyncTransport;
+	/**
+	 * Photo backup over the wire (spec §2.4.5, §4.3): `POST /trpc/blobs.missing`,
+	 * `PUT /blobs/<sha>` with the raw bytes, `GET /blobs/<sha>`. A refused PUT
+	 * throws `RemoteError` with the server's `code` (`QUOTA_EXCEEDED`,
+	 * `TOO_LARGE`, `UNSUPPORTED_TYPE`, …). A `{uri}` source is read with
+	 * `fetch(uri)` (React Native reads `file://` that way); native may pass its
+	 * own transport to the sync controller instead.
+	 */
+	blobTransport(token: string): BlobTransport;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+/** The bytes of a blob source: as given, or read from its URI. */
+async function sourceBytes(source: BlobSource): Promise<Uint8Array> {
+	if ("bytes" in source) return source.bytes;
+	const response = await globalThis.fetch(source.uri);
+	if (!response.ok) throw new Error(`Could not read ${source.uri} (${response.status})`);
+	return new Uint8Array(await response.arrayBuffer());
+}
 
 /** `{token, user}` from an auth answer (token from `set-auth-token` first). */
 export function sessionFrom(response: Response, body: unknown): RemoteSession {
@@ -423,6 +448,45 @@ export function createRemoteClient(
 						token,
 					});
 					return (await unwrap(response)) as PullOutput;
+				},
+			};
+		},
+		blobTransport(token) {
+			const fail = async (response: Response) =>
+				remoteErrorFrom(response, await readJson(response), now());
+			/** The blob's path; never anything but a hash (it carries the bearer token). */
+			const blobPath = (sha: string) => {
+				if (!SHA256_RE.test(sha)) throw new RemoteError("Not a SHA-256 hash", 400, "INVALID_HASH");
+				return `/blobs/${sha}`;
+			};
+			return {
+				async missing(hashes) {
+					if (!hashes.length) return [];
+					const { missing } = await mutation("blobs.missing", token, blobsMissingSchema, {
+						hashes,
+					});
+					return missing;
+				},
+				async upload(sha, source, mime) {
+					const path = blobPath(sha);
+					const bytes = await sourceBytes(source);
+					const response = await request(path, {
+						method: "PUT",
+						token,
+						body: bytes as Uint8Array<ArrayBuffer>,
+						headers: { "Content-Type": mime },
+					});
+					if (!response.ok) throw await fail(response);
+					// Drain the small JSON answer (`{sha256, size, mime, created}`).
+					await response.text().catch(() => "");
+				},
+				async download(sha) {
+					const response = await request(blobPath(sha), { method: "GET", token });
+					if (!response.ok) throw await fail(response);
+					const type = (response.headers.get("content-type") ?? "").split(";")[0]?.trim();
+					if (!isAttachmentMime(type)) throw new RemoteError("Malformed response", response.status);
+					const bytes = new Uint8Array(await response.arrayBuffer());
+					return { source: { bytes }, mime: type as AttachmentMime };
 				},
 			};
 		},

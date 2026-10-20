@@ -129,6 +129,80 @@ describe("watchMonthGoals: once per local crossing (D56)", () => {
 		expect(events).toEqual([]);
 	});
 
+	test("a local tracker entry celebrates through its own reconciliation; synced entries never do", () => {
+		/** A 10-page reading tracker with 300 of October's 310 pages credited. */
+		const readingAlmostWon = () => {
+			const store = makeStore();
+			const { actions } = store.getState();
+			const h = actions.createHabit({
+				name: "Read",
+				target: 10,
+				startDate: "2026-10-01",
+				tracker: { type: "reading" },
+			});
+			for (let d = 1; d <= 15; d++) {
+				actions.addTrackerEntry({
+					habitId: h.id,
+					date: october(d),
+					type: "reading",
+					data: { pages: 20 },
+				});
+			}
+			const events: MonthGoalReached[] = [];
+			watchMonthGoals(store, (event) => events.push(event), { today: () => TODAY });
+			// The same habit on another device, which logs the missing pages there.
+			const other = makeStore(NOW + 10);
+			other
+				.getState()
+				.actions.applyRemote([wire("habits", store.getState().data.habits[h.id] as never)]);
+			const remote = other.getState().actions.addTrackerEntry({
+				habitId: h.id,
+				date: october(16),
+				type: "reading",
+				data: { pages: 10 },
+			});
+			if (!remote) throw new Error("the other device refused the entry");
+			const pagesOn16 = () => store.getState().data.logs[logId(h.id, october(16))]?.count ?? 0;
+			return { store, actions, h, events, remote, pagesOn16 };
+		};
+
+		// Local: the entry and the day's log land in one commit, origin "local".
+		const local = readingAlmostWon();
+		local.actions.addTrackerEntry({
+			habitId: local.h.id,
+			date: october(16),
+			type: "reading",
+			data: { pages: 6 },
+		});
+		expect(local.events).toEqual([]);
+		local.actions.addTrackerEntry({
+			habitId: local.h.id,
+			date: october(16),
+			type: "reading",
+			data: { pages: 4 },
+		});
+		expect(local.pagesOn16()).toBe(10);
+		expect(local.events.map((e) => [e.habit.id, e.goal.credited, e.goal.goal])).toEqual([
+			[local.h.id, 310, 310],
+		]);
+
+		// Remote: applied with its reconciliation in the same commit (the artifact path).
+		const remote = readingAlmostWon();
+		remote.actions.applyRemote([wire("trackerEntries", remote.remote as never)]);
+		expect(remote.pagesOn16()).toBe(10);
+		expect(remote.events).toEqual([]);
+
+		// Derived: applied without reconciling, then reconciled after the pull.
+		const derived = readingAlmostWon();
+		derived.actions.applyRemote([wire("trackerEntries", derived.remote as never)], {
+			reconcile: false,
+		});
+		expect(derived.pagesOn16()).toBe(0);
+		expect(derived.actions.reconcileTrackers()).toBeGreaterThan(0);
+		expect(derived.pagesOn16()).toBe(10);
+		expect(derived.events).toEqual([]);
+	});
+
 	test("a weekly habit on Sunday Nov 1 still celebrates October (week-aligned span)", () => {
 		const sunday = new Date(2026, 10, 1, 9, 0).getTime();
 		const store = makeStore(sunday);

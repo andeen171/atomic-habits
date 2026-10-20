@@ -3,15 +3,24 @@ import type { AccountInfo, Entitlements } from "@atomic/core";
 import { eq } from "drizzle-orm";
 import Stripe from "stripe";
 import {
+	ENTITLEMENTS_TTL_MS,
 	type GrantState,
 	type PlanRules,
 	type SubscriptionState,
+	createEntitlements,
 	planRules,
 	resolvePlan,
 } from "../src/billing/entitlements";
 import { loadConfig } from "../src/config";
+import type { Database } from "../src/db";
 import { planGrant, subscription, user } from "../src/db/schema";
-import { BILLING_ENV, type FakeStripe, createFakeStripe, deliverWebhook } from "./fakes";
+import {
+	BILLING_ENV,
+	type FakeStripe,
+	createFakeStripe,
+	deliverWebhook,
+	stripeError,
+} from "./fakes";
 import {
 	BASE_URL,
 	type TestServer,
@@ -264,6 +273,65 @@ describe("the 60 s entitlement cache", () => {
 		expect((await entitlementsOf(server, owner.token)).plan).toBe("pro");
 	});
 
+	test("a read that began before an invalidation doesn't cache what it read", async () => {
+		let now = 1_000_000;
+		let rows: Record<string, unknown>[] = [];
+		let gate = Promise.resolve();
+		// The two queries `get` makes (subscriptions, then grants), answered with
+		// the rows as they were when the query started, once `gate` opens.
+		const db = {
+			select: (fields: Record<string, unknown>) => ({
+				from: () => ({
+					where: () => {
+						const snapshot = "status" in fields ? rows : [];
+						return gate.then(() => snapshot);
+					},
+				}),
+			}),
+		} as unknown as Database;
+		const service = createEntitlements({
+			config: loadConfig(testEnv(scratchDir(), BILLING_ENV)),
+			db,
+			now: () => now,
+		});
+		const paid = {
+			plan: "pro",
+			status: "active",
+			periodStart: new Date(now - DAY),
+			periodEnd: new Date(now + 29 * DAY),
+			trialEnd: null,
+			cancelAtPeriodEnd: false,
+			cancelAt: null,
+			stripeCustomerId: "cus_race",
+			stripeSubscriptionId: "sub_race",
+		};
+
+		const race = async (userId: string, then: () => void) => {
+			let open = () => {};
+			gate = new Promise<void>((resolve) => {
+				open = resolve;
+			});
+			rows = [];
+			const reading = service.get(userId);
+			// The webhook stores the payment and invalidates while the read is in flight.
+			rows = [paid];
+			service.invalidate(userId);
+			then();
+			open();
+			gate = Promise.resolve();
+			expect((await reading).plan).toBe("free");
+			expect((await service.get(userId)).plan).toBe("pro");
+		};
+
+		await race("u-1", () => {});
+
+		// The mark table is full (10,000) right after u-2's invalidation: the
+		// next invalidation sweeps old marks but must keep u-2's fresh one.
+		for (let i = 0; i < 9_998; i++) service.invalidate(`other-${i}`);
+		now += ENTITLEMENTS_TTL_MS + 1;
+		await race("u-2", () => service.invalidate("one-more"));
+	});
+
 	test("invalidate drops the user's entry at once", async () => {
 		const owner = await signUp(server.app, "Drop");
 		expect((await entitlementsOf(server, owner.token)).plan).toBe("free");
@@ -503,6 +571,45 @@ describe("Stripe webhook", () => {
 			status: "none",
 			canManageBilling: true,
 		});
+	});
+
+	test("a Stripe outage while recording a checkout fails the webhook, so Stripe delivers it again", async () => {
+		const owner = await signUp(server.app, "Retry");
+		const { session } = await paidCheckout(owner);
+		const event = stripe.event("checkout.session.completed", session);
+		// The plugin would swallow this failure and acknowledge the event.
+		stripe.fail["subscriptions.retrieve"] = stripeError(
+			"connection reset",
+			"api_connection_error",
+			500,
+		);
+		const first = await deliverWebhook(server.app, event);
+		stripe.fail["subscriptions.retrieve"] = undefined;
+		expect(first.status).toBe(400);
+		expect((await rowOf(owner))?.status).toBe("incomplete");
+		expect((await entitlementsOf(server, owner.token)).plan).toBe("free");
+
+		const retried = await deliverWebhook(server.app, event);
+		expect(retried.status).toBe(200);
+		expect(await entitlementsOf(server, owner.token)).toMatchObject({
+			plan: "pro",
+			status: "active",
+		});
+		const logs = server.logs.map((l) => l.line).join("\n");
+		expect(logs).toContain("type=checkout.session.completed outcome=retrieve-failed");
+	});
+
+	test("subscription events the plugin doesn't store cost no Stripe call", async () => {
+		const owner = await signUp(server.app, "Quiet");
+		const { session, subscription: sub } = await paidCheckout(owner);
+		await deliverWebhook(server.app, stripe.event("checkout.session.completed", session));
+		const before = stripe.calls.length;
+		for (const type of ["customer.subscription.trial_will_end", "invoice.paid"]) {
+			const response = await deliverWebhook(server.app, stripe.event(type, sub));
+			expect(response.status).toBe(200);
+		}
+		expect(stripe.calls.slice(before)).toEqual([]);
+		expect((await rowOf(owner))?.status).toBe("active");
 	});
 
 	test("events for unknown customers or subscriptions are acknowledged and ignored", async () => {

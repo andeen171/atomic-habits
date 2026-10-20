@@ -124,6 +124,8 @@ export function markAllPending(store: AtomicStore): void {
 		lastSyncedAt: null,
 		blobsUploaded: {},
 		blobsCheckedAt: null,
+		// Another account or server may take what this one refused (its own size cap).
+		blobsUnuploadable: {},
 	});
 }
 

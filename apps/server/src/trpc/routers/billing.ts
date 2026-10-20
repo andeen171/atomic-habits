@@ -71,6 +71,7 @@ export const billingRouter = router({
 			try {
 				return await ctx.provider.checkout({
 					headers: bearerOnlyHeaders(ctx.headers),
+					userId: ctx.user.id,
 					interval: input.interval,
 					client: input.client,
 					returnTo: input.returnTo,

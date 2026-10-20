@@ -45,6 +45,8 @@ export interface Services {
 /** What Bun passes as the second `fetch` argument (absent under `app.request`). */
 export interface AppBindings {
 	requestIP?: (request: Request) => { address: string } | null;
+	/** Bun's per-request idle window in seconds (`server.timeout`; 0 = none). */
+	timeout?: (request: Request, seconds: number) => void;
 }
 
 export type AppEnv = {

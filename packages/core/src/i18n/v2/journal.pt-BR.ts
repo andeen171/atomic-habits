@@ -94,7 +94,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.lead.recovery":
 		"Falhar uma vez é um acidente. Falhar duas vezes é o começo de um novo hábito. Decida agora a próxima repetição.",
 	"journal.lead.recoveryBreak":
-		"Seja gentil consigo: um deslize é informação, não um veredito. Encontre a deixa e torne-a invisível e difícil.",
+		"Seja gentil consigo: um deslize é informação, não um veredito. Encontre a deixa, esconda-a e acrescente atrito.",
 	"journal.lead.checkin":
 		"A motivação chega ao máximo em tarefas no limite da sua habilidade: nem fáceis, nem difíceis demais.",
 	"journal.lead.contract":
@@ -143,7 +143,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.hint.recovery.trigger":
 		"Todo hábito começa com uma deixa. Descreva o momento logo antes do deslize.",
 	"journal.prompt.recovery.cueType": "Que tipo de deixa foi?",
-	"journal.prompt.recovery.hide": "Como deixar essa deixa invisível?",
+	"journal.prompt.recovery.hide": "Como tornar essa deixa invisível?",
 	"journal.example.recovery.hide": "Carregar o celular na cozinha durante a noite",
 	"journal.hint.recovery.hide":
 		"Reduza a exposição: é mais fácil evitar a tentação do que resistir a ela.",
@@ -186,7 +186,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 		"Deixar a mochila de treino pronta na noite anterior facilita as manhãs.",
 	"journal.prompt.review.next": "Um ajuste no seu sistema",
 	"journal.example.review.next": "Separar a roupa de corrida no domingo à noite",
-	"journal.hint.review.next": "Você cai ao nível dos seus sistemas: mude uma pequena coisa no seu.",
+	"journal.hint.review.next": "Você cai ao nível dos seus sistemas: mude uma pequena coisa neles.",
 
 	"journal.prompt.integrity.values":
 		"Quais são os valores centrais que guiam sua vida e seu trabalho?",
@@ -284,7 +284,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.nudge.dismissLabel": "Dispensar: {title}",
 	"journal.nudge.slip.title": "O que provocou isso?",
 	"journal.nudge.slip.body":
-		"Você registrou um deslize em {habit}. Dois minutos de reflexão deixam a deixa mais fácil de perceber da próxima vez.",
+		"Você registrou um deslize em {habit}. Dois minutos de reflexão tornam a deixa mais fácil de perceber da próxima vez.",
 	"journal.nudge.slip.cta": "Refletir",
 	"journal.nudge.contract.title": "Contrato encerrado",
 	"journal.nudge.contract.body": "Seu contrato para {habit} terminou em {date}. Você cumpriu?",

@@ -17,12 +17,19 @@ import type { BlobStorage } from "./storage";
 /**
  * Photo backup (spec §4.3, §4.5, D23): content-addressed blobs per user, no
  * cross-user deduplication (privacy). One `blob` row per object; the row is
- * the server's promise that the object exists, so:
+ * the server's promise that the object exists (`blobs.missing` answers from
+ * rows, and clients re-upload only what it reports), so:
  *
  * - an upload writes the object first, then the row;
  * - GC deletes the row first, then the object;
- * - uploads, GC and the account purge of one user run under one in-process
- *   lock, so none of them interleave.
+ * - the purge deletes the objects, then the rows, so a deletion that fails
+ *   later leaves an empty but consistent account;
+ * - a download that finds the row but not the object (storage restored from
+ *   an older copy, a purge that failed midway) drops the row, so
+ *   `blobs.missing` reports the blob again and a device that holds the
+ *   photo uploads it at its next daily revalidation;
+ * - uploads, GC, the purge and that repair run under one in-process lock
+ *   per user, so none of them interleave.
  *
  * Nothing here logs a hash, a user id or a byte of content: only operations,
  * outcomes, counts and error names.
@@ -38,8 +45,14 @@ export const BLOB_TOMBSTONE_GRACE_MS = BLOB_RETAIN_MS;
 export const BLOB_GC_EVERY_MS = DAY_MS;
 /** `PUT /blobs/:sha256` per user (spec §4.3). */
 export const BLOB_PUT_LIMIT = { max: 120, windowMs: 60_000 } as const;
-/** `blobs.missing` per user (500 hashes each). */
-export const BLOBS_MISSING_LIMIT = { max: 60, windowMs: 60_000 } as const;
+/**
+ * `blobs.missing` per user (500 hashes each). Clients revalidate every
+ * photo they hold once a day, in one go: a full Pro account (5 GiB at about
+ * 325 KB per photo plus thumbnail) is ~33,000 blobs, 66 calls, and a pass
+ * that hits the limit starts over. 300 calls (150,000 hashes) a minute
+ * leaves room for larger plans; each call is one primary-key lookup.
+ */
+export const BLOBS_MISSING_LIMIT = { max: 300, windowMs: 60_000 } as const;
 /** Collections whose documents may reference blobs (D23: photos live in tracker entries). */
 export const BLOB_REFERENCE_COLLECTIONS = ["trackerEntries"] as const;
 
@@ -86,7 +99,10 @@ export interface BlobService {
 	 * only refresh `last_seen_at`.
 	 */
 	put(userId: string, sha: string, bytes: Uint8Array): Promise<PutResult>;
-	/** The user's own blob, or null (never another user's). */
+	/**
+	 * The user's own blob, or null (never another user's). A row whose object
+	 * is gone is dropped on the way (see above).
+	 */
 	get(userId: string, sha: string): Promise<{ bytes: Uint8Array; mime: AttachmentMime } | null>;
 	/** Whether the user has this blob (a row; no storage access). */
 	owns(userId: string, sha: string): Promise<boolean>;
@@ -103,7 +119,10 @@ export interface BlobService {
 	gc(userId: string): Promise<GcResult>;
 	/** One GC pass over every user with old blobs, each at most once a day (maintenance). */
 	gcDue(): Promise<GcSummary>;
-	/** Account deletion: every object of the user; uploads stay refused afterwards. */
+	/**
+	 * Account deletion: every object of the user, then every row; uploads
+	 * stay refused afterwards.
+	 */
 	purgeUser(userId: string): Promise<void>;
 }
 
@@ -347,11 +366,20 @@ export function createBlobService(deps: BlobServiceDeps): BlobService {
 			const found = await row(userId, sha);
 			if (!found) return null;
 			const bytes = await stored("get", () => storage.get(userId, sha));
-			if (!bytes) {
-				log.warn({ msg: "blobs", op: "get", outcome: "object-missing" });
-				return null;
-			}
-			return { bytes, mime: found.mime as AttachmentMime };
+			if (bytes) return { bytes, mime: found.mime as AttachmentMime };
+			// The row promises an object the storage doesn't have. Under the lock
+			// (an upload may be rewriting it right now), look again, then drop
+			// the row so `blobs.missing` stops vouching for it.
+			const rewritten = await lock.run(userId, async () => {
+				const again = await stored("get", () => storage.get(userId, sha));
+				if (!again) {
+					await db.delete(blob).where(and(eq(blob.userId, userId), eq(blob.sha256, sha)));
+				}
+				return again;
+			});
+			if (rewritten) return { bytes: rewritten, mime: found.mime as AttachmentMime };
+			log.warn({ msg: "blobs", op: "get", outcome: "object-missing" });
+			return null;
 		},
 
 		async owns(userId, sha) {
@@ -419,6 +447,10 @@ export function createBlobService(deps: BlobServiceDeps): BlobService {
 				closed.set(userId, at + PURGE_CLOSED_MS);
 				try {
 					await storage.deleteUser(userId);
+					// The rows would go with the account anyway (cascade); dropping
+					// them here keeps the account consistent if its deletion fails
+					// after this step: no row ever vouches for a deleted object.
+					await db.delete(blob).where(eq(blob.userId, userId));
 				} catch (error) {
 					closed.delete(userId);
 					throw error;

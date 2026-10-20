@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_BLOB_BYTES } from "@atomic/core";
-import { ConfigError, DEFAULT_LIMITS, type Env, loadConfig } from "../src/config";
+import {
+	AI_MAX_TIMEOUT_MS,
+	ConfigError,
+	DEFAULT_LIMITS,
+	type Env,
+	loadConfig,
+} from "../src/config";
 
 const SECRET = "x".repeat(32);
 const MIB = 1024 * 1024;
@@ -404,5 +410,14 @@ describe("AI", () => {
 			queueMax: 0,
 			globalDailyRequests: 100,
 		});
+	});
+
+	test("AI deadlines stay within Bun's 255 s idle window", () => {
+		const ai = (extra: Env) => loadConfig(prod({ ...FEATURES.ai, ...extra })).ai;
+		expect(ai({ AI_TIMEOUT_MS: String(AI_MAX_TIMEOUT_MS) })?.timeoutMs).toBe(240_000);
+		for (const name of ["AI_TIMEOUT_MS", "AI_TRANSLATE_TIMEOUT_MS"]) {
+			const message = refusal(prod({ ...FEATURES.ai, [name]: "240001" })).message;
+			expect(message).toContain(`${name} must be a whole number from 1000 to 240000`);
+		}
 	});
 });

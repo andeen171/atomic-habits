@@ -32,11 +32,22 @@ export interface BillingProvider {
 	reconcile(userId: string, options?: { force?: boolean }): Promise<number>;
 	/** Current prices for `ServerInfo` (cached by `meta.ts`). */
 	offers(): Promise<Offer[]>;
+	/**
+	 * When the browser comes back from a finished checkout: store what the
+	 * provider says about it now, so the app's "Confirming your payment…" poll
+	 * sees the plan without waiting for the webhook (which stays
+	 * authoritative). `reference` is the provider's id of the checkout, taken
+	 * from the return URL; it is only ever used to ask the provider. Resolves
+	 * to whether a subscription was stored. Never throws.
+	 */
+	confirmCheckout?(reference: string): Promise<boolean>;
 }
 
 export interface CheckoutRequest {
 	/** The caller's request headers (bearer token): the provider acts as that user. */
 	headers: Headers;
+	/** The same user's id (for the provider's own checks). */
+	userId: string;
 	interval: BillingInterval;
 	client: BillingClient;
 	returnTo?: string;

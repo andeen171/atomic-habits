@@ -103,7 +103,7 @@ export const journalEn = {
 	"journal.lead.recovery":
 		"Missing once is an accident. Missing twice is the start of a new habit. Decide your next rep now.",
 	"journal.lead.recoveryBreak":
-		"Be kind to yourself: a slip is information, not a verdict. Find the cue, then make it invisible and difficult.",
+		"Be kind to yourself: a slip is information, not a verdict. Find the cue, hide it, and add friction.",
 	"journal.lead.checkin":
 		"Motivation peaks on tasks right at the edge of your ability: not too easy, not too hard.",
 	"journal.lead.contract":

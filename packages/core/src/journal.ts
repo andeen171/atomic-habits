@@ -671,6 +671,36 @@ export function habitPatchFromRecovery(
 	return Object.keys(patch).length ? patch : null;
 }
 
+/**
+ * "Make this the habit's plan": writes `habitPatchFromRecovery` through
+ * `updateHabit` and returns an Undo that restores the fields it changed
+ * (only those still holding the plan's values), or null when nothing changed.
+ */
+export function applyRecoveryPlan(
+	store: Pick<AtomicStore, "getState">,
+	habitId: string,
+	answers: Readonly<Record<string, string>>,
+): (() => void) | null {
+	const state = () => store.getState();
+	const habit = state().data.habits[habitId];
+	if (!habit || habit.deletedAt) return null;
+	const patch = habitPatchFromRecovery(habit, answers);
+	if (!patch) return null;
+	const keys = Object.keys(patch) as (keyof RecoveryHabitPatch)[];
+	const previous: RecoveryHabitPatch = {};
+	for (const key of keys) previous[key] = habit[key];
+	state().actions.updateHabit(habitId, patch);
+	const after = state().data.habits[habitId];
+	if (!after || keys.every((key) => after[key] === habit[key])) return null;
+	return () => {
+		const now = state().data.habits[habitId];
+		if (!now || now.deletedAt) return;
+		const restore: RecoveryHabitPatch = {};
+		for (const key of keys) if (now[key] === patch[key]) restore[key] = previous[key];
+		if (Object.keys(restore).length) state().actions.updateHabit(habitId, restore);
+	};
+}
+
 export type ContractStatus = "draft" | "active" | "ended" | "kept" | "broken";
 
 /** Draft until signed; then the outcome, else active through `until` and ended after it. */

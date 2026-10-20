@@ -27,6 +27,36 @@ export function hasUrl(text: string): boolean {
 	return URL_RE.test(text);
 }
 
+/**
+ * Characters a model has no reason to put in short UI text: C0 and C1
+ * controls (tab and line breaks excepted; they collapse to a space), the
+ * zero-width space and word joiners, the BOM, and the bidi marks,
+ * embeddings, overrides and isolates, which can make a text display
+ * differently from what it says. ZWJ and ZWNJ stay (emoji sequences).
+ */
+function isInvisible(code: number): boolean {
+	return (
+		(code <= 0x1f && (code < 0x09 || code > 0x0d)) ||
+		(code >= 0x7f && code <= 0x9f) ||
+		code === 0x200b ||
+		code === 0x200e ||
+		code === 0x200f ||
+		(code >= 0x202a && code <= 0x202e) ||
+		(code >= 0x2060 && code <= 0x2064) ||
+		(code >= 0x2066 && code <= 0x2069) ||
+		code === 0xfeff
+	);
+}
+
+/** Drops invisible and direction-changing characters (see `isInvisible`). */
+export function stripInvisible(value: string): string {
+	let out = "";
+	for (const char of value) {
+		if (!isInvisible(char.codePointAt(0) ?? 0)) out += char;
+	}
+	return out;
+}
+
 const QUOTES: [string, string][] = [
 	['"', '"'],
 	["'", "'"],
@@ -36,9 +66,9 @@ const QUOTES: [string, string][] = [
 	["`", "`"],
 ];
 
-/** Trims, collapses spaces, strips wrapping quotes and a leading list marker. */
+/** Drops invisible characters, trims, collapses spaces, strips wrapping quotes and a list marker. */
 export function cleanText(value: string): string {
-	let text = value.replace(/\s+/g, " ").trim();
+	let text = stripInvisible(value).replace(/\s+/g, " ").trim();
 	for (let again = true; again && text.length >= 2; ) {
 		again = false;
 		for (const [open, close] of QUOTES) {
@@ -179,9 +209,12 @@ export function processSuggestion(
 	return output as AiSuggestOutput<AiSuggestKind>;
 }
 
-/** Collapses spaces; wrapping quotes the source didn't have are the model's, not the user's. */
+/**
+ * Drops invisible characters and collapses spaces; wrapping quotes the
+ * source didn't have are the model's, not the user's.
+ */
 function cleanTranslation(source: string, raw: string): string {
-	let text = raw.replace(/\s+/g, " ").trim();
+	let text = stripInvisible(raw).replace(/\s+/g, " ").trim();
 	const quoted = QUOTES.some(([open]) => source.trim().startsWith(open));
 	if (quoted) return text;
 	for (const [open, close] of QUOTES) {

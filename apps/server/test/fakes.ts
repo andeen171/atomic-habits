@@ -606,6 +606,12 @@ export interface FakeS3 {
 	pageSize: number;
 	/** While true every request answers 500 (an outage). */
 	down: boolean;
+	/** While true every request is accepted and never answered (a silent endpoint). */
+	hang: boolean;
+	/** Delay before each DELETE answers, so overlapping deletes can be observed. */
+	deleteDelayMs: number;
+	/** Most DELETE requests in flight at once. */
+	maxConcurrentDeletes: number;
 	stop(): void;
 }
 
@@ -622,8 +628,12 @@ export function startFakeS3(bucket = "atomic-test"): FakeS3 {
 		requests: [],
 		pageSize: 1000,
 		down: false,
+		hang: false,
+		deleteDelayMs: 0,
+		maxConcurrentDeletes: 0,
 		stop: () => server.stop(true),
 	};
+	let deletesInFlight = 0;
 	const xml = (body: string, status = 200) =>
 		new Response(`<?xml version="1.0" encoding="UTF-8"?>${body}`, {
 			status,
@@ -643,6 +653,8 @@ export function startFakeS3(bucket = "atomic-test"): FakeS3 {
 			fake.requests.push({ method: req.method, key, search: url.search, signed });
 			if (!signed) return s3Error("AccessDenied", 403);
 			if (fake.down) return s3Error("InternalError", 500);
+			// Settles only when the server stops (connections are then closed).
+			if (fake.hang) return new Promise<Response>(() => {});
 			if (!path.startsWith(`/${bucket}`)) return s3Error("NoSuchBucket", 404);
 			if (!key && req.method === "GET" && url.searchParams.get("list-type") === "2") {
 				const listPrefix = url.searchParams.get("prefix") ?? "";
@@ -674,7 +686,14 @@ export function startFakeS3(bucket = "atomic-test"): FakeS3 {
 				return new Response(null, { status: 200, headers: { ETag: `"${key}"` } });
 			}
 			if (req.method === "DELETE") {
-				fake.objects.delete(key);
+				deletesInFlight++;
+				fake.maxConcurrentDeletes = Math.max(fake.maxConcurrentDeletes, deletesInFlight);
+				try {
+					if (fake.deleteDelayMs) await Bun.sleep(fake.deleteDelayMs);
+					fake.objects.delete(key);
+				} finally {
+					deletesInFlight--;
+				}
 				return new Response(null, { status: 204 });
 			}
 			const object = fake.objects.get(key);

@@ -12,6 +12,7 @@ import {
 	type JournalDraft,
 	type JournalEditorTimers,
 	activeContract,
+	applyRecoveryPlan,
 	checkJournalEntry,
 	contractCommitmentDefault,
 	contractStatus,
@@ -714,6 +715,32 @@ describe("sentences, plans and contracts (Annex J §1.4, §1.9)", () => {
 		expect(habitPatchFromRecovery(free, { trigger: "t".repeat(500) })?.cueLocation).toHaveLength(
 			120,
 		);
+	});
+
+	test("applyRecoveryPlan writes the plan to the habit; Undo restores only what it still owns", () => {
+		const store = makeStore();
+		const { actions } = store.getState();
+		const h = actions.createHabit({ name: "Meditate", cueTime: "06:30", cueLocation: "Bedroom" });
+		const fields = () => {
+			const x = store.getState().data.habits[h.id] as Habit;
+			return { cueTime: x.cueTime, cueLocation: x.cueLocation, stackAfter: x.stackAfter };
+		};
+		const plan = { when: "07:00", where: "Bedroom", after: "pour my coffee" };
+		const undo = applyRecoveryPlan(store, h.id, plan);
+		expect(fields()).toEqual({
+			cueTime: "07:00",
+			cueLocation: "Bedroom",
+			stackAfter: "pour my coffee",
+		});
+		expect(applyRecoveryPlan(store, h.id, plan)).toBeNull(); // nothing left to change
+		actions.updateHabit(h.id, { stackAfter: "brush my teeth" }); // edited since
+		undo?.();
+		expect(fields()).toEqual({
+			cueTime: "06:30",
+			cueLocation: "Bedroom",
+			stackAfter: "brush my teeth",
+		});
+		expect(applyRecoveryPlan(store, "missing", plan)).toBeNull();
 	});
 
 	test("contractStatus: draft, active, ended, kept, broken", () => {

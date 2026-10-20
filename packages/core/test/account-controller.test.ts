@@ -280,10 +280,37 @@ describe("account controller", () => {
 		await sync.signInWithGoogle(URL, "google:gus@example.com");
 		await settled(account);
 		expect(account.getState().account).toMatchObject({ hasPassword: false });
-		for (const s of cloud.sessions.values()) s.createdAt -= 11 * 60_000;
-		const stale = await account.deleteAccount({ eraseLocal: false }).catch((e: unknown) => e);
-		expect(deleteErrorKey(stale)).toBe("account.errors.reauthRequired");
+		// Without a fresh Google confirmation the client asks for one first, even
+		// while the session is young enough for the server.
+		const deletes = () => cloud.requests.filter((r) => r.path === "/api/auth/delete-user").length;
+		const unconfirmed = await account.deleteAccount({ eraseLocal: false }).catch((e: unknown) => e);
+		expect(deleteErrorKey(unconfirmed)).toBe("account.errors.reauthRequired");
+		expect(deletes()).toBe(0);
 		expect(cloud.users.size).toBe(1);
+
+		// Account info not loaded yet: the server's 10-minute `freshAge` decides.
+		const sessionStorage = createMemoryStorage({
+			"atomic-sync-session": JSON.stringify(sync.getSession()),
+		});
+		const other = createSyncController({
+			store: createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 }),
+			sessionStorage,
+			fetch: cloud.fetch,
+			intervalMs: 0,
+		});
+		const fresh = createAccountController({ sync: other, cache: createMemoryStorage() });
+		for (const s of cloud.sessions.values()) s.createdAt -= 11 * 60_000;
+		cloud.offline = true;
+		await other.start();
+		await settled(fresh);
+		cloud.offline = false;
+		expect(fresh.getState().account).toBeNull();
+		const stale = await fresh.deleteAccount({ eraseLocal: false }).catch((e: unknown) => e);
+		expect(deleteErrorKey(stale)).toBe("account.errors.reauthRequired");
+		expect(deletes()).toBe(1);
+		expect(cloud.users.size).toBe(1);
+		other.stop();
+		fresh.dispose();
 
 		await account.deleteAccount({ googleIdToken: "google:gus@example.com", eraseLocal: false });
 		expect(cloud.users.size).toBe(0);
@@ -368,5 +395,49 @@ describe("account controller", () => {
 		expect(syncBanners(sync.getState())).toEqual([{ kind: "session-ended" }]);
 		await flush();
 		expect(account.getState().account).toBeNull();
+	});
+
+	test("a refresh still in flight for the previous user is never handed to the next one", async () => {
+		const cloud = fakeCloud();
+		let holdNext = false;
+		let release: (() => void) | null = null;
+		const fetch = async (input: string, init?: RequestInit) => {
+			if (holdNext && input.includes("/trpc/account.get")) {
+				holdNext = false;
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+			}
+			return cloud.fetch(input, init);
+		};
+		const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+		const sync = createSyncController({
+			store,
+			sessionStorage: createMemoryStorage(),
+			fetch,
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		const account = createAccountController({ sync, cache: createMemoryStorage() });
+		await sync.signUp(URL, "Ana", "ana@example.com", "secret123");
+		await settled(account);
+
+		holdNext = true;
+		const stale = account.refresh();
+		await flush(2);
+		await sync.signOut();
+		await sync.signUp(URL, "Bea", "bea@example.com", "secret123");
+		await settled(account);
+		expect(account.getState().account?.email).toBe("bea@example.com");
+
+		(release as (() => void) | null)?.();
+		expect(await stale).toBeNull();
+		await flush(2);
+		expect(account.getState()).toMatchObject({
+			status: "idle",
+			account: { email: "bea@example.com" },
+		});
+		sync.stop();
+		account.dispose();
 	});
 });

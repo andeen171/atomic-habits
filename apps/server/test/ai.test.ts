@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
 	AI_SUGGEST_KINDS,
 	type AccountInfo,
@@ -9,8 +10,9 @@ import {
 	aiTranslateResponseSchema,
 	nextUtcMidnight,
 } from "@atomic/core";
+import type { Server } from "bun";
 import { eq } from "drizzle-orm";
-import { cleanText, hasUrl } from "../src/ai/output";
+import { cleanText, hasUrl, stripInvisible } from "../src/ai/output";
 import {
 	EXAMPLES,
 	TRANSLATE_EXAMPLES,
@@ -18,7 +20,10 @@ import {
 	schemaName,
 	translateMaxTokens,
 } from "../src/ai/prompts";
+import { MAX_REPLY_BYTES, createOpenAICompatibleProvider } from "../src/ai/provider";
 import { Semaphore, SemaphoreError } from "../src/ai/semaphore";
+import { AI_IDLE_MARGIN_SECONDS, BUN_MAX_IDLE_SECONDS, idleSecondsFor } from "../src/app";
+import { AI_MAX_TIMEOUT_MS, loadConfig } from "../src/config";
 import { user } from "../src/db/schema";
 import {
 	EMAIL_ENV,
@@ -33,12 +38,14 @@ import {
 import {
 	BASE_URL,
 	type CapturedLine,
+	TEST_SECRET,
 	type TestApp,
 	type TestServer,
 	type TestServerOptions,
 	bearer,
 	createTestServer,
 	postJson,
+	scratchDir,
 	signUp,
 	trpcData,
 	uniqueEmail,
@@ -211,6 +218,76 @@ describe("contracts and prompts", () => {
 		expect(translateMaxTokens(1500, 20)).toBe(750 + 64 + 200);
 		expect(translateMaxTokens(1900, 20)).toBe(1024);
 		expect(translateMaxTokens(100, 2)).toBe(50 + 64 + 20);
+	});
+
+	test("invisible and direction-changing characters are dropped from model text", () => {
+		expect(stripInvisible("‮Run one block‬")).toBe("Run one block");
+		expect(cleanText("Read​ 10 pages﻿")).toBe("Read 10 pages");
+		expect(cleanText("Walk\u0007 to\u0085 the⁦ door⁩")).toBe("Walk to the door");
+		expect(cleanText("​‎‏")).toBe("");
+		// Joiners stay: they hold emoji sequences together.
+		expect(stripInvisible("Code 👩‍💻")).toBe("Code 👩‍💻");
+	});
+
+	test("the adapter reads at most 256 KB of a reply, streamed or declared, and won't retry it", async () => {
+		const request = {
+			messages: [],
+			schema: {},
+			schemaName: "habit_name",
+			maxTokens: 16,
+			temperature: 0.7,
+			signal: new AbortController().signal,
+		};
+		const adapter = (respond: () => Response) =>
+			createOpenAICompatibleProvider({
+				baseUrl: "http://model.invalid/v1",
+				apiKey: null,
+				model: "m",
+				jsonMode: "json_schema",
+				fetch: (async () => respond()) as unknown as typeof fetch,
+			});
+		// A chunked reply that never ends: cut off right after the cap.
+		let pulled = 0;
+		const endless = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				pulled++;
+				controller.enqueue(new Uint8Array(64 * 1024).fill(0x20));
+			},
+		});
+		const streamed = adapter(() => new Response(endless)).complete(request);
+		await expect(streamed).rejects.toMatchObject({ name: "AiError", kind: "failed" });
+		expect(pulled * 64 * 1024).toBeLessThanOrEqual(MAX_REPLY_BYTES + 2 * 64 * 1024);
+
+		const declared = adapter(
+			() => new Response("{}", { headers: { "Content-Length": String(MAX_REPLY_BYTES + 1) } }),
+		).complete(request);
+		await expect(declared).rejects.toMatchObject({ kind: "failed" });
+
+		const fine = adapter(() =>
+			Response.json({ choices: [{ message: { content: '{"items":["Walk"]}' } }] }),
+		).complete(request);
+		expect(await fine).toEqual({ value: { items: ["Walk"] }, tokensOut: 0 });
+	});
+
+	test("AI calls get their deadline plus a margin as Bun's idle window, other routes don't", () => {
+		const config = loadConfig({
+			...aiEnv(fake),
+			AI_TIMEOUT_MS: "25000",
+			AI_TRANSLATE_TIMEOUT_MS: "45000",
+		});
+		expect(idleSecondsFor(config, "/trpc/ai.suggest")).toBe(25 + AI_IDLE_MARGIN_SECONDS);
+		expect(idleSecondsFor(config, "/trpc/ai.translate")).toBe(45 + AI_IDLE_MARGIN_SECONDS);
+		for (const path of ["/trpc/ai.setConsent", "/trpc/sync.push", "/api/auth/sign-in/email"]) {
+			expect(idleSecondsFor(config, path)).toBeNull();
+		}
+		expect(idleSecondsFor({ ai: null }, "/trpc/ai.suggest")).toBeNull();
+		// The longest allowed deadline still fits Bun's limit.
+		const longest = loadConfig({
+			...aiEnv(fake),
+			AI_TIMEOUT_MS: String(AI_MAX_TIMEOUT_MS),
+			AI_TRANSLATE_TIMEOUT_MS: String(AI_MAX_TIMEOUT_MS),
+		});
+		expect(idleSecondsFor(longest, "/trpc/ai.translate")).toBeLessThanOrEqual(BUN_MAX_IDLE_SECONDS);
 	});
 
 	test("the semaphore queues, hands slots over and refuses when full", async () => {
@@ -768,6 +845,173 @@ describe("one end-to-end deadline", () => {
 	});
 });
 
+describe("over a real connection (Bun.serve, as in production)", () => {
+	type Handler = (request: Request, bun: Server<undefined>) => Response | Promise<Response>;
+
+	/**
+	 * The app behind a real Bun server (like `index.ts`), with a 1 s idle
+	 * window instead of 10 s: Bun checks idle connections every ~4 s, so a
+	 * silent request is cut within ~5 s.
+	 */
+	async function withHttp(
+		server: TestServer,
+		run: (base: string) => Promise<void>,
+		options: { idleTimeout?: number; route?: (request: Request) => Promise<Response> | null } = {},
+	) {
+		const handler: Handler = (request, bun) =>
+			options.route?.(request) ?? server.app.fetch(request, bun);
+		const http = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			idleTimeout: options.idleTimeout ?? 10,
+			fetch: handler,
+		});
+		try {
+			await run(`http://127.0.0.1:${http.port}`);
+		} finally {
+			http.stop(true);
+		}
+	}
+
+	const post = (base: string, path: string, token: string, body: unknown, signal?: AbortSignal) =>
+		fetch(`${base}${path}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", ...bearer(token) },
+			body: JSON.stringify(body),
+			signal,
+		});
+
+	async function usageSettles(
+		app: TestApp,
+		token: string,
+		check: (usage: AccountInfo["usage"]) => boolean,
+	) {
+		const until = performance.now() + 3000;
+		for (;;) {
+			const { usage } = await account(app, token);
+			if (check(usage)) return usage;
+			if (performance.now() > until)
+				throw new Error(`usage never settled: ${JSON.stringify(usage)}`);
+			await Bun.sleep(20);
+		}
+	}
+
+	test("AI calls ask Bun for an idle window covering their deadline, on the original request", async () => {
+		canned();
+		const server = await aiServer({
+			env: { AI_TIMEOUT_MS: "20000", AI_TRANSLATE_TIMEOUT_MS: "30000" },
+		});
+		const { token } = await member(server.app);
+		const calls: { request: Request; seconds: number }[] = [];
+		const bindings = {
+			timeout: (request: Request, seconds: number) => calls.push({ request, seconds }),
+		};
+		const send = (path: string, body: unknown) => {
+			const request = new Request(`${BASE_URL}${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...bearer(token) },
+				body: JSON.stringify(body),
+			});
+			return { request, response: server.app.fetch(request, bindings) };
+		};
+		const suggestion = send("/trpc/ai.suggest", NAME());
+		expect((await suggestion.response).status).toBe(200);
+		fake.fallback = () => ({ content: { items: [{ n: 1, text: "Read" }] } });
+		const translation = send("/trpc/ai.translate", {
+			target: "en",
+			items: [{ id: "a", text: "Ler" }],
+		});
+		expect((await translation.response).status).toBe(200);
+		expect(
+			(await send("/trpc/ai.setConsent", { suggestions: true, translate: true }).response).status,
+		).toBe(200);
+		expect(calls).toEqual([
+			{ request: suggestion.request, seconds: 20 + AI_IDLE_MARGIN_SECONDS },
+			{ request: translation.request, seconds: 30 + AI_IDLE_MARGIN_SECONDS },
+		]);
+	});
+
+	test("a model slower than Bun's idle window still answers; a silent GET is cut", async () => {
+		reply({ content: CANNED.habit_name, delayMs: 6_000 });
+		const server = await aiServer({ env: { AI_TIMEOUT_MS: "10000" } });
+		const { token } = await member(server.app);
+		await withHttp(
+			server,
+			async (base) => {
+				const closed = () => "closed" as const;
+				const [silent, ai] = await Promise.all([
+					// Control: proves this Bun really hangs up on a silent request.
+					fetch(`${base}/silent`).then((r) => r.status, closed),
+					post(base, "/trpc/ai.suggest", token, NAME()).then((r) => r.status, closed),
+				]);
+				expect(silent).toBe("closed");
+				expect(ai).toBe(200);
+			},
+			{
+				idleTimeout: 1,
+				route: (request) =>
+					new URL(request.url).pathname === "/silent"
+						? Bun.sleep(6_000).then(() => new Response("late"))
+						: null,
+			},
+		);
+		expect(fake.requests[0]?.answered).toBe(true);
+		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(1);
+	}, 15_000);
+
+	test("a client that hangs up aborts the model call and is refunded", async () => {
+		reply({ hang: true }, { hang: true });
+		const server = await aiServer();
+		const { token } = await member(server.app);
+		await withHttp(server, async (base) => {
+			const controller = new AbortController();
+			const pending = post(base, "/trpc/ai.suggest", token, NAME(), controller.signal).catch(
+				() => null,
+			);
+			await waitFor(() => fake.requests.length === 1);
+			const started = performance.now();
+			controller.abort();
+			expect(await pending).toBeNull();
+			await waitFor(() => fake.requests[0]?.aborted === true);
+			expect(performance.now() - started).toBeLessThan(1000);
+
+			// The same for a translation (characters refunded).
+			const translation = new AbortController();
+			const items = [{ id: "a", text: "Ler 10 páginas" }];
+			const waiting = post(
+				base,
+				"/trpc/ai.translate",
+				token,
+				{ target: "en", items },
+				translation.signal,
+			).catch(() => null);
+			await waitFor(() => fake.requests.length === 2);
+			translation.abort();
+			await waiting;
+			await waitFor(() => fake.requests[1]?.aborted === true);
+		});
+		expect(fake.requests.map((r) => r.answered)).toEqual([false, false]);
+		await usageSettles(
+			server.app,
+			token,
+			(usage) => usage.aiRequestsToday === 0 && usage.aiTranslateCharsToday === 0,
+		);
+	});
+
+	test("POST only: a GET with the input in the URL is refused before any check", async () => {
+		canned();
+		const server = await aiServer();
+		const { token } = await member(server.app);
+		const input = encodeURIComponent(JSON.stringify(NAME()));
+		const response = await server.app.request(`${BASE_URL}/trpc/ai.suggest?input=${input}`, {
+			headers: bearer(token),
+		});
+		expect(response.status).toBe(405);
+		expect(fake.requests).toHaveLength(0);
+		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(0);
+	});
+});
+
 describe("output handling (prompt-injection defense)", () => {
 	test("items are cleaned; links, echoes, duplicates and over-long items are dropped", async () => {
 		reply({
@@ -790,6 +1034,29 @@ describe("output handling (prompt-injection defense)", () => {
 		);
 		// Only the schema's keys survive.
 		expect(data.output).toEqual({ items: ["Run one block", "Walk to the corner"] });
+	});
+
+	test("direction overrides and zero-width text never reach the client", async () => {
+		reply({
+			content: {
+				items: ["‮Kcolb eno nuR‬", "​​​", "Stretch⁦ for a minute⁩"],
+			},
+		});
+		const server = await aiServer();
+		const { token } = await member(server.app);
+		const data = await trpcData<{ output: unknown }>(await suggest(server.app, token));
+		expect(data.output).toEqual({ items: ["Kcolb eno nuR", "Stretch for a minute"] });
+
+		reply({ content: { items: [{ n: 1, text: "Read‏ 10 pages‬" }] } });
+		const translated = aiTranslateResponseSchema.parse(
+			await trpcData(
+				await translate(server.app, token, {
+					target: "en",
+					items: [{ id: "a", text: "Ler 10 páginas" }],
+				}),
+			),
+		);
+		expect(translated.items).toEqual([{ id: "a", text: "Read 10 pages" }]);
 	});
 
 	test("object items keep only their fields; bad ones are dropped", async () => {
@@ -1073,4 +1340,117 @@ describe("content never logged (spec §4.6)", () => {
 		expect(server.logs.some((l) => l.line.includes("outcome=timeout"))).toBe(true);
 		expect(server.logs.some((l) => l.line.includes("outcome=aborted"))).toBe(true);
 	});
+
+	test("the real server process prints none of it to stdout or stderr", async () => {
+		// `src/index.ts` as deployed: production mode, the console log sink, Bun.serve.
+		const dir = scratchDir();
+		const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+		const port = probe.port;
+		probe.stop(true);
+		const proc = Bun.spawn([process.execPath, join(import.meta.dir, "../src/index.ts")], {
+			cwd: dir, // no stray .env is loaded
+			env: {
+				PATH: process.env.PATH ?? "",
+				HOME: process.env.HOME ?? dir,
+				TMPDIR: process.env.TMPDIR ?? "/tmp",
+				NODE_ENV: "production",
+				PORT: String(port),
+				DATABASE_URL: `file:${join(dir, "server.db")}`,
+				BETTER_AUTH_SECRET: TEST_SECRET,
+				BLOB_DIR: join(dir, "blobs"),
+				...aiEnv(fake),
+				// Room for the retry after an unusable answer; translation times out fast.
+				AI_TIMEOUT_MS: "9000",
+				AI_TRANSLATE_TIMEOUT_MS: "1000",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const output = Promise.all([
+			new Response(proc.stdout).text(),
+			new Response(proc.stderr).text(),
+		]);
+		const base = `http://127.0.0.1:${port}`;
+		const email = uniqueEmail(CANARY);
+		try {
+			const until = performance.now() + 15_000;
+			for (;;) {
+				const up = await fetch(`${base}/`).then(
+					(r) => r.ok,
+					() => false,
+				);
+				if (up) break;
+				if (proc.exitCode !== null || performance.now() > until) {
+					const [stdout, stderr] = await output;
+					throw new Error(`server didn't start (${proc.exitCode}): ${stdout}${stderr}`);
+				}
+				await Bun.sleep(50);
+			}
+			const call = (path: string, token: string, body: unknown, signal?: AbortSignal) =>
+				fetch(`${base}${path}`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+					body: JSON.stringify(body),
+					signal,
+				});
+			const signedUp = await call("/api/auth/sign-up/email", "", {
+				name: CANARY,
+				email,
+				password: "correct horse battery",
+			});
+			expect(signedUp.status).toBe(200);
+			const token = signedUp.headers.get("set-auth-token") ?? "";
+			const consent = { suggestions: true, translate: true };
+			expect((await call("/trpc/ai.setConsent", token, consent)).status).toBe(200);
+			const body = NAME(CANARY);
+			fake.fallback = (request) => ({
+				status: 500,
+				body: `upstream exploded on ${JSON.stringify(request.body)}`,
+			});
+
+			reply({ content: `not json ${CANARY}` }, { content: `still not json ${CANARY}` });
+			expect((await call("/trpc/ai.suggest", token, body)).status).toBe(502);
+			reply({ content: { items: [{ bad: CANARY }], [CANARY]: 1 } }, { content: { x: CANARY } });
+			expect((await call("/trpc/ai.suggest", token, body)).status).toBe(502);
+			expect((await call("/trpc/ai.suggest", token, body)).status).toBe(502); // the echoing 500
+			reply({ content: { items: [`${CANARY} one`, "Walk to the corner"] } });
+			expect((await call("/trpc/ai.suggest", token, body)).status).toBe(200);
+			// Over a cap (400) and over the body limit (413).
+			expect(
+				(await call("/trpc/ai.suggest", token, NAME(`${CANARY}${"x".repeat(80)}`))).status,
+			).toBe(400);
+			const huge = { ...body, pad: CANARY.repeat(1200) };
+			expect((await call("/trpc/ai.suggest", token, huge)).status).toBe(413);
+			// The client goes away mid-call.
+			reply({ hang: true });
+			const controller = new AbortController();
+			const gone = call("/trpc/ai.suggest", token, body, controller.signal).catch(() => null);
+			await waitFor(() => fake.requests.length === 7);
+			controller.abort();
+			await gone;
+			await waitFor(() => fake.requests[6]?.aborted === true);
+			// A translation that times out.
+			reply({ hang: true });
+			const items = [{ id: CANARY, text: `${CANARY} original` }];
+			expect((await call("/trpc/ai.translate", token, { target: "en", items })).status).toBe(504);
+		} finally {
+			proc.kill("SIGTERM");
+			await proc.exited;
+		}
+		const [stdout, stderr] = await output;
+		const printed = `${stdout}\n${stderr}`;
+		// Content-free lines were written (so this really captured the server's output)…
+		const lines = printed.split("\n").filter(Boolean);
+		const ai = lines.filter((line) => line.includes('"msg":"ai"'));
+		expect(ai.length).toBe(6);
+		expect(lines.some((line) => line.includes('"msg":"req"'))).toBe(true);
+		// …and nothing the user sent or the model said, nor the address or the model key.
+		expect(printed).not.toContain(CANARY);
+		expect(printed).not.toContain(email);
+		expect(printed).not.toContain("sk-test-ai");
+		// Every line is a JSON log record, except Bun's own start banner.
+		for (const line of lines.filter((l) => !/^Started server: http:\/\/\S+$/.test(l))) {
+			expect(() => JSON.parse(line)).not.toThrow();
+		}
+	}, 30_000);
 });

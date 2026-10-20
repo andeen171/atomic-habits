@@ -281,8 +281,10 @@ export function createEntitlements(deps: {
 	const rules = planRules(config);
 	const cache = new Map<string, { value: Entitlements; until: number }>();
 	// A read that started before an invalidation must not cache what it read.
+	// Each invalidation records its sequence number and when it happened; an
+	// entry only matters while a read that began before it is in flight.
 	let sequence = 0;
-	const invalidatedAt = new Map<string, number>();
+	const invalidatedAt = new Map<string, { seq: number; at: number }>();
 
 	const load = async (userId: string) => {
 		const [subs, grants] = await Promise.all([
@@ -329,7 +331,7 @@ export function createEntitlements(deps: {
 			const ticket = sequence;
 			const { subs, grants } = await load(userId);
 			const resolved = resolvePlan(subs, grants, rules, now());
-			if ((invalidatedAt.get(userId) ?? -1) < ticket) {
+			if ((invalidatedAt.get(userId)?.seq ?? -1) < ticket) {
 				if (cache.size >= SWEEP_AT) {
 					for (const [key, entry] of cache) if (entry.until <= at) cache.delete(key);
 				}
@@ -340,8 +342,14 @@ export function createEntitlements(deps: {
 		},
 		invalidate(userId) {
 			cache.delete(userId);
-			if (invalidatedAt.size >= SWEEP_AT) invalidatedAt.clear();
-			invalidatedAt.set(userId, sequence++);
+			const at = now();
+			if (invalidatedAt.size >= SWEEP_AT) {
+				// No read stays in flight for a whole TTL; older marks guard nothing.
+				for (const [key, mark] of invalidatedAt) {
+					if (at - mark.at >= ENTITLEMENTS_TTL_MS) invalidatedAt.delete(key);
+				}
+			}
+			invalidatedAt.set(userId, { seq: sequence++, at });
 		},
 	};
 }

@@ -13,14 +13,22 @@ import {
 } from "@atomic/core";
 import { and, eq } from "drizzle-orm";
 import {
+	BLOBS_MISSING_LIMIT,
 	BLOB_GC_GRACE_MS,
 	BLOB_PUT_LIMIT,
 	type BlobService,
+	BlobStorageError,
 	collectReferences,
 	createBlobService,
 } from "../src/blobs/service";
 import { sniffImage } from "../src/blobs/sniff";
-import { type BlobStorage, createDiskStorage, createS3Storage } from "../src/blobs/storage";
+import {
+	type BlobStorage,
+	S3_DELETE_CONCURRENCY,
+	StorageTimeoutError,
+	createDiskStorage,
+	createS3Storage,
+} from "../src/blobs/storage";
 import { blob } from "../src/db/schema";
 import { type FakeS3, s3Env, startFakeS3 } from "./fakes";
 import {
@@ -443,12 +451,25 @@ describe("GET /blobs/:sha256", () => {
 		expect((await refusal(await get(server, ana.token, "abc"))).code).toBe("INVALID_HASH");
 	});
 
-	test("a row whose object is gone is 404 and logged without the hash", async () => {
+	test("a row whose object is gone: 404, the row is dropped, and the photo can come back", async () => {
 		const lost = photo("lost");
 		await upload(server, ana.token, lost);
+		// Storage restored from an older copy, a purge that failed midway…
 		await server.server.services.storage?.delete(ana.user.id, lost.sha);
+		const missingNow = async () =>
+			(await trpcData<{ missing: string[] }>(await missing(server, ana.token, [lost.sha]))).missing;
+		expect(await missingNow()).toEqual([]); // the row still vouches for it
 		expect((await get(server, ana.token, lost.sha)).status).toBe(404);
-		expect(server.logs.some((l) => l.line.includes("object-missing"))).toBe(true);
+		// The row is gone with its object, so the device that holds the photo is
+		// told to upload it again (its daily revalidation asks `blobs.missing`).
+		expect(await rowOf(server, ana.user.id, lost.sha)).toBeNull();
+		expect(await missingNow()).toEqual([lost.sha]);
+		expect((await put(server, ana.token, lost.sha, lost.bytes)).status).toBe(201);
+		expect((await get(server, ana.token, lost.sha)).status).toBe(200);
+		const line = server.logs.map((l) => l.line).find((l) => l.includes("object-missing"));
+		expect(line).toBeDefined();
+		expect(line).not.toContain(lost.sha);
+		expect(line).not.toContain(ana.user.id);
 	});
 });
 
@@ -487,6 +508,29 @@ describe("blobs.missing", () => {
 		expect((await missing(server, user.token, ["F".repeat(64)])).status).toBe(400);
 		expect((await missing(server, user.token, "nope")).status).toBe(400);
 		expect((await missing(server, null, [known.sha])).status).toBe(401);
+	});
+
+	test("a full Pro account revalidates in one go: 300 calls a minute per user, then 429", async () => {
+		const server = await createTestServer();
+		const user = await signUp(server.app, "Rex");
+		const other = await signUp(server.app, "Ria");
+		// 5 GiB of ~325 KB photo + thumbnail pairs, 500 hashes per call: 66 calls,
+		// more than a limit of 60 would ever let one pass finish.
+		const pairs = server.config.plans.limits.pro.blobBytes / (325 * 1024);
+		const calls = Math.ceil((pairs * 2) / BLOBS_MISSING_MAX);
+		expect(calls).toBeGreaterThan(60);
+		expect(calls).toBeLessThanOrEqual(BLOBS_MISSING_LIMIT.max);
+		const hashes = [photo("rate").sha];
+		for (let call = 1; call <= BLOBS_MISSING_LIMIT.max; call++) {
+			const response = await missing(server, user.token, hashes);
+			if (response.status !== 200) throw new Error(`call ${call}: ${response.status}`);
+		}
+		const refused = await missing(server, user.token, hashes);
+		expect(refused.status).toBe(429);
+		expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
+		// Malformed calls count too (checked before the input is parsed).
+		expect((await missing(server, user.token, "nope")).status).toBe(429);
+		expect((await missing(server, other.token, hashes)).status).toBe(200);
 	});
 });
 
@@ -806,6 +850,68 @@ describe("GC ordering and the per-user lock", () => {
 			code: "ACCOUNT_CLOSED",
 		});
 		expect(await disk.exists(other.user.id, late.sha)).toBe(false);
+		expect(await rows(server, other.user.id)).toEqual([]);
+	});
+
+	test("the purge drops rows only once every object is gone", async () => {
+		const doomed = await signUp(server.app, "Pia");
+		let broken = true;
+		const { service, disk } = instrumented({
+			async deleteUser(userId) {
+				if (broken) throw new Error("bucket on fire");
+				return disk.deleteUser(userId);
+			},
+		});
+		const shot = photo("purge-order");
+		await service.put(doomed.user.id, shot.sha, shot.bytes);
+		// Storage failed: nothing changed, uploads reopen, a retry finishes the job.
+		await expect(service.purgeUser(doomed.user.id)).rejects.toThrow();
+		expect(await rows(server, doomed.user.id)).toHaveLength(1);
+		const after = photo("purge-reopened");
+		expect(await service.put(doomed.user.id, after.sha, after.bytes)).toMatchObject({ ok: true });
+		broken = false;
+		await service.purgeUser(doomed.user.id);
+		expect(await disk.exists(doomed.user.id, shot.sha)).toBe(false);
+		// Should the account's deletion fail after this step, no row vouches for
+		// a deleted photo: devices are told to upload them again.
+		expect(await rows(server, doomed.user.id)).toEqual([]);
+		expect(await service.missing(doomed.user.id, [shot.sha, after.sha])).toEqual([
+			shot.sha,
+			after.sha,
+		]);
+	});
+
+	test("a download finding no object serves the copy an upload is rewriting, and keeps the row", async () => {
+		let release = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const events: string[] = [];
+		let holdWrites = false;
+		const { service, disk } = instrumented({
+			async put(userId, sha, bytes) {
+				if (holdWrites) {
+					events.push("put:object");
+					await gate;
+				}
+				return disk.put(userId, sha, bytes);
+			},
+		});
+		const shot = photo("repair-race");
+		await service.put(user.user.id, shot.sha, shot.bytes);
+		await disk.delete(user.user.id, shot.sha); // lost
+		holdWrites = true;
+		// The re-upload (under the lock) is about to write the object again…
+		const putRun = service.put(user.user.id, shot.sha, shot.bytes);
+		while (!events.includes("put:object")) await Bun.sleep(1);
+		// …while a download finds it missing and queues for the lock to repair.
+		const getRun = service.get(user.user.id, shot.sha);
+		await Bun.sleep(20);
+		release();
+		expect(await putRun).toMatchObject({ ok: true, created: false });
+		expect(await getRun).toEqual({ bytes: shot.bytes, mime: "image/jpeg" });
+		expect(await rowOf(server, user.user.id, shot.sha)).not.toBeNull();
+		expect(await service.missing(user.user.id, [shot.sha])).toEqual([]);
 	});
 
 	test("the service checks size, type and hash itself too", async () => {
@@ -899,6 +1005,91 @@ describe("S3 storage (Bun.S3Client against a local fake)", () => {
 		const listings = s3.requests.filter((r) => r.search.includes("list-type=2"));
 		expect(listings.length).toBeGreaterThan(1);
 		expect(listings.every((r) => r.search.includes("prefix=u%2Fpurge-me%2F"))).toBe(true);
+	});
+
+	test("deleteUser deletes in parallel, a bounded number at a time", async () => {
+		const fake = startFakeS3("atomic-parallel");
+		try {
+			const storage = storageFor(fake);
+			const items = Array.from({ length: 20 }, (_, i) => photo(`s3-many-${i}`));
+			for (const item of items) await storage.put("many", item.sha, item.bytes);
+			fake.deleteDelayMs = 25;
+			await storage.deleteUser("many");
+			expect([...fake.objects.keys()].filter((k) => k.startsWith("u/many/"))).toEqual([]);
+			expect(fake.maxConcurrentDeletes).toBeGreaterThan(1);
+			expect(fake.maxConcurrentDeletes).toBeLessThanOrEqual(S3_DELETE_CONCURRENCY);
+		} finally {
+			fake.stop();
+		}
+	});
+
+	test("a silent endpoint: every request gives up at its deadline, and no lock stays held", async () => {
+		const fake = startFakeS3("atomic-silent");
+		try {
+			const timeoutMs = 150;
+			const storage = createS3Storage(
+				{
+					storage: "s3",
+					endpoint: fake.endpoint,
+					bucket: fake.bucket,
+					accessKeyId: "test-access-key",
+					secretAccessKey: "test-secret-key",
+					region: "auto",
+				},
+				{ timeoutMs },
+			);
+			const kept = photo("s3-silent-kept");
+			await storage.put("quiet", kept.sha, kept.bytes);
+			fake.hang = true;
+			const started = performance.now();
+			const outcomes = await Promise.allSettled([
+				storage.put("quiet", photo("s3-silent-new").sha, kept.bytes),
+				storage.get("quiet", kept.sha),
+				storage.exists("quiet", kept.sha),
+				storage.delete("quiet", kept.sha),
+				storage.deleteUser("quiet"),
+			]);
+			expect(performance.now() - started).toBeLessThan(timeoutMs * 10);
+			for (const outcome of outcomes) {
+				expect(outcome.status).toBe("rejected");
+				expect((outcome as PromiseRejectedResult).reason).toBeInstanceOf(StorageTimeoutError);
+			}
+
+			// The service: a 503-class failure, then the user's next call runs.
+			const clock = { t: Date.now() };
+			const server = await createTestServer({ deps: { now: () => clock.t } });
+			const user = await signUp(server.app, "Quinn");
+			const service = createBlobService({
+				db: server.db,
+				storage,
+				entitlements: server.server.services.entitlements,
+				log: server.server.services.log,
+				now: () => clock.t,
+				maxFileBytes: server.config.blobMaxFileBytes,
+			});
+			const shot = photo("s3-silent-service");
+			await expect(service.put(user.user.id, shot.sha, shot.bytes)).rejects.toBeInstanceOf(
+				BlobStorageError,
+			);
+			expect(await rowOf(server, user.user.id, shot.sha)).toBeNull();
+			await expect(service.purgeUser(user.user.id)).rejects.toBeInstanceOf(StorageTimeoutError);
+			fake.hang = false;
+			expect(await service.put(user.user.id, shot.sha, shot.bytes)).toMatchObject({
+				ok: true,
+				created: true,
+			});
+			// GC finishes too: rows go, the silent deletes only leave orphans.
+			clock.t += BLOB_GC_GRACE_MS + 1;
+			fake.hang = true;
+			expect(await service.gc(user.user.id)).toMatchObject({ deleted: 1, failed: 1 });
+			expect(await rows(server, user.user.id)).toEqual([]);
+			const text = JSON.stringify(server.logs);
+			expect(text).toContain("StorageTimeoutError");
+			expect(text).not.toContain(shot.sha);
+			expect(text).not.toContain(user.user.id);
+		} finally {
+			fake.stop();
+		}
 	});
 
 	test("the app on S3: upload, download, missing, GC and account deletion", async () => {

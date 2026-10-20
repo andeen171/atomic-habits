@@ -20,9 +20,12 @@ import { type Logger, safeTag } from "../lib/log";
  *    (`account.errors.deleteBilling`): a paying user must never lose the
  *    account while Stripe keeps charging;
  * 2. delete the provider's customer (best effort; Stripe keeps invoices by law);
- * 3. delete every photo object, under the user's blob lock, after which the
- *    account takes no more uploads (a failure aborts with 503: rows without
- *    objects can be retried, objects without rows would be orphaned forever);
+ * 3. delete every photo object, then the `blob` rows, under the user's blob
+ *    lock, after which the account takes no more uploads. Objects go first:
+ *    a storage failure aborts with 503 and a retry finishes the job, while
+ *    objects whose rows were already gone could be orphaned forever. Rows
+ *    follow at once, so a deletion that fails after this step leaves no row
+ *    vouching for a deleted photo;
  * 4. delete the subscription rows (no foreign key) and stray reset tokens.
  *
  * Every step is idempotent, so a retry after an abort completes the erasure.

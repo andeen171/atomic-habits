@@ -284,7 +284,8 @@ export type BillingUrl = z.infer<typeof billingUrlSchema>;
  * `error.data.atomic.reason` of a refused billing call:
  * - `unverified` (412): email is on and the address isn't confirmed yet;
  * - `no-customer` (412): the portal needs a past checkout (`canManageBilling`);
- * - `already-subscribed` (409): this plan and interval are already active;
+ * - `already-subscribed` (409): Pro is already active or trialing on this
+ *   interval, or a payment failed (`status: "grace"`); open `billing.portal`;
  * - `interval-unavailable` (400): the server sells no yearly plan.
  * Billing off answers `NOT_IMPLEMENTED` (501); a Stripe outage `BAD_GATEWAY` (502).
  */

@@ -55,8 +55,9 @@ export interface AiConfig {
 	model: string;
 	apiKey: string | null;
 	jsonMode: AiJsonMode;
-	/** End-to-end deadline of a suggestion (queue wait plus every attempt). */
+	/** End-to-end deadline of a suggestion (queue wait plus every attempt), ≤ `AI_MAX_TIMEOUT_MS`. */
 	timeoutMs: number;
+	/** The same for a translation. */
 	translateTimeoutMs: number;
 	maxConcurrency: number;
 	queueMax: number;
@@ -347,10 +348,16 @@ function readPlans(r: Reader, billing: boolean, blobMaxFileBytes: number): Plans
 	return { defaultPlan, limits: { free: limitsOf("free"), pro: limitsOf("pro") } };
 }
 
+/**
+ * Longest AI deadline: an AI call is silent while it waits for the model, and
+ * Bun keeps a silent request open for at most 255 s (`app.ts` `idleSecondsFor`).
+ */
+export const AI_MAX_TIMEOUT_MS = 240_000;
+
 function readAi(r: Reader, email: boolean): AiConfig | null {
 	const jsonMode = r.oneOf("AI_JSON_MODE", ["json_schema", "json_object", "prompt"], "json_schema");
-	const timeoutMs = r.int("AI_TIMEOUT_MS", 25_000, 1_000, 300_000);
-	const translateTimeoutMs = r.int("AI_TRANSLATE_TIMEOUT_MS", 45_000, 1_000, 300_000);
+	const timeoutMs = r.int("AI_TIMEOUT_MS", 25_000, 1_000, AI_MAX_TIMEOUT_MS);
+	const translateTimeoutMs = r.int("AI_TRANSLATE_TIMEOUT_MS", 45_000, 1_000, AI_MAX_TIMEOUT_MS);
 	const maxConcurrency = r.int("AI_MAX_CONCURRENCY", 2, 1, 64);
 	const queueMax = r.int("AI_QUEUE_MAX", 8, 0, 1_000);
 	const hosting = r.oneOf("AI_HOSTING", ["self-hosted", "hosted"], "self-hosted");

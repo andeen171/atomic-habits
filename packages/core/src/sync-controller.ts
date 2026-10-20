@@ -1,5 +1,7 @@
 import type { ServerInfo } from "./account";
 import { localOnlyCollections } from "./actions/journal";
+import { type BlobStore, type BlobTransport, SHA256_RE } from "./attachments";
+import { downloadBlob, pruneLocalBlobs, runBlobSync } from "./blob-sync";
 import { type AtomicData, COLLECTIONS, type Collection } from "./model";
 import {
 	type FetchLike,
@@ -43,6 +45,12 @@ import {
  * - **Clock.** The server clock from each round feeds `setClockOffset` (applied
  *   past 2 min) and the skew banner; records refused as `future-timestamp`
  *   are re-stamped on the corrected clock (`restampFuture`).
+ * - **Photos** (D23, with the `blobs` option and `features.blobs`): a backup
+ *   pass (`runBlobSync`) follows every successful round, one at a time. A full
+ *   photo storage holds uploads for an hour (`syncBlobs()` or turning "Back up
+ *   photos" on retries at once). `ensureBlob` fetches an original on demand.
+ *   Local GC (`pruneLocalBlobs`) runs on start and at most daily after a
+ *   complete round, signed in or not.
  */
 
 export type SyncStatus = "signed-out" | "idle" | "syncing" | "error";
@@ -93,6 +101,19 @@ export interface SyncControllerState {
 	retryAt: number | null;
 	/** A newer build of this app is available (sideloaded Android only). */
 	updateAvailable: UpdateInfo | null;
+	/**
+	 * Photo backup, while signed in to a server with `features.blobs` and a
+	 * blob store was given (`blobs` option); null otherwise.
+	 */
+	blobs: BlobSyncState | null;
+}
+
+/** Photo backup of the signed-in session (Annex C §3.3). */
+export interface BlobSyncState {
+	/** `quota`: the account's photo storage is full (`plan.storageFull`). */
+	state: "idle" | "busy" | "quota" | "error";
+	/** Photos on this device that should be backed up and aren't yet. */
+	waiting: number;
 }
 
 /** What to do when a device with data signs into an account with data (D37). */
@@ -174,6 +195,16 @@ export interface SyncController {
 	 * translation runner waits for `result.complete`). Returns an unsubscribe.
 	 */
 	subscribeRounds(listener: (result: SyncResult) => void): () => void;
+	/**
+	 * Makes a photo available on this device, downloading it from the account
+	 * if needed (an original opened in the viewer). True when it is there.
+	 */
+	ensureBlob(sha: string): Promise<boolean>;
+	/**
+	 * Runs a photo-backup pass now, lifting a storage-full hold (after a plan
+	 * upgrade or freeing space). Resolves when the pass ends.
+	 */
+	syncBlobs(): Promise<void>;
 }
 
 /** Timer and randomness seams (tests pass fakes). */
@@ -209,12 +240,33 @@ export interface SyncControllerOptions {
 	updateCheck?: { platform: "android"; version: string } | null;
 	/** How long `ServerInfo` is trusted (default 1 h). */
 	serverInfoTtlMs?: number;
+	/**
+	 * Photo backup (D23): the device's blob store, and a transport for the
+	 * signed-in session (default `client.blobTransport(token)`; native may
+	 * pass one that streams file URIs).
+	 */
+	blobs?: {
+		store: BlobStore;
+		transport?: (client: RemoteClient, token: string) => BlobTransport;
+	} | null;
 	timers?: Partial<SyncTimers>;
 }
 
 const SESSION_KEY = "atomic-sync-session";
 export const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [10_000, 30_000, 120_000, 300_000];
 export const SERVER_INFO_TTL_MS = 60 * 60 * 1000;
+/** After `QUOTA_EXCEEDED`, photo uploads wait this long (downloads go on). */
+export const BLOB_QUOTA_HOLD_MS = 60 * 60 * 1000;
+/** Local photo GC runs at most this often. */
+export const BLOB_PRUNE_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/** A photo-backup call made for a session that has since ended. */
+class StaleSessionError extends Error {
+	constructor() {
+		super("The session changed");
+		this.name = "StaleSessionError";
+	}
+}
 
 function classify(error: unknown): SyncErrorCode {
 	if (error instanceof RemoteError) {
@@ -318,6 +370,7 @@ export function createSyncController({
 	device,
 	updateCheck = null,
 	serverInfoTtlMs = SERVER_INFO_TTL_MS,
+	blobs: blobOptions = null,
 	timers: timerOverrides,
 }: SyncControllerOptions): SyncController {
 	const timers: SyncTimers = { ...defaultTimers, ...timerOverrides };
@@ -346,6 +399,7 @@ export function createSyncController({
 		persistError: initial.persistError !== null,
 		retryAt: null,
 		updateAvailable: null,
+		blobs: null,
 	};
 	const listeners = new Set<() => void>();
 	let debounceTimer: unknown = null;
@@ -535,7 +589,146 @@ export function createSyncController({
 			serverOutdated: false,
 			quotaFull: false,
 			clockSkewMs: null,
+			blobs: null,
 		});
+	};
+
+	// ── Photos (D23) ──
+
+	/** Uploads are held until then after `QUOTA_EXCEEDED`. */
+	let blobQuotaUntil = 0;
+	let blobRun: Promise<void> | null = null;
+	let blobAgain = false;
+	let blobsPrunedAt: number | null = null;
+	const blobFetches = new Map<string, Promise<boolean>>();
+
+	/**
+	 * The session's blob transport. Every call made after the session changed
+	 * (sign-out, another account) fails, so an old pass never marks blobs
+	 * for the new account.
+	 */
+	const blobTransportFor = (current: SyncSession, round: number): BlobTransport => {
+		const client = remoteClient(current.serverUrl);
+		const base = blobOptions?.transport
+			? blobOptions.transport(client, current.token)
+			: client.blobTransport(current.token);
+		const check = () => {
+			if (round !== generation) throw new StaleSessionError();
+		};
+		return {
+			async missing(hashes) {
+				check();
+				const missing = await base.missing(hashes);
+				check();
+				return missing;
+			},
+			async upload(sha, source, mime) {
+				check();
+				await base.upload(sha, source, mime);
+				check();
+			},
+			async download(sha) {
+				check();
+				const blob = await base.download(sha);
+				check();
+				return blob;
+			},
+		};
+	};
+
+	const blobPass = async (): Promise<void> => {
+		if (!blobOptions || !session) return;
+		const current = session;
+		const round = generation;
+		const waiting = state.blobs?.waiting ?? 0;
+		try {
+			const info = await loadServerInfo(current.serverUrl);
+			if (round !== generation) return;
+			if (!info.features.blobs) {
+				setState({ blobs: null });
+				return;
+			}
+			const now = timers.now();
+			const held = now < blobQuotaUntil;
+			setState({ blobs: { state: "busy", waiting } });
+			const result = await runBlobSync(store, blobOptions.store, blobTransportFor(current, round), {
+				now,
+				skipUploads: held,
+			});
+			if (round !== generation) return;
+			if (result.quota) blobQuotaUntil = timers.now() + BLOB_QUOTA_HOLD_MS;
+			const full = result.quota || (held && result.waiting > 0);
+			setState({ blobs: { state: full ? "quota" : "idle", waiting: result.waiting } });
+		} catch (error) {
+			if (round !== generation || error instanceof StaleSessionError) return;
+			if (error instanceof RemoteError && error.status === 501) {
+				// Photo backup was turned off on the server: ask it again next time.
+				infoCache.delete(normalizeServerUrl(current.serverUrl));
+				setState({ blobs: null });
+				return;
+			}
+			setState({ blobs: { state: "error", waiting } });
+		}
+	};
+
+	/** One photo pass at a time; a request meanwhile runs one more after it. */
+	const syncBlobs = (): Promise<void> => {
+		if (!blobOptions || !session) return Promise.resolve();
+		if (blobRun) {
+			blobAgain = true;
+			return blobRun;
+		}
+		const run = (async () => {
+			try {
+				do {
+					blobAgain = false;
+					await blobPass();
+				} while (blobAgain && session);
+			} finally {
+				blobRun = null;
+			}
+		})();
+		blobRun = run;
+		return run;
+	};
+
+	/** Local photo GC (D23), at most daily; signed in or not. */
+	const pruneBlobs = () => {
+		if (!blobOptions) return;
+		const now = timers.now();
+		if (blobsPrunedAt !== null && now - blobsPrunedAt < BLOB_PRUNE_EVERY_MS) return;
+		blobsPrunedAt = now;
+		void pruneLocalBlobs(store, blobOptions.store, now).catch((error: unknown) => {
+			blobsPrunedAt = null;
+			console.warn("[atomic] Could not clean up local photos", error);
+		});
+	};
+
+	const ensureBlob = async (sha: string): Promise<boolean> => {
+		if (!blobOptions || !SHA256_RE.test(sha)) return false;
+		try {
+			if (await blobOptions.store.has(sha)) return true;
+		} catch {
+			return false;
+		}
+		if (!session) return false;
+		const inflight = blobFetches.get(sha);
+		if (inflight) return inflight;
+		const current = session;
+		const round = generation;
+		const fetching = (async () => {
+			try {
+				const info = await loadServerInfo(current.serverUrl);
+				if (!info.features.blobs || round !== generation) return false;
+				return await downloadBlob(blobOptions.store, blobTransportFor(current, round), sha);
+			} catch {
+				return false;
+			} finally {
+				blobFetches.delete(sha);
+			}
+		})();
+		blobFetches.set(sha, fetching);
+		return fetching;
 	};
 
 	const syncNow = async (): Promise<SyncResult | null> => {
@@ -574,7 +767,10 @@ export function createSyncController({
 				retryAt: null,
 			});
 			// Translations of deleted documents (spec §2.5); at most once a day.
-			if (result.complete) store.getState().actions.pruneTranslations();
+			if (result.complete) {
+				store.getState().actions.pruneTranslations();
+				pruneBlobs();
+			}
 			for (const listener of [...roundListeners]) {
 				try {
 					listener(result);
@@ -582,6 +778,8 @@ export function createSyncController({
 					console.error("[atomic] Sync round listener failed", error);
 				}
 			}
+			// Photo backup after every successful round (D23); not awaited.
+			if (blobOptions) void syncBlobs();
 			return result;
 		} catch (error) {
 			if (round !== generation) return null;
@@ -654,6 +852,11 @@ export function createSyncController({
 				patch.serverUrl = next.settings.serverUrl ?? defaultServerUrl;
 			setState(patch);
 			if (!session) return;
+			if (next.settings.backupPhotos !== prev.settings.backupPhotos && unsubscribeCommits) {
+				// Turned on: try again at once, even after a full storage.
+				if (next.settings.backupPhotos) blobQuotaUntil = 0;
+				void syncBlobs();
+			}
 			if (
 				journalOn ||
 				(next.sync.pending !== prev.sync.pending && hasNewKey(next.sync.pending, prev.sync.pending))
@@ -700,6 +903,7 @@ export function createSyncController({
 			clearRetry();
 			failures = 0;
 			generation++;
+			blobQuotaUntil = 0;
 			await saveSession({ serverUrl: url, token: result.token, user: result.user });
 			store.getState().actions.updateSettings({ serverUrl: url === defaultServerUrl ? null : url });
 			if (choice === "replace") {
@@ -716,6 +920,7 @@ export function createSyncController({
 				error: null,
 				sessionEnded: false,
 				retryAt: null,
+				blobs: null,
 			});
 			watch();
 			await syncNow();
@@ -751,7 +956,9 @@ export function createSyncController({
 			quotaFull: false,
 			clockSkewMs: null,
 			retryAt: null,
+			blobs: null,
 		});
+		blobQuotaUntil = 0;
 	};
 
 	return {
@@ -762,6 +969,8 @@ export function createSyncController({
 		},
 		async start() {
 			observeStore();
+			// Local photo GC needs the hydrated data; it never waits for the network.
+			if (blobOptions) void whenHydrated(store).then(pruneBlobs);
 			const saved = session ?? (await loadSession());
 			if (!saved) return;
 			session = saved;
@@ -821,6 +1030,11 @@ export function createSyncController({
 		subscribeRounds(listener) {
 			roundListeners.add(listener);
 			return () => roundListeners.delete(listener);
+		},
+		ensureBlob,
+		syncBlobs() {
+			blobQuotaUntil = 0;
+			return syncBlobs();
 		},
 	};
 }

@@ -92,8 +92,36 @@ export interface ProviderOptions {
 	fetch: typeof fetch;
 }
 
-/** Bigger replies are refused unread (max_tokens keeps honest ones far below). */
-const MAX_REPLY_BYTES = 256 * 1024;
+/**
+ * Bigger replies are refused (max_tokens keeps honest ones far below); the
+ * body is read with this cap, so a broken upstream can't fill the memory.
+ */
+export const MAX_REPLY_BYTES = 256 * 1024;
+
+/** The body as UTF-8 text, or null as soon as it passes `max` bytes (then cancelled). */
+async function readCapped(response: Response, max: number): Promise<string | null> {
+	const reader = response.body?.getReader();
+	if (!reader) return "";
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		size += value.byteLength;
+		if (size > max) {
+			await reader.cancel().catch(() => {});
+			return null;
+		}
+		chunks.push(value);
+	}
+	const bytes = new Uint8Array(size);
+	let at = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, at);
+		at += chunk.byteLength;
+	}
+	return new TextDecoder().decode(bytes);
+}
 
 const replySchema = z.looseObject({
 	choices: z
@@ -175,18 +203,19 @@ export function createOpenAICompatibleProvider(options: ProviderOptions): AiProv
 				const kind = upstreamStatus === 429 || upstreamStatus === 503 ? "busy" : "failed";
 				throw new AiError(kind, { upstreamStatus });
 			}
+			// An oversized reply is an upstream fault, not a model slip: no retry.
 			const declared = Number(response.headers.get("content-length") ?? 0);
 			if (declared > MAX_REPLY_BYTES) {
 				await response.body?.cancel().catch(() => {});
-				throw new AiError("invalid");
+				throw new AiError("failed");
 			}
-			let text: string;
+			let text: string | null;
 			try {
-				text = await response.text();
+				text = await readCapped(response, MAX_REPLY_BYTES);
 			} catch {
 				throw new AiError(signal.aborted ? "timeout" : "failed");
 			}
-			if (text.length > MAX_REPLY_BYTES) throw new AiError("invalid");
+			if (text === null) throw new AiError("failed");
 			let reply: z.infer<typeof replySchema>;
 			try {
 				reply = replySchema.parse(JSON.parse(text));

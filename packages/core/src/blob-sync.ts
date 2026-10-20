@@ -111,7 +111,10 @@ async function matches(sha: string, source: BlobSource): Promise<boolean> {
 
 export interface BlobSyncOptions {
 	now?: number;
-	/** Skip uploads (quota held after a `QUOTA_EXCEEDED`); downloads still run. */
+	/**
+	 * Send nothing (the storage was full a moment ago): `waiting` is still
+	 * counted, and thumbnails still download.
+	 */
 	skipUploads?: boolean;
 }
 
@@ -133,60 +136,70 @@ export async function runBlobSync(
 
 	// ── Upload ──
 	const state = store.getState();
-	if (state.settings.backupPhotos && !opts.skipUploads) {
+	if (state.settings.backupPhotos) {
 		const { blobsUploaded, blobsCheckedAt, blobsUnuploadable } = state.sync;
 		const uploadable = [...uploadableBlobs(state.data, state.sync.pending).keys()]
 			.filter((sha) => !blobsUnuploadable[sha])
 			.sort();
 		const local: string[] = [];
 		for (const sha of uploadable) if (await blobStore.has(sha)) local.push(sha);
-		const revalidate = blobsCheckedAt === null || now - blobsCheckedAt >= BLOB_REVALIDATE_MS;
-		const candidates = revalidate ? local : local.filter((sha) => !blobsUploaded[sha]);
-		const missing = candidates.length ? await missingOf(transport, candidates) : new Set<string>();
-		if (revalidate) {
-			// Exactly what the server holds now among this device's blobs (a restored
-			// server may have lost some), plus what can't be checked from here.
-			const next: Record<string, true> = {};
-			for (const sha of Object.keys(blobsUploaded)) if (!candidates.includes(sha)) next[sha] = true;
-			for (const sha of candidates) if (!missing.has(sha)) next[sha] = true;
-			actions.setSyncMeta({ blobsUploaded: next, blobsCheckedAt: now });
+		const waitingNow = () => {
+			const after = store.getState().sync;
+			return local.filter((sha) => !after.blobsUploaded[sha] && !after.blobsUnuploadable[sha])
+				.length;
+		};
+		if (opts.skipUploads) {
+			// Storage full: nothing is sent, but the photos still wait.
+			result.waiting = waitingNow();
 		} else {
-			const present = candidates.filter((sha) => !missing.has(sha));
-			if (present.length) actions.markBlobsUploaded(present);
-		}
+			const revalidate = blobsCheckedAt === null || now - blobsCheckedAt >= BLOB_REVALIDATE_MS;
+			const candidates = revalidate ? local : local.filter((sha) => !blobsUploaded[sha]);
+			const missing = candidates.length
+				? await missingOf(transport, candidates)
+				: new Set<string>();
+			if (revalidate) {
+				// Exactly what the server holds now among this device's blobs (a restored
+				// server may have lost some), plus what can't be checked from here.
+				const checked = new Set(candidates);
+				const next: Record<string, true> = {};
+				for (const sha of Object.keys(blobsUploaded)) if (!checked.has(sha)) next[sha] = true;
+				for (const sha of candidates) if (!missing.has(sha)) next[sha] = true;
+				actions.setSyncMeta({ blobsUploaded: next, blobsCheckedAt: now });
+			} else {
+				const present = candidates.filter((sha) => !missing.has(sha));
+				if (present.length) actions.markBlobsUploaded(present);
+			}
 
-		let failure: unknown = null;
-		const toUpload = candidates.filter((sha) => missing.has(sha));
-		await pool(
-			toUpload,
-			BLOB_UPLOAD_CONCURRENCY,
-			async (sha) => {
-				const blob = await blobStore.read(sha);
-				if (!blob) return;
-				try {
-					await transport.upload(sha, blob.source, blob.mime);
-					actions.markBlobsUploaded([sha]);
-					result.uploaded++;
-				} catch (error) {
-					if (isQuota(error)) {
-						result.quota = true;
-						return;
+			let failure: unknown = null;
+			const toUpload = candidates.filter((sha) => missing.has(sha));
+			await pool(
+				toUpload,
+				BLOB_UPLOAD_CONCURRENCY,
+				async (sha) => {
+					const blob = await blobStore.read(sha);
+					if (!blob) return;
+					try {
+						await transport.upload(sha, blob.source, blob.mime);
+						actions.markBlobsUploaded([sha]);
+						result.uploaded++;
+					} catch (error) {
+						if (isQuota(error)) {
+							result.quota = true;
+							return;
+						}
+						const reason = unuploadable(error);
+						if (reason) {
+							actions.markBlobUnuploadable(sha, reason);
+							return;
+						}
+						failure ??= error;
 					}
-					const reason = unuploadable(error);
-					if (reason) {
-						actions.markBlobUnuploadable(sha, reason);
-						return;
-					}
-					failure ??= error;
-				}
-			},
-			() => result.quota || failure !== null,
-		);
-		const after = store.getState().sync;
-		result.waiting = local.filter(
-			(sha) => !after.blobsUploaded[sha] && !after.blobsUnuploadable[sha],
-		).length;
-		if (failure !== null) throw failure;
+				},
+				() => result.quota || failure !== null,
+			);
+			result.waiting = waitingNow();
+			if (failure !== null) throw failure;
+		}
 	}
 
 	// ── Download thumbnails ──

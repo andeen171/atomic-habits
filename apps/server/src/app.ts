@@ -39,6 +39,34 @@ export function bodyLimitFor(
 	return 64 * KIB;
 }
 
+/** The longest idle window Bun accepts (`idleTimeout`, `server.timeout`), in seconds. */
+export const BUN_MAX_IDLE_SECONDS = 255;
+/** Added to an AI deadline: the checks before it, the refund after it and the reply. */
+export const AI_IDLE_MARGIN_SECONDS = 10;
+
+/**
+ * How long a request may stay silent before Bun closes its connection, when
+ * that differs from the server default (`idleTimeout`, 10 s).
+ *
+ * An AI call sends nothing while it waits for the model, up to its deadline
+ * (`AI_TIMEOUT_MS`, 25 s; translation `AI_TRANSLATE_TIMEOUT_MS`, 45 s).
+ * Bun 1.4 cuts silent requests without a body after `idleTimeout` but, as it
+ * happens, not ones with a body (AI calls are POSTs); nothing documents
+ * that, so the AI routes set their window explicitly: the deadline plus a
+ * margin, so that the deadline, never Bun's idle timer, ends a call. The AI
+ * deadlines are capped at 240 s (config), within Bun's 255 s maximum. Every
+ * other route keeps the default.
+ */
+export function idleSecondsFor(config: Pick<Config, "ai">, path: string): number | null {
+	const ai = config.ai;
+	if (!ai) return null;
+	let deadlineMs: number;
+	if (path.startsWith("/trpc/ai.suggest")) deadlineMs = ai.timeoutMs;
+	else if (path.startsWith("/trpc/ai.translate")) deadlineMs = ai.translateTimeoutMs;
+	else return null;
+	return Math.min(BUN_MAX_IDLE_SECONDS, Math.ceil(deadlineMs / 1000) + AI_IDLE_MARGIN_SECONDS);
+}
+
 function bodyLimits(config: Config): MiddlewareHandler<AppEnv> {
 	const limiters = new Map<number, MiddlewareHandler>();
 	return (c, next) => {
@@ -144,10 +172,19 @@ export function createApp(services: Services) {
 
 	app.get("/", (c) => c.text("OK"));
 
-	// Resolve the client IP while `c.req.raw` is still the original request
-	// (bodyLimit may replace it, and Bun only knows the peer of the original).
+	// Resolve the client IP and widen the idle window while `c.req.raw` is still
+	// the original request (bodyLimit may replace it, and Bun only knows the
+	// original's connection).
 	app.use("*", async (c, next) => {
 		c.set("clientIp", clientIp(c, config.clientIpHeader));
+		const idleSeconds = idleSecondsFor(config, c.req.path);
+		if (idleSeconds !== null) {
+			try {
+				c.env?.timeout?.(c.req.raw, idleSeconds);
+			} catch {
+				// The default window still applies; the deadline still bounds the call.
+			}
+		}
 		await next();
 	});
 

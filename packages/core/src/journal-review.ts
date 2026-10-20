@@ -8,6 +8,7 @@ import {
 	diffDays,
 	eachDay,
 	endOfWeek,
+	isDayKey,
 	maxDay,
 	minDay,
 	startOfMonth,
@@ -39,6 +40,7 @@ import type {
 	Settings,
 } from "./model";
 import type { LevelUpSuggestion } from "./month";
+import type { AtomicStore } from "./store";
 
 /**
  * Reviews, review snapshots, the Goldilocks check-in and the Today nudge
@@ -415,6 +417,38 @@ export function checkinDismissKey(habitId: string, today: DayKey): string {
 	return `checkin:${habitId}:${today.slice(0, 7)}`;
 }
 
+/** How long this device remembers a "Not now" (Annex J §1.5). */
+export const JOURNAL_DISMISS_DAYS = 120;
+
+/** Device-local dismissals: nudge or prompt key → the day it was dismissed. Never synced. */
+export type JournalDismissals = Readonly<Record<string, DayKey>>;
+
+/**
+ * A stored dismissal map, cleaned: malformed values are dropped, and so are
+ * dismissals older than 120 days (or dated after today, from a skewed
+ * clock). Accepts anything read from storage (`JSON.parse` output). Both
+ * apps' `journal-dismissals.ts` use it, so they prune the same way.
+ */
+export function pruneJournalDismissals(raw: unknown, today: DayKey): Record<string, DayKey> {
+	const out: Record<string, DayKey> = {};
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+	for (const [key, day] of Object.entries(raw as Record<string, unknown>)) {
+		if (!key || key.length > 200 || !isDayKey(day)) continue;
+		const age = diffDays(today, day);
+		if (age >= 0 && age <= JOURNAL_DISMISS_DAYS) out[key] = day;
+	}
+	return out;
+}
+
+/** The dismissal map with `key` dismissed today (pruned). */
+export function dismissJournalKey(
+	dismissals: JournalDismissals,
+	key: string,
+	today: DayKey,
+): Record<string, DayKey> {
+	return { ...pruneJournalDismissals(dismissals, today), [key]: today };
+}
+
 /**
  * What a check-in suggests. `viaLevelUp`: the "too easy" target comes from
  * the month's level-up suggestion, and applying it calls `acceptLevelUp`
@@ -459,6 +493,41 @@ export function goldilocksSuggestion(
 		return { type: "target", target: Math.max(1, Math.floor(target / 2)) };
 	}
 	return null;
+}
+
+/**
+ * "Raise / Lower the daily goal to N" (Annex J §1.8): a level-up target goes
+ * through `acceptLevelUp`, which records the decision (D9); any other target
+ * through `updateHabit({ target })`. Returns an Undo that restores the old
+ * target and level-up state, or null when nothing changed (no target
+ * suggestion, a missing or archived habit, or a stale suggestion).
+ */
+export function applyGoldilocks(
+	store: Pick<AtomicStore, "getState">,
+	habitId: string,
+	suggestion: GoldilocksSuggestion,
+	levelUp?: LevelUpSuggestion | null,
+): (() => void) | null {
+	if (!suggestion || suggestion.type !== "target") return null;
+	const state = () => store.getState();
+	const before = state().data.habits[habitId];
+	if (!before || before.deletedAt || before.archivedAt || before.target === suggestion.target) {
+		return null;
+	}
+	const { actions } = state();
+	if (suggestion.viaLevelUp) {
+		if (!levelUp || levelUp.to !== suggestion.target) return null;
+		if (!actions.acceptLevelUp(habitId, levelUp)) return null;
+	} else {
+		actions.updateHabit(habitId, { target: suggestion.target });
+	}
+	if (state().data.habits[habitId]?.target !== suggestion.target) return null;
+	const { target, levelUp: previous } = before;
+	return () => {
+		const now = state().data.habits[habitId];
+		if (!now || now.deletedAt || now.target !== suggestion.target) return;
+		state().actions.updateHabit(habitId, { target, levelUp: previous });
+	};
 }
 
 // ── The Today nudge (Annex J §1.5) ──

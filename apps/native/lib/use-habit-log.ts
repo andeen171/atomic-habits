@@ -1,11 +1,20 @@
-import type { DayKey, Habit, Identity } from "@atomic/core";
+import { type DayKey, type Habit, type Identity, isTrackerActive } from "@atomic/core";
 import { useActions } from "@atomic/core/react";
 import { AccessibilityInfo } from "react-native";
 import { haptics } from "./haptics";
 import { useT } from "./i18n";
 import { showToast } from "./ui-store";
+import { useTrackerActions } from "./use-tracker-actions";
 
-export type LogOutcome = "logged" | "completed" | "undone" | "full" | "slip" | "unslip";
+export type LogOutcome =
+	| "logged"
+	| "completed"
+	| "undone"
+	| "full"
+	| "slip"
+	| "unslip"
+	/** A tracker habit: its composer, timer or writing pad opened instead (Annex K §1.3). */
+	| "opened";
 
 /**
  * The one-tap logging rule: target 1 toggles; count habits increment until the
@@ -14,6 +23,7 @@ export type LogOutcome = "logged" | "completed" | "undone" | "full" | "slip" | "
 export function useHabitLog() {
 	const actions = useActions();
 	const t = useT();
+	const { openTracker } = useTrackerActions();
 
 	const completed = (habit: Habit, identity: Identity | undefined) => {
 		const message = identity
@@ -25,6 +35,11 @@ export function useHabitLog() {
 	return {
 		/** Tap on a ring. `count` is the current count for `day`. */
 		tap(habit: Habit, day: DayKey, count: number, identity?: Identity): LogOutcome {
+			// Tracker habits log through entries; the ring opens the tracker (spec §5.2, §6).
+			if (isTrackerActive(habit)) {
+				openTracker(habit, day);
+				return "opened";
+			}
 			if (habit.kind === "break") {
 				actions.toggleHabit(habit.id, day);
 				haptics.light();

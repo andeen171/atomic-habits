@@ -8,7 +8,7 @@ import {
 } from "@atomic/core";
 import { eq } from "drizzle-orm";
 import { billingReturnUrl, withBillingResult } from "../src/billing/return";
-import { user } from "../src/db/schema";
+import { subscription, user } from "../src/db/schema";
 import { PAGE_CSP } from "../src/lib/html";
 import {
 	BILLING_ENV,
@@ -295,6 +295,33 @@ describe("checkout and portal (fake Stripe)", () => {
 		expect(await refusal(again)).toMatchObject({ status: 409, reason: "already-subscribed" });
 	});
 
+	test("a past-due subscriber fixes the card in the portal, not in a second subscription", async () => {
+		const owner = await signUp(server.app, "Due");
+		await call(server, "billing.checkout", owner.token, { interval: "month", client: "web" });
+		const { session, subscription: sub } = stripe.completeCheckout(sessionOf(stripe, owner).id);
+		await deliverWebhook(server.app, stripe.event("checkout.session.completed", session));
+		const pastDue = stripe.updateSubscription(sub.id, { status: "past_due" });
+		await deliverWebhook(server.app, stripe.event("customer.subscription.updated", pastDue));
+		expect((await accountOf(server, owner.token)).entitlements).toMatchObject({
+			plan: "pro",
+			status: "grace",
+			canManageBilling: true,
+		});
+
+		const sessions = stripe.state.checkoutSessions.size;
+		const again = await call(server, "billing.checkout", owner.token, {
+			interval: "month",
+			client: "web",
+		});
+		expect(await refusal(again)).toMatchObject({
+			status: 409,
+			code: "CONFLICT",
+			reason: "already-subscribed",
+		});
+		expect(stripe.state.checkoutSessions.size).toBe(sessions);
+		expect((await call(server, "billing.portal", owner.token, { client: "web" })).status).toBe(200);
+	});
+
 	test("a Stripe outage is a content-free 502", async () => {
 		const owner = await signUp(server.app, "Outage");
 		stripe.fail["checkout.sessions.create"] = stripeError(
@@ -395,6 +422,25 @@ describe("checkout and portal (fake Stripe)", () => {
 			status: "trialing",
 			endsAt: subscription.trial_end * 1000,
 		});
+
+		// Nothing to buy on the same interval during the trial; switching confirms in the portal.
+		const same = await call(trial, "billing.checkout", owner.token, {
+			interval: "year",
+			client: "web",
+		});
+		expect(await refusal(same)).toMatchObject({ status: 409, reason: "already-subscribed" });
+		const sessions = trialStripe.state.checkoutSessions.size;
+		const portals = trialStripe.state.portalSessions.length;
+		const other = await call(trial, "billing.checkout", owner.token, {
+			interval: "month",
+			client: "web",
+		});
+		expect(other.status).toBe(200);
+		expect(trialStripe.state.checkoutSessions.size).toBe(sessions);
+		expect(trialStripe.state.portalSessions.length).toBe(portals + 1);
+		expect(trialStripe.state.portalSessions.at(-1)?.flow_data?.type).toBe(
+			"subscription_update_confirm",
+		);
 	});
 
 	test("a monthly subscriber switching to yearly confirms in the portal", async () => {
@@ -429,6 +475,163 @@ describe("checkout and portal (fake Stripe)", () => {
 			bearer(owner.token),
 		);
 		expect(renamed.status).toBe(200);
+	});
+});
+
+describe("coming back from checkout (before the webhook)", () => {
+	let server: TestServer;
+	let stripe: FakeStripe;
+
+	beforeAll(async () => {
+		stripe = createFakeStripe();
+		server = await createTestServer({ env: ENV, deps: { stripe } });
+	});
+
+	async function rowOf(owner: TestUser) {
+		const [row] = await server.db
+			.select()
+			.from(subscription)
+			.where(eq(subscription.referenceId, owner.user.id));
+		return row;
+	}
+
+	/** Checkout through tRPC; `hop` is where Stripe sends the browser after paying. */
+	async function startCheckout(owner: TestUser) {
+		await call(server, "billing.checkout", owner.token, {
+			interval: "month",
+			client: "web",
+			returnTo: `${APP}/#/account`,
+		});
+		const open = sessionOf(stripe, owner);
+		return { open, hop: open.success_url.replace("{CHECKOUT_SESSION_ID}", open.id) as string };
+	}
+
+	test("the success hop stores the paid subscription; the webhook then changes nothing", async () => {
+		const owner = await signUp(server.app, "Quick");
+		// Cached as free first.
+		expect((await accountOf(server, owner.token)).entitlements.plan).toBe("free");
+		const { open, hop } = await startCheckout(owner);
+		const { session, subscription: sub } = stripe.completeCheckout(open.id);
+
+		const response = await server.app.request(hop);
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe(
+			billingReturnUrl(BASE_URL, {
+				result: "success",
+				client: "web",
+				to: `${APP}/#/account`,
+				lang: "en",
+			}),
+		);
+		expect((await accountOf(server, owner.token)).entitlements).toMatchObject({
+			plan: "pro",
+			source: "stripe",
+			status: "active",
+			renewsAt: sub.items.data[0].current_period_end * 1000,
+			canManageBilling: true,
+		});
+		const stored = await rowOf(owner);
+		expect(stored).toMatchObject({
+			status: "active",
+			stripeSubscriptionId: sub.id,
+			stripeCustomerId: session.customer,
+			billingInterval: "month",
+		});
+		expect(server.logs.map((l) => l.line).join("\n")).toContain(
+			"billing op=confirm outcome=stored",
+		);
+
+		expect(
+			(await deliverWebhook(server.app, stripe.event("checkout.session.completed", session)))
+				.status,
+		).toBe(200);
+		expect(await rowOf(owner)).toMatchObject({ status: "active", stripeSubscriptionId: sub.id });
+
+		// Coming back again (a reload) doesn't re-read the subscription.
+		const before = stripe.calls.length;
+		expect((await server.app.request(hop)).status).toBe(302);
+		expect(stripe.calls.slice(before)).toEqual(["checkout.sessions.retrieve"]);
+	});
+
+	test("only the user's own completed checkout, for a price this server sells, is stored", async () => {
+		const owner = await signUp(server.app, "Careful");
+		const other = await signUp(server.app, "Bystander");
+		const { open, hop } = await startCheckout(owner);
+
+		// Not paid yet.
+		expect((await server.app.request(hop)).status).toBe(302);
+		expect((await rowOf(owner))?.status).toBe("incomplete");
+
+		// Paid, but Stripe's session names someone else.
+		const { subscription: sub } = stripe.completeCheckout(open.id);
+		const stored = stripe.state.checkoutSessions.get(open.id);
+		if (!stored) throw new Error("no session");
+		stored.client_reference_id = other.user.id;
+		await server.app.request(hop);
+		expect((await rowOf(owner))?.status).toBe("incomplete");
+		expect((await accountOf(server, other.token)).entitlements.plan).toBe("free");
+		stored.client_reference_id = owner.user.id;
+
+		// A price this server doesn't sell.
+		const live = stripe.state.subscriptions.get(sub.id);
+		if (!live) throw new Error("no subscription");
+		const price = live.items.data[0].price;
+		live.items.data[0].price = { ...price, id: "price_elsewhere" };
+		await server.app.request(hop);
+		expect((await rowOf(owner))?.status).toBe("incomplete");
+		live.items.data[0].price = price;
+
+		// Unknown or malformed ids: still the return page, nothing stored; junk never reaches Stripe.
+		const before = stripe.calls.length;
+		for (const id of ["cs_unknown", "../../v1/customers", "cs_a b"]) {
+			const response = await server.app.request(
+				hop.replace(`checkoutSessionId=${open.id}`, `checkoutSessionId=${encodeURIComponent(id)}`),
+			);
+			expect(response.status).toBe(302);
+		}
+		expect(stripe.calls.slice(before)).toEqual(["checkout.sessions.retrieve"]);
+		expect((await rowOf(owner))?.status).toBe("incomplete");
+
+		// The real thing.
+		await server.app.request(hop);
+		expect((await rowOf(owner))?.status).toBe("active");
+	});
+
+	test("a Stripe outage on the way back still lands on the return page; the webhook catches up", async () => {
+		const owner = await signUp(server.app, "Later");
+		const { open, hop } = await startCheckout(owner);
+		const { session } = stripe.completeCheckout(open.id);
+		stripe.fail["checkout.sessions.retrieve"] = stripeError(
+			`secret detail for ${owner.email}`,
+			"api_error",
+			500,
+		);
+		const response = await server.app.request(hop);
+		stripe.fail["checkout.sessions.retrieve"] = undefined;
+		expect(response.status).toBe(302);
+		expect((await accountOf(server, owner.token)).entitlements.plan).toBe("free");
+
+		await deliverWebhook(server.app, stripe.event("checkout.session.completed", session));
+		expect((await accountOf(server, owner.token)).entitlements.plan).toBe("pro");
+
+		const logs = server.logs.map((l) => l.line).join("\n");
+		expect(logs).toContain("billing op=confirm outcome=failed");
+		expect(logs).not.toContain("secret detail");
+		expect(logs).not.toContain(owner.email);
+		expect(logs).not.toMatch(/cs_\w+|sub_\w+|cus_\w+/);
+	});
+
+	test("30 hops per minute per IP", async () => {
+		const limited = await createTestServer({ env: ENV, deps: { stripe: createFakeStripe() } });
+		const back = encodeURIComponent(`${BASE_URL}/billing/return`);
+		let last: Response | null = null;
+		for (let i = 0; i < 31; i++) {
+			last = await limited.app.request(
+				`${BASE_URL}/api/auth/subscription/success?callbackURL=${back}&checkoutSessionId=cs_x`,
+			);
+		}
+		expect(last?.status).toBe(429);
+		expect(last?.headers.get("retry-after")).toBeTruthy();
 	});
 });
 

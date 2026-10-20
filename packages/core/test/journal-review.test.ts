@@ -5,14 +5,18 @@ import { type HabitStats, buildLogIndex, habitStats, logsFor } from "../src/habi
 import { createTranslator } from "../src/i18n";
 import {
 	CHECKIN_QUIET_DAYS,
+	JOURNAL_DISMISS_DAYS,
 	type JournalNudge,
+	applyGoldilocks,
 	checkinDismissKey,
 	checkinReason,
+	dismissJournalKey,
 	goldilocksSuggestion,
 	integrityYear,
 	journalNudge,
 	journalNudgeCopy,
 	journalNudgeLink,
+	pruneJournalDismissals,
 	rangeLabel,
 	reviewCovers,
 	reviewRange,
@@ -35,6 +39,8 @@ import {
 	logId,
 } from "../src/model";
 import type { LevelUpSuggestion } from "../src/month";
+import { createMemoryStorage } from "../src/storage";
+import { createAtomicStore } from "../src/store";
 
 /**
  * Annex J §8 `journal-review.test.ts`, as amended by spec §3.4: review ranges,
@@ -406,6 +412,34 @@ describe("Goldilocks check-in (Annex J §1.8, D9)", () => {
 		expect(checkinDismissKey("h1", "2026-11-01")).toBe("checkin:h1:2026-11");
 	});
 
+	test("dismissals: device-local, pruned after 120 days, malformed values dropped", () => {
+		expect(JOURNAL_DISMISS_DAYS).toBe(120);
+		const stored: unknown = {
+			"slip:doom:2026-10-19": "2026-10-19",
+			"review:2026-06-01:2026-06-30": addDays(TODAY, -120),
+			"review:2026-05-01:2026-05-31": addDays(TODAY, -121),
+			"evidence:2026-10-26": addDays(TODAY, 1), // a skewed clock
+			bad: 42,
+			worse: "yesterday",
+			"": "2026-10-20",
+		};
+		expect(pruneJournalDismissals(stored, TODAY)).toEqual({
+			"slip:doom:2026-10-19": "2026-10-19",
+			"review:2026-06-01:2026-06-30": addDays(TODAY, -120),
+		});
+		for (const junk of [null, undefined, "x", 3, ["a"]]) {
+			expect(pruneJournalDismissals(junk, TODAY)).toEqual({});
+		}
+		const next = dismissJournalKey(
+			{ old: "2026-01-01", kept: "2026-10-01" },
+			"integrity:2026",
+			TODAY,
+		);
+		expect(next).toEqual({ kept: "2026-10-01", "integrity:2026": TODAY });
+		// What the apps pass to journalNudge.
+		expect(new Set(Object.keys(next)).has("integrity:2026")).toBe(true);
+	});
+
 	test("goldilocksSuggestion: +10% (10→11, 8→9, 15→17, 300→330, capped at 10,000), half, two-minute", () => {
 		const s = (target: number, difficulty: Parameters<typeof goldilocksSuggestion>[1]) =>
 			goldilocksSuggestion(habit({ target, twoMinute: "Read one page" }), difficulty);
@@ -460,6 +494,67 @@ describe("Goldilocks check-in (Annex J §1.8, D9)", () => {
 				to: 2,
 			}),
 		).toEqual({ type: "target", target: 2, viaLevelUp: true });
+	});
+
+	test("applyGoldilocks: level-up targets record the decision, others update the target; Undo restores", () => {
+		const store = createAtomicStore({
+			storage: createMemoryStorage(),
+			now: () => parseDayKey(TODAY).getTime() + 10 * 3_600_000,
+			debounceMs: 0,
+			deviceLocales: () => ["en"],
+		});
+		const { actions } = store.getState();
+		const h = actions.createHabit({ name: "Read", target: 10, startDate: "2026-08-01" });
+		const target = () => store.getState().data.habits[h.id]?.target;
+
+		// +10%: updateHabit, Undo puts the old goal back.
+		const undo = applyGoldilocks(store, h.id, { type: "target", target: 11 });
+		expect(target()).toBe(11);
+		expect(store.getState().data.habits[h.id]?.levelUp).toBeNull();
+		undo?.();
+		expect(target()).toBe(10);
+
+		// Through the level-up: acceptLevelUp records the month's decision (D9).
+		const levelUp: LevelUpSuggestion = {
+			habitId: h.id,
+			month: "2026-09",
+			kind: "target",
+			from: 10,
+			to: 12,
+			above: 24,
+			of: 30,
+			evidence: { above: 24, owed: 30 },
+		};
+		const viaLevelUp = goldilocksSuggestion(
+			store.getState().data.habits[h.id] as Habit,
+			"too-easy",
+			levelUp,
+		);
+		const undoLevelUp = applyGoldilocks(store, h.id, viaLevelUp, levelUp);
+		expect(target()).toBe(12);
+		expect(store.getState().data.habits[h.id]?.levelUp).toMatchObject({
+			month: "2026-09",
+			decision: "accepted",
+		});
+		undoLevelUp?.();
+		expect(target()).toBe(10);
+		expect(store.getState().data.habits[h.id]?.levelUp).toBeNull();
+
+		// Nothing to apply: no target, the same target, a stale level-up, a missing habit.
+		expect(applyGoldilocks(store, h.id, null)).toBeNull();
+		expect(applyGoldilocks(store, h.id, { type: "twoMinute", twoMinute: "One page" })).toBeNull();
+		expect(applyGoldilocks(store, h.id, { type: "target", target: 10 })).toBeNull();
+		expect(
+			applyGoldilocks(store, h.id, { type: "target", target: 12, viaLevelUp: true }, null),
+		).toBeNull();
+		expect(applyGoldilocks(store, "missing", { type: "target", target: 5 })).toBeNull();
+		expect(target()).toBe(10);
+
+		// Undo after a later edit leaves the newer goal alone.
+		const late = applyGoldilocks(store, h.id, { type: "target", target: 5 });
+		actions.updateHabit(h.id, { target: 7 });
+		late?.();
+		expect(target()).toBe(7);
 	});
 });
 
