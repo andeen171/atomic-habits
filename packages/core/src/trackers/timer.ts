@@ -49,9 +49,7 @@ export function startTimer(
 	label: string | null,
 ): TimerState {
 	const preset =
-		finite(presetSec) && presetSec > 0
-			? Math.min(MAX_PRESET_SECONDS, Math.round(presetSec))
-			: null;
+		finite(presetSec) && presetSec > 0 ? Math.min(MAX_PRESET_SECONDS, Math.round(presetSec)) : null;
 	const trimmed = typeof label === "string" ? label.trim().slice(0, 60) : "";
 	return {
 		habitId,

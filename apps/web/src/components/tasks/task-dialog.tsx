@@ -9,7 +9,8 @@ import { Button } from "../ui/button";
 import { Chip } from "../ui/chip";
 import { DatePicker } from "../ui/date-picker";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "../ui/dialog";
-import { Field, Input, Textarea } from "../ui/field";
+import { Field, Textarea } from "../ui/field";
+import { SmartInput } from "../ui/smart-input";
 import { taskDateLabel } from "./task-date";
 import { PriorityMenu } from "./task-quick-add";
 
@@ -71,8 +72,9 @@ function TaskForm({ onDone }: { onDone(): void }) {
 			<DialogBody className="flex flex-col gap-4">
 				<Field label={t("tasks.titlePlaceholder")}>
 					{(props) => (
-						<Input
+						<SmartInput
 							{...props}
+							field="task.title"
 							value={title}
 							maxLength={280}
 							onChange={(event) => setTitle(event.target.value)}

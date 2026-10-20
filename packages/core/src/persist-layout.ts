@@ -41,13 +41,21 @@ import { upgradeRecord } from "./upgrade";
  * for it next to the old main key: a localStorage quota) moves in halves,
  * recursively. Every state on disk in between is complete (`getItem` merges
  * main-key records with the slices), and the migration needs room for the
- * data plus the largest piece that fits, not twice the data.
+ * data plus the largest piece that fits, not twice the data. When not even
+ * one record fits next to the old main key (a localStorage near its quota),
+ * the meta write is undone and the state is saved in place, in the older
+ * layout, as the older build did (`writeInPlace`); the next session tries
+ * the migration again.
  *
  * Hydration reports keys it could not read or parse (`onIncomplete`): the
- * store then marks its state `partial`, which holds derived writes and pushes
- * for the session. A corrupt key is backed up, a re-pull is requested
- * (`schemaRev = 1`), and the key is removed by `dropCorrupt()` once nothing
- * else replaced it.
+ * store then marks its state `partial`, which holds derived writes and
+ * pushes. A read failure lasts for the session (the storage is read-only). A
+ * corrupt key is backed up once, a re-pull is requested (`schemaRev = 1`),
+ * and the recovery is recorded in the sync meta (`SyncMeta.recovering`, an
+ * addition), so every session stays partial until that re-pull completed. A
+ * corrupt slice stays listed in `meta.slices` until it is replaced or
+ * removed by `dropCorrupt()`. A corrupt meta key lost the pending keys of the
+ * sliced collections: while tracking, all their records become pending again.
  *
  * `meta.slices` lists the slice keys so backends without `keys()` (native)
  * still find every slice; it is an addition to the spec's meta content.
@@ -87,6 +95,51 @@ export interface SyncMeta {
 	blobsUploaded: Record<string, true>;
 	blobsCheckedAt: number | null;
 	blobsUnuploadable: Record<string, "too-large" | "unsupported">;
+	/**
+	 * Stored keys that were corrupt and wait for their records to come back
+	 * (an addition to the spec's SyncMeta; absent when there are none). While
+	 * set, the store is `partial` in every session, until the requested
+	 * re-pull completed (or at once when not tracking).
+	 */
+	recovering?: SyncRecovery;
+}
+
+/** A recovery from corrupt keys in progress (`SyncMeta.recovering`). */
+export interface SyncRecovery {
+	/** The corrupt layout keys (full key names, as `layoutKeyOf` gives them). */
+	keys: string[];
+	/**
+	 * Pending keys of records created over a missing base while recovering
+	 * (the record lived in a corrupt key, so this device couldn't see it).
+	 * When the re-pull brings the server's copy, the local one is rebased
+	 * onto it instead of replacing it wholesale.
+	 */
+	provisional: Record<string, true>;
+}
+
+/** A clean copy of a stored recovery; null when there is none (or it is damaged). */
+export function recoveryOf(value: unknown): SyncRecovery | null {
+	if (!isRecord(value) || !Array.isArray(value.keys)) return null;
+	const keys = [...new Set(value.keys.filter((key): key is string => typeof key === "string"))];
+	if (!keys.length) return null;
+	const provisional: Record<string, true> = {};
+	if (isRecord(value.provisional)) {
+		for (const key in value.provisional)
+			if (value.provisional[key] === true) provisional[key] = true;
+	}
+	return { keys, provisional };
+}
+
+/** Both recoveries in one (keys and provisional records unioned); null when both are. */
+export function unionRecovery(
+	a: SyncRecovery | null | undefined,
+	b: SyncRecovery | null | undefined,
+): SyncRecovery | null {
+	if (!a || !b) return a ?? b ?? null;
+	return {
+		keys: [...new Set([...a.keys, ...b.keys])],
+		provisional: { ...a.provisional, ...b.provisional },
+	};
 }
 
 export function emptySync(): SyncMeta {
@@ -181,6 +234,12 @@ function bucketKey(name: string, collection: Collection, bucket: string): string
 	return bucket === WHOLE ? sliceKey(name, collection) : sliceKey(name, collection, bucket);
 }
 
+/** The layout key that stores `record` of `collection`: the main key, or its slice. */
+export function layoutKeyOf(name: string, collection: Collection, record: unknown): string {
+	const layout = layoutOf(collection);
+	return layout === "main" ? name : bucketKey(name, collection, bucketOf(layout, record));
+}
+
 // ── Small helpers ──
 
 type Json = Record<string, unknown>;
@@ -252,7 +311,8 @@ export const SLOW_NORMALIZATION_MS = 500;
 /** Rule 4: `{ ...emptySync(), ...p.sync }` plus the migrations; damaged fields get their defaults. */
 function syncFrom(value: unknown): SyncMeta {
 	if (!isRecord(value)) return emptySync();
-	const out = { ...emptySync(), ...value } as SyncMeta;
+	const { recovering: storedRecovery, ...stored } = value;
+	const out = { ...emptySync(), ...stored } as SyncMeta;
 	if (!(typeof value.cursor === "number" && value.cursor >= 0)) out.cursor = 0;
 	if (!isRecord(value.pending)) out.pending = {};
 	if (typeof value.lastSyncedAt !== "number") out.lastSyncedAt = null;
@@ -273,6 +333,8 @@ function syncFrom(value: unknown): SyncMeta {
 	if (!isRecord(value.blobsUploaded)) out.blobsUploaded = {};
 	if (typeof value.blobsCheckedAt !== "number") out.blobsCheckedAt = null;
 	if (!isRecord(value.blobsUnuploadable)) out.blobsUnuploadable = {};
+	const recovering = recoveryOf(storedRecovery);
+	if (recovering) out.recovering = recovering;
 	return out;
 }
 
@@ -371,14 +433,17 @@ function readAll(kv: KeyValueStorage, keys: readonly string[]): Maybe<RawRead[]>
 }
 
 /**
- * Parses a stored value. A payload that is not a JSON object is corrupt: it
- * is backed up under `<key>:corrupt:<time>` and its key added to `corrupt`.
+ * Parses a stored value. A payload that is not a JSON object is corrupt: its
+ * key is added to `corrupt` and, unless `backup` is false (it was backed up
+ * when first found, or it is only being peeked at), it is backed up under
+ * `<key>:corrupt:<time>`.
  */
 function parseStored(
 	kv: KeyValueStorage,
 	key: string,
 	raw: string | null,
 	corrupt?: string[],
+	backup = true,
 ): Json | null {
 	if (!raw) return null;
 	let value: unknown;
@@ -389,6 +454,7 @@ function parseStored(
 	}
 	if (isRecord(value)) return value;
 	corrupt?.push(key);
+	if (!backup) return null;
 	try {
 		void Promise.resolve(kv.setItem(`${key}:corrupt:${Date.now()}`, raw)).catch(() => {});
 	} catch {
@@ -414,6 +480,8 @@ interface LayoutRead {
 	error: unknown;
 	/** Keys whose payload could not be parsed (backed up, read as missing). */
 	corrupt: string[];
+	/** The main key exactly as read (null: absent, undefined: not read). */
+	mainRaw: string | null | undefined;
 }
 
 const emptyRead = (): LayoutRead => ({
@@ -423,7 +491,14 @@ const emptyRead = (): LayoutRead => ({
 	otherSlices: [],
 	error: undefined,
 	corrupt: [],
+	mainRaw: undefined,
 });
+
+/** The keys a stored meta value lists as recovering (backed up when first found). */
+function recoveringIn(meta: Json | null): ReadonlySet<string> {
+	const sync = meta && isRecord(meta.sync) ? meta.sync : null;
+	return new Set(recoveryOf(sync?.recovering)?.keys ?? []);
+}
 
 const hasContent = (read: LayoutRead) =>
 	read.main !== null || read.meta !== null || read.slices.length > 0;
@@ -487,8 +562,11 @@ function readLayout(kv: KeyValueStorage, name: string): Maybe<LayoutRead> {
 			}
 			return parseStored(kv, key, read.raw, out.corrupt);
 		};
+		if (mainRead && !("error" in mainRead)) out.mainRaw = mainRead.raw;
 		out.main = absorb(mainRead, name);
 		out.meta = absorb(metaRead, metaKey(name));
+		// A slice still corrupt from an earlier session was backed up then.
+		const recovering = recoveringIn(out.meta);
 
 		const listingLost =
 			out.meta === null &&
@@ -522,7 +600,13 @@ function readLayout(kv: KeyValueStorage, name: string): Maybe<LayoutRead> {
 							out.error ??= read.error;
 							return;
 						}
-						const records = parseStored(kv, slice.key, read.raw, out.corrupt);
+						const records = parseStored(
+							kv,
+							slice.key,
+							read.raw,
+							out.corrupt,
+							!recovering.has(slice.key),
+						);
 						if (records) out.slices.push({ ...slice, records });
 					});
 					return out;
@@ -645,6 +729,53 @@ function joinSettings(main: unknown, meta: unknown): unknown {
 	return { ...meta, ...main };
 }
 
+/**
+ * Hydration found corrupt keys (backed up, read as missing). Their records may
+ * be on the server, so the next sync re-pulls everything (`schemaRev = 1`),
+ * and the recovery is recorded in the sync meta (`recovering`), so every
+ * session stays `partial` until that re-pull completed, not just this one.
+ *
+ * A corrupt meta key also lost the pending keys of every collection but the
+ * main four, and the stored `tracking`. Tracking is inferred again (a main key
+ * in this layout with pending keys was written while tracking: this build
+ * records them only then), and while tracking every record of those
+ * collections becomes pending again: an unsynced edit is pushed once the
+ * re-pull completed, and re-pushing a synced record is a no-op on the server.
+ */
+function recoverFrom(
+	name: string,
+	state: JoinedState,
+	corrupt: readonly string[],
+	read: LayoutRead,
+): JoinedState {
+	const sync: Json = { ...(state.sync ?? {}) };
+	sync.schemaRev = 1;
+	sync.recovering = unionRecovery(recoveryOf(sync.recovering), {
+		keys: [...corrupt],
+		provisional: {},
+	});
+	if (corrupt.includes(metaKey(name)) && typeof sync.tracking !== "boolean") {
+		const pending: Json = isRecord(sync.pending) ? { ...sync.pending } : {};
+		let mainPending = false;
+		for (const _ in pending) mainPending = true;
+		const tracking =
+			(typeof sync.cursor === "number" && sync.cursor > 0) ||
+			typeof sync.lastSyncedAt === "number" ||
+			(mainPending && isLayoutMain(read.main));
+		sync.tracking = tracking;
+		if (tracking) {
+			for (const [collection, records] of Object.entries(state.data)) {
+				if (!isKnownCollection(collection) || MAIN_SET.has(collection) || !isRecord(records)) {
+					continue;
+				}
+				for (const id in records) pending[`${collection}/${id}`] = true;
+			}
+		}
+		sync.pending = pending;
+	}
+	return { ...state, sync };
+}
+
 /** Normalizes every record of a joined state (legacy data written by an older build). */
 function normalizeJoined(state: JoinedState): JoinedState {
 	const data: Json = {};
@@ -690,6 +821,8 @@ export interface ExternalChanges {
 	pending: Record<string, true>;
 	/** Settings from the main key, when it was read. */
 	settings?: unknown;
+	/** A recovery in progress recorded in the meta key, when it was read (unioned). */
+	recovering?: SyncRecovery;
 }
 
 export interface SplitStorageOptions {
@@ -752,9 +885,10 @@ export interface SplitPersistStorage extends FlushablePersistStorage<PersistedSt
 	/**
 	 * Removes the corrupt keys hydration found (each was backed up under
 	 * `<key>:corrupt:<time>`) that no write has replaced since, so later
-	 * sessions read every key again. The store calls it once their records
-	 * can't come back any other way: right away when not tracking, else after
-	 * the requested re-pull completed. No-op while read-only.
+	 * sessions read every key again; the next meta write unlists them. The
+	 * store calls it once their records can't come back any other way: right
+	 * away when not tracking, else after the requested re-pull completed.
+	 * No-op while read-only.
 	 */
 	dropCorrupt(): Promise<void>;
 	/**
@@ -786,6 +920,8 @@ interface MainSnap {
 	maps: Map<string, unknown>;
 	/** Canonical JSON. */
 	settings: string;
+	/** The settings object as stored (an in-place write keeps it when it parses the same). */
+	rawSettings: unknown;
 	cursor: unknown;
 	lastSyncedAt: unknown;
 	pending: ReadonlySet<string>;
@@ -839,9 +975,17 @@ interface WriteOp {
 	split?: () => WriteOp[] | null;
 	/** Called once the op (or the smaller writes that replaced it) succeeded. */
 	done?: () => void;
+	/** A step of the migration of an older main key (a slice, a piece or an in-between main key). */
+	migration?: boolean;
 }
 
 type WriteMode = "normal" | "repair";
+
+/** The main collections and settings to write into a main key (`storedForm`). */
+interface StoredForm {
+	maps: ReadonlyMap<string, unknown>;
+	settings: unknown;
+}
 
 const countKeys = (records: Json): number => {
 	let count = 0;
@@ -898,6 +1042,7 @@ function mainSnapOf(value: Json, align?: Align): MainSnap {
 		records,
 		maps: new Map(),
 		settings: canonical(state?.settings),
+		rawSettings: state?.settings,
 		cursor: sync.cursor,
 		lastSyncedAt: sync.lastSyncedAt,
 		pending: keySet(sync.pending),
@@ -1023,8 +1168,15 @@ export function createSplitStorage(
 	let readOnly = false;
 	let pendingValue: StorageValue<PersistedState> | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	/** An older backend's keys to remove after the next successful write. */
-	let legacyRemoval: { kv: KeyValueStorage; keys: string[] } | null = null;
+	/**
+	 * An older backend's keys to remove after the next successful write, and
+	 * its main key as it was read (a stale v1 tab may save it again meanwhile).
+	 */
+	let legacyRemoval: {
+		kv: KeyValueStorage;
+		keys: string[];
+		mainRaw: string | null | undefined;
+	} | null = null;
 	/** Attempt the next write even if nothing changed (once; a failure doesn't re-arm it). */
 	let force = false;
 
@@ -1058,6 +1210,9 @@ export function createSplitStorage(
 		diskMain = read.main ? mainSnapOf(read.main) : null;
 		diskMeta = read.meta ? metaSnapOf(read.meta) : null;
 		diskSlices = new Set(read.slices.map((s) => s.key));
+		// A corrupt slice is still on disk: it stays listed until it is replaced
+		// or dropped, or backends that rely on the listing would never see it again.
+		for (const key of read.corrupt) if (parseSliceKey(name, key)) diskSlices.add(key);
 		otherSlices = new Set(read.otherSlices);
 		collections = new Map();
 		for (const slice of read.slices) {
@@ -1225,15 +1380,24 @@ export function createSplitStorage(
 
 		let nextMain: MainSnap | null = main ? { ...main, maps } : null;
 		const mainOps: WriteOp[] = [];
-		/** The main key with `extra` records of sliced collections and the given cursor. */
-		const mainValue = (extra: Json, cursor: unknown, lastSyncedAt: unknown): string => {
+		/**
+		 * The main key with `extra` records of sliced collections and the given
+		 * cursor; `form` gives its main collections and settings (default: as in
+		 * `state`).
+		 */
+		const mainValue = (
+			extra: Json,
+			cursor: unknown,
+			lastSyncedAt: unknown,
+			form: StoredForm = { maps, settings: state.settings },
+		): string => {
 			const mainData: Json = {};
-			for (const collection of MAIN_COLLECTIONS) mainData[collection] = maps.get(collection);
+			for (const collection of MAIN_COLLECTIONS) mainData[collection] = form.maps.get(collection);
 			Object.assign(mainData, extra);
 			return JSON.stringify({
 				state: {
 					data: mainData,
-					settings: state.settings,
+					settings: form.settings,
 					sync: { cursor, pending: pending.main, lastSyncedAt },
 				},
 				version,
@@ -1250,6 +1414,7 @@ export function createSplitStorage(
 				records,
 				maps,
 				settings,
+				rawSettings: state.settings,
 				cursor: sync.cursor,
 				lastSyncedAt: sync.lastSyncedAt,
 				pending: new Set(Object.keys(pending.main)),
@@ -1322,10 +1487,17 @@ export function createSplitStorage(
 		 */
 		const progress = new Map<WriteOp, Set<string> | "done">();
 		const sliceOf = (op: WriteOp) => op.slice as NonNullable<WriteOp["slice"]>;
+		/**
+		 * The in-between main keys hold the main collections and settings as
+		 * stored where they only differ by normalization, so each one is smaller
+		 * than the one before (a full localStorage has no room for growth).
+		 */
+		let stored: StoredForm | null = null;
 		/** The main key in between: the records of every bucket not yet in its slice. */
 		const between = (): WriteOp => ({
 			key: layout.main,
 			value: null,
+			migration: true,
 			lazy: () => {
 				const extra: Json = {};
 				for (const step of steps) {
@@ -1340,13 +1512,15 @@ export function createSplitStorage(
 						target[id] = snap.records[id];
 					}
 				}
-				return mainValue(extra, main.cursor, main.lastSyncedAt);
+				stored ??= storedForm(main, state);
+				return mainValue(extra, main.cursor, main.lastSyncedAt, stored);
 			},
 		});
 		/** Writes `piece` (ids) of a step's bucket into its slice, after what is there. */
 		const movePiece = (step: WriteOp, piece: readonly string[]): WriteOp => ({
 			key: step.key,
 			value: null,
+			migration: true,
 			lazy: () => {
 				const moved = progress.get(step);
 				const { snap, disk } = sliceOf(step);
@@ -1368,10 +1542,45 @@ export function createSplitStorage(
 				progress.set(step, next);
 			},
 		});
+		/**
+		 * The migration started in an earlier write: the meta key it writes
+		 * first is on disk (the in-place fallback removes it again), or a slice.
+		 */
+		const started = meta !== null || steps.some((op) => diskSlices.has(op.key));
+		let reserve: number | null = null;
+		/**
+		 * Bytes the migrated layout needs beyond what the old main key holds:
+		 * the final main key's growth (normalized records, full settings) and
+		 * each slice's key and braces. Before the migration started, its first
+		 * piece must be at least this big: writing it proves the room the end
+		 * state needs. With less room the migration could never finish (it
+		 * would move every record, one at a time, and then fail), so the state
+		 * is saved in place instead (`writeInPlace`).
+		 */
+		const reserveBytes = (): number => {
+			if (reserve === null) {
+				stored ??= storedForm(main, state);
+				const final = mainOps[0]?.value?.length ?? 0;
+				const now = mainValue({}, main.cursor, main.lastSyncedAt, stored).length;
+				let overhead = 0;
+				for (const op of steps) overhead += op.key.length + 2;
+				reserve = Math.max(0, final - now) + overhead;
+			}
+			return reserve;
+		};
+		const recordBytes = new Map<WriteOp, number>();
 		/** A piece too big to write at once: its first half, the main key, its second half. */
 		const halves = (step: WriteOp, piece: readonly string[]): WriteOp[] | null => {
 			if (piece.length < 2) return null;
 			const { snap } = sliceOf(step);
+			if (!started && progress.size === 0) {
+				let bytes = recordBytes.get(step);
+				if (bytes === undefined) {
+					bytes = snap.count ? JSON.stringify(snap.records).length / snap.count : 0;
+					recordBytes.set(step, bytes);
+				}
+				if (Math.floor(piece.length / 2) * bytes < reserveBytes()) return null;
+			}
 			const date = (id: string) => {
 				const record = snap.records[id];
 				return isRecord(record) && typeof record.date === "string" ? record.date : "";
@@ -1392,6 +1601,7 @@ export function createSplitStorage(
 
 		const ordered: WriteOp[] = [...metaOps, ...ops.filter((op) => !inSteps.has(op))];
 		steps.forEach((op, i) => {
+			op.migration = true;
 			op.done = () => progress.set(op, "done");
 			op.split = () => {
 				// Everything the slice doesn't hold yet (read at failure time: a fresh
@@ -1410,6 +1620,15 @@ export function createSplitStorage(
 	const removeLegacy = async () => {
 		const removal = legacyRemoval;
 		if (!removal) return;
+		// A stale v1 tab saved the legacy key after it was read: removing it now
+		// would delete that save unread. It stays; its storage event (or the next
+		// start) merges it, and the removal is planned again then.
+		const reread = readRaw(removal.kv, name);
+		const current = isThenable(reread) ? await reread : reread;
+		if ("error" in current || current.raw !== removal.mainRaw) {
+			if (legacyRemoval === removal) legacyRemoval = null;
+			return;
+		}
 		const results = await Promise.allSettled(
 			removal.keys.map((key) => call(() => removal.kv.removeItem(key))),
 		);
@@ -1438,6 +1657,112 @@ export function createSplitStorage(
 	};
 
 	/**
+	 * The main collections and settings of `state` as an older main key holds
+	 * them: records and settings that only differ from the stored ones by
+	 * normalization (hydration normalizes an older main key's records) are
+	 * kept as stored, so rewriting that key doesn't make it grow.
+	 */
+	const storedForm = (main: MainSnap, state: PersistedState): StoredForm => {
+		const data = (isRecord(state.data) ? state.data : {}) as Json;
+		const maps = new Map<string, Json>();
+		for (const collection of MAIN_COLLECTIONS) {
+			const map = (isRecord(data[collection]) ? data[collection] : {}) as Json;
+			const disk = main.records.get(collection)?.records ?? {};
+			const written: Json = {};
+			for (const id in map) {
+				const record = map[id];
+				const stored = disk[id];
+				const same =
+					stored !== record &&
+					isRecord(stored) &&
+					compareVersions(normalizeRecord(collection, stored), record) === 0;
+				written[id] = same ? stored : record;
+			}
+			maps.set(collection, written);
+		}
+		const parsed = settingsSchema.safeParse({
+			...DEFAULT_SETTINGS,
+			...(isRecord(main.rawSettings) ? main.rawSettings : {}),
+		});
+		const same = parsed.success && canonical(parsed.data) === settingsJson(state.settings);
+		return { maps, settings: same ? main.rawSettings : state.settings };
+	};
+
+	/**
+	 * The fallback of a write that could not start while the main key is in an
+	 * older layout (a v1 build's, with every log in it): the whole state is
+	 * saved in place, in that layout, in the main key alone. The migration
+	 * needs room for its first step (the meta key, then a slice) next to the
+	 * old main key; a localStorage near its quota may not have it, while the
+	 * v1 build could still rewrite its one key. Records and settings that only
+	 * differ from the stored ones by normalization are written as stored, so
+	 * an unchanged state keeps its size. The sync meta goes along in the main
+	 * key's `sync` (a v1 build keeps fields it doesn't know). Later writes of
+	 * the session save in place too (each failed attempt costs a series of
+	 * shrinking slice writes); the next session tries the migration again.
+	 * Returns null on success, else the error.
+	 */
+	let inPlace = false;
+	const writeInPlace = async (state: PersistedState): Promise<unknown> => {
+		const main = diskMain;
+		if (!main || main.exact) return new Error("The main key is not in an older layout");
+		const data = (isRecord(state.data) ? state.data : {}) as Json;
+		const form = storedForm(main, state);
+		const out: Json = {};
+		const records = new Map<string, BucketSnap>();
+		for (const [collection, map] of form.maps) {
+			const written = map as Json;
+			out[collection] = written;
+			records.set(collection, { records: written, count: countKeys(written) });
+		}
+		const legacy = new Map<Collection, Set<string>>();
+		for (const collection of COLLECTIONS) {
+			const layoutKind = layoutOf(collection);
+			if (layoutKind === "main") continue;
+			const map = isRecord(data[collection]) ? (data[collection] as Json) : {};
+			const buckets = new Set<string>();
+			for (const id in map) buckets.add(bucketOf(layoutKind, map[id]));
+			// `logs` always: a v1 build expects it, and it marks the older layout.
+			if (buckets.size || collection === "logs") out[collection] = map;
+			if (buckets.size) legacy.set(collection, buckets);
+		}
+		if (isRecord(state.foreign)) {
+			for (const [collection, foreign] of Object.entries(state.foreign)) {
+				if (!(collection in out)) out[collection] = foreign;
+			}
+		}
+		const settings = settingsJson(state.settings);
+		const rawSettings = form.settings;
+		const sync = (isRecord(state.sync) ? state.sync : emptySync()) as SyncMeta;
+		const value = JSON.stringify({
+			state: { data: out, settings: rawSettings, sync },
+			version,
+		});
+		try {
+			await call(() => kv.setItem(layout.main, value));
+		} catch (error) {
+			return error ?? new Error("The write failed");
+		}
+		corruptKeys.delete(layout.main);
+		diskMain = {
+			records,
+			maps: new Map(),
+			settings,
+			rawSettings,
+			cursor: sync.cursor,
+			lastSyncedAt: sync.lastSyncedAt,
+			pending: new Set(Object.keys(isRecord(sync.pending) ? sync.pending : {})),
+			exact: false,
+			legacy,
+		};
+		if (!inPlace) {
+			inPlace = true;
+			console.warn("[atomic] No room to move to the new storage layout yet; saved in place");
+		}
+		return null;
+	};
+
+	/**
 	 * Plans and runs one write; records the result. Runs inside the queue.
 	 * Keys are written one at a time, in plan order (meta, slices, main; see
 	 * `plan` for an older main key), and the first failure stops the write, so
@@ -1445,9 +1770,36 @@ export function createSplitStorage(
 	 * (backends write key by key, not atomically).
 	 */
 	const execute = async (state: PersistedState, mode: WriteMode): Promise<void> => {
+		const saved = (keys: string[]) => {
+			try {
+				options.onSaved?.(keys);
+			} catch {
+				// a listener must not break persistence
+			}
+		};
+		const older = diskMain !== null && !diskMain.exact;
+		if (older && inPlace) {
+			const error = await writeInPlace(state);
+			if (error === null) saved([layout.main]);
+			else reportError(error);
+			return;
+		}
 		const { ops, commit } = plan(state, mode);
 		const discovered: ExternalChanges = { data: {}, foreign: {}, pending: {} };
 		let found = false;
+		/** A migration step was written: records moved out of the older main key. */
+		let moved = false;
+		/** The meta key as it was before this write, once this write replaced it. */
+		let metaBefore: RawRead | null = null;
+		const report = () => {
+			if (!found) return;
+			console.warn("[atomic] Found stored records this tab hadn't read; merged them");
+			try {
+				options.onDiscovered?.(discovered);
+			} catch {
+				// a listener must not break persistence
+			}
+		};
 		const run = async (op: WriteOp): Promise<void> => {
 			if (op.fresh) {
 				const disk = await mergeFresh(op as WriteOp & { fresh: NonNullable<WriteOp["fresh"]> });
@@ -1459,6 +1811,8 @@ export function createSplitStorage(
 			}
 			const key = op.key;
 			const value = op.lazy ? op.lazy() : op.value;
+			// Next to an older main key: kept, to undo the meta write if nothing else fits.
+			const before = older && key === layout.meta ? await readRaw(kv, key) : null;
 			try {
 				await call(() => (value === null ? kv.removeItem(key) : kv.setItem(key, value)));
 			} catch (error) {
@@ -1470,6 +1824,8 @@ export function createSplitStorage(
 				op.done?.();
 				return;
 			}
+			if (before) metaBefore = before;
+			else if (op.migration) moved = true;
 			// Replaced: no longer the corrupt payload hydration found.
 			corruptKeys.delete(key);
 			op.done?.();
@@ -1478,25 +1834,32 @@ export function createSplitStorage(
 			try {
 				await run(op);
 			} catch (error) {
+				// The migration of an older main key could not move anything (a
+				// localStorage near its quota): undo the meta write, which only
+				// took room, and save in place, in that layout, as the older build did.
+				if (older && !moved) {
+					// Assigned inside `run` (TypeScript can't see it).
+					const undo = metaBefore as RawRead | null;
+					if (undo && !("error" in undo)) {
+						const raw = undo.raw;
+						await call(() =>
+							raw === null ? kv.removeItem(layout.meta) : kv.setItem(layout.meta, raw),
+						).catch(() => {});
+					}
+					if ((await writeInPlace(state)) === null) {
+						report();
+						saved([layout.main, ...(undo ? [layout.meta] : [])]);
+						return;
+					}
+				}
 				reportError(error);
 				return;
 			}
 		}
 		commit();
-		if (found) {
-			console.warn("[atomic] Found stored records this tab hadn't read; merged them");
-			try {
-				options.onDiscovered?.(discovered);
-			} catch {
-				// a listener must not break persistence
-			}
-		}
+		report();
 		if (legacyRemoval) await removeLegacy();
-		try {
-			options.onSaved?.([...new Set(ops.map((op) => op.key))]);
-		} catch {
-			// a listener must not break persistence
-		}
+		saved([...new Set(ops.map((op) => op.key))]);
 	};
 
 	const write = (): Promise<void> => {
@@ -1548,6 +1911,7 @@ export function createSplitStorage(
 							...legacy.read.corrupt,
 						]),
 					],
+					mainRaw: legacy.read.mainRaw,
 				};
 			}
 			if (content) {
@@ -1558,11 +1922,10 @@ export function createSplitStorage(
 			}
 		}
 		const unreadable = read.error !== undefined || legacy?.read.error !== undefined;
-		const corrupt = [...read.corrupt, ...(legacy?.read.corrupt ?? [])];
+		const corrupt = [...new Set([...read.corrupt, ...(legacy?.read.corrupt ?? [])])];
 		if (corrupt.length) {
 			console.warn("[atomic] Some stored data was corrupt and was backed up", corrupt);
-			// Their records may be on the server: the next sync re-pulls everything.
-			if (state?.sync) state = { ...state, sync: { ...state.sync, schemaRev: 1 } };
+			if (state) state = recoverFrom(name, state, corrupt, read);
 		}
 		if (unreadable || corrupt.length) {
 			try {
@@ -1629,6 +1992,8 @@ export function createSplitStorage(
 		if (isRecord(pending)) {
 			for (const key in pending) if (pending[key] === true) changes.pending[key] = true;
 		}
+		const recovering = recoveryOf(state.sync?.recovering);
+		if (recovering) changes.recovering = recovering;
 		return changes;
 	};
 
@@ -1694,7 +2059,8 @@ export function createSplitStorage(
 					const result = results[i];
 					if (!result || "error" in result) return;
 					any = true;
-					const value = parseStored(kv, key, result.raw);
+					// Another tab's key: a corrupt one is backed up by the session that hydrates it.
+					const value = parseStored(kv, key, result.raw, undefined, false);
 					if (key === layout.main) {
 						diskMain = value ? mainSnapOf(value, align) : null;
 						read.main = value;
@@ -1748,6 +2114,7 @@ export function createSplitStorage(
 				legacyRemoval = {
 					kv: legacy.kv,
 					keys: [name, metaKey(name), ...legacy.read.slices.map((s) => s.key)],
+					mainRaw: legacy.read.mainRaw,
 				};
 				// Written (and then removed) even when it brings nothing new.
 				force = true;
@@ -1763,7 +2130,11 @@ export function createSplitStorage(
 				const keys = [...corruptKeys];
 				const results = await Promise.allSettled(keys.map((key) => call(() => kv.removeItem(key))));
 				results.forEach((result, i) => {
-					if (result.status === "fulfilled") corruptKeys.delete(keys[i] as string);
+					if (result.status !== "fulfilled") return;
+					const key = keys[i] as string;
+					corruptKeys.delete(key);
+					// No longer listed from the next meta write on.
+					diskSlices.delete(key);
 				});
 				const failure = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
 				if (failure) reportError(failure.reason);

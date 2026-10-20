@@ -1,7 +1,8 @@
 import type { AttachmentRef } from "../attachments";
-import { type DayKey, type Weekday, addDays, addMonths } from "../dates";
+import { type DayKey, type Weekday, addDays } from "../dates";
 import type { Translator } from "../i18n";
 import type { Habit, Task } from "../model";
+import { onThisDay, onThisDayLabel } from "./defs/kit";
 import { clockMinutes, nightOf } from "./format";
 import type { TrackerEntryIndex } from "./measure";
 import { isTrackerActive, knownTracker, trackerStart } from "./meta";
@@ -19,6 +20,8 @@ import type { TrackerConfig, TrackerEntry } from "./schema";
  * Owner: T4. Non-React module: exported from `trackers/index.ts`.
  */
 
+export { onThisDay, onThisDayLabel };
+
 export {
 	PERIOD_KINDS,
 	type Period,
@@ -33,8 +36,8 @@ export {
 	shiftPeriod,
 } from "./period";
 
-/** How chart values and references read: minor units, minutes of the clock, seconds. */
-export type ValueFormat = "number" | "money" | "clock" | "duration";
+/** How chart values and references read: minor units, minutes of the clock, seconds, 0–100. */
+export type ValueFormat = "number" | "money" | "clock" | "duration" | "percent";
 export type Tone = "default" | "good" | "warning" | "danger";
 
 export interface StatItem {
@@ -316,6 +319,8 @@ export function trackerHeadline(
 	index: TrackerEntryIndex,
 	today: DayKey,
 	t: Translator,
+	/** Tasks, for the plan tracker's follow-through. */
+	tasks?: Readonly<Record<string, Task>>,
 ): string | null {
 	const resolved = resolve(habit, true);
 	if (!resolved) return null;
@@ -333,6 +338,7 @@ export function trackerHeadline(
 		start: trackerStart(habit),
 		entries: all.filter((e) => e.date >= period.from && e.date <= period.to),
 		all,
+		tasks,
 		caps: { photos: false },
 	});
 }
@@ -351,36 +357,6 @@ export function trackerEntryLine(
 	}
 	const { config, def } = resolved;
 	return def.entryLine(entry, { habit, config, t, index, today });
-}
-
-/**
- * Entries from exactly one week, one month and N years before today (Annex
- * K §1.8.5 "On this day"), nearest first.
- */
-export function onThisDay(
-	entries: readonly TrackerEntry[],
-	today: DayKey,
-): { entry: TrackerEntry; ago: "week" | "month" | number }[] {
-	const targets = new Map<DayKey, "week" | "month" | number>();
-	targets.set(addDays(today, -7), "week");
-	targets.set(addMonths(today, -1), "month");
-	for (let years = 1; years <= 10; years++) targets.set(addMonths(today, -12 * years), years);
-	const rank = (ago: "week" | "month" | number) =>
-		ago === "week" ? 0 : ago === "month" ? 1 : 1 + ago;
-	const out: { entry: TrackerEntry; ago: "week" | "month" | number }[] = [];
-	for (const entry of entries) {
-		if (entry.deletedAt) continue;
-		const ago = targets.get(entry.date);
-		if (ago !== undefined) out.push({ entry, ago });
-	}
-	return out.sort((a, b) => rank(a.ago) - rank(b.ago));
-}
-
-/** "1 week ago", "1 month ago", "2 years ago". */
-export function onThisDayLabel(ago: "week" | "month" | number, t: Translator): string {
-	if (ago === "week") return t.t("tracker.onThisDay.week");
-	if (ago === "month") return t.t("tracker.onThisDay.month");
-	return t.tp("tracker.onThisDay.years", ago);
 }
 
 /**

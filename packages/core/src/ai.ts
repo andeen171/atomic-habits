@@ -156,3 +156,71 @@ export const aiQuotaSchema = z.looseObject({
 	resetsAt: z.number(),
 });
 export type AiQuota = z.infer<typeof aiQuotaSchema>;
+
+/*
+ * Procedures (spec §4.3, Annex C §1.6). All are POST with a bearer token;
+ * content never travels in a URL, and the server neither logs nor caches it.
+ */
+
+/**
+ * `POST /trpc/ai.setConsent`: the account's AI consent (LGPD art. 8).
+ * `suggestions: false` withdraws consent and also turns translation off;
+ * `translate` is the separate "translate my content" switch (default off).
+ */
+export const aiConsentInputSchema = z.object({
+	suggestions: z.boolean(),
+	translate: z.boolean(),
+});
+export type AiConsentInput = z.infer<typeof aiConsentInputSchema>;
+
+/** The stored consent, as `AccountInfo.ai` reports it (`consentAt` in epoch ms). */
+export const aiConsentSchema = z.looseObject({
+	consentAt: z.number().nullable(),
+	translate: z.boolean(),
+});
+export type AiConsent = z.infer<typeof aiConsentSchema>;
+
+/**
+ * `ai.suggest` answer. Parse `output` with `aiSuggestOutputSchemas[kind]`
+ * (the server already validated and cleaned it); `quota` counts requests.
+ */
+export const aiSuggestResponseSchema = z.looseObject({
+	output: z.unknown(),
+	quota: aiQuotaSchema,
+});
+export type AiSuggestResponse<K extends AiSuggestKind = AiSuggestKind> = {
+	output: AiSuggestOutput<K>;
+	quota: AiQuota;
+};
+
+/**
+ * `ai.translate` answer: one item per request item (same ids), and the
+ * day's character quota. Each text is at most 2 × its source + 40.
+ */
+export const aiTranslateResponseSchema = z.looseObject({
+	items: aiTranslateOutputSchema.shape.items,
+	quota: aiQuotaSchema,
+});
+export type AiTranslateResponse = z.infer<typeof aiTranslateResponseSchema>;
+
+/**
+ * `error.data.atomic.reason` of a refused AI call (Annex C §1.6 "Errors → UI"):
+ * - `consent` (412): open the consent dialog (translate: the translate switch is off);
+ * - `unverified` (412): email is on and the address isn't confirmed yet;
+ * - `quota` (429): today's quota is used up; `retryAt` is the next 00:00 UTC;
+ * - `rate` (429): more than 6 calls a minute; `retryAt` says when to try again;
+ * - `busy` (503): the model is saturated or the server's daily cap is reached;
+ * - `timeout` (504): no answer within `features.ai.timeoutMs`;
+ * - `failed` (502): the model failed or gave an unusable answer.
+ * Failed, timed-out and busy calls are refunded. AI off answers 501.
+ */
+export const AI_ERROR_REASONS = [
+	"consent",
+	"unverified",
+	"quota",
+	"rate",
+	"busy",
+	"timeout",
+	"failed",
+] as const;
+export type AiErrorReason = (typeof AI_ERROR_REASONS)[number];

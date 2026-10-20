@@ -77,7 +77,7 @@ export const CURRENCIES: Readonly<Record<CurrencyCode, CurrencyInfo>> = {
 /** Largest amount a tracker stores (the schema's `money` maximum, in minor units). */
 export const MAX_MONEY_MINOR = 1_000_000_000_000;
 
-const NBSP = " ";
+const NBSP = "\u00a0";
 
 export function isCurrencyCode(code: unknown): code is CurrencyCode {
 	return typeof code === "string" && Object.prototype.hasOwnProperty.call(CURRENCIES, code);
@@ -132,7 +132,11 @@ export function formatMoney(
  * ("1234,50" in pt-BR, "1234.50" in en, "1234" for JPY). Null and
  * non-finite values give "".
  */
-export function moneyInputValue(minor: number | null | undefined, code: string, locale: Locale): string {
+export function moneyInputValue(
+	minor: number | null | undefined,
+	code: string,
+	locale: Locale,
+): string {
 	if (minor === null || minor === undefined || !Number.isFinite(minor)) return "";
 	const decimals = currencyDecimals(code);
 	const fixed = (Math.abs(Math.round(minor)) / 10 ** decimals).toFixed(decimals);
@@ -158,7 +162,7 @@ export function parseMoney(input: string, locale: Locale, decimals = 2): number 
 	const kept = raw.replace(/[^0-9.,]/g, "");
 	if (!/[0-9]/.test(kept)) return null;
 	// Anything but digits, separators, spaces and a currency mark is not an amount ("12abc").
-	const rest = raw.replace(/[0-9.,\s ]/g, "");
+	const rest = raw.replace(/[0-9.,\s\u00a0]/g, "");
 	if (rest && !isSymbolText(rest)) return null;
 
 	const localeDecimal = locale === "pt-BR" ? "," : ".";

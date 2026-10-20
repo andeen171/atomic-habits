@@ -1,6 +1,6 @@
-import { type DayKey, addDays, parseDayKey, parseTime } from "../dates";
+import { type DayKey, addDays, parseDayKey, parseTime, weekdayOf } from "../dates";
 import type { Locale } from "../i18n";
-import type { AtomicData, Habit, HabitLog } from "../model";
+import type { AtomicData, Habit, HabitLog, Task } from "../model";
 import { CUE_TYPES } from "../primitives";
 import { countWords } from "./format";
 import { dayCountFor } from "./measure";
@@ -23,6 +23,8 @@ export interface DemoTrackerInput {
 	locale: Locale;
 	/** `createdAt` / `updatedAt` of every sample record. */
 	createdAt: number;
+	/** The clock (plan tasks done today are completed before it); default: today's noon. */
+	now?: number;
 	seed?: number;
 }
 
@@ -30,6 +32,11 @@ export interface DemoTrackerData {
 	trackerEntries: Record<string, TrackerEntry>;
 	/** The logs of tracker days, with counts derived from their entries. */
 	logs: Record<string, HabitLog>;
+	/**
+	 * The tasks plan entries created (`habitId: null`, `sourceEntryId` = the
+	 * plan, D17): mostly done, a couple still open, older misses deleted.
+	 */
+	tasks: Record<string, Task>;
 }
 
 function mulberry32(seed: number) {
@@ -54,6 +61,17 @@ const COPY = {
 			{ title: "Atomic Habits", author: "James Clear", pages: 320 },
 			{ title: "Deep Work", author: "Cal Newport", pages: 296 },
 		],
+		priorities: [
+			"Send the project update",
+			"Gym at 7",
+			"Call the bank",
+			"Finish chapter 3",
+			"Book the dentist",
+			"Clean the inbox",
+			"Buy a birthday gift",
+			"Review the budget",
+		],
+		meals: ["Salad with lunch", "Broccoli and rice", "Veggie soup", "Carrots as a snack"],
 	},
 	"pt-BR": {
 		expenseNotes: ["Café", "Mercado", "Passagem", "Almoço com a Ana", "Cinema", "Lâmpadas"],
@@ -63,8 +81,23 @@ const COPY = {
 			{ title: "Hábitos Atômicos", author: "James Clear", pages: 320 },
 			{ title: "Trabalho Focado", author: "Cal Newport", pages: 296 },
 		],
+		priorities: [
+			"Enviar a atualização do projeto",
+			"Academia às 7",
+			"Ligar para o banco",
+			"Terminar o capítulo 3",
+			"Marcar o dentista",
+			"Limpar a caixa de entrada",
+			"Comprar um presente de aniversário",
+			"Revisar o orçamento",
+		],
+		meals: ["Salada no almoço", "Brócolis com arroz", "Sopa de legumes", "Cenoura de lanche"],
 	},
 } as const;
+
+const HOUR_MS = 3_600_000;
+/** Plan tasks start after the demo's own tasks. */
+const PLAN_TASK_ORDER = 1000;
 
 const EXPENSE_CATEGORIES = ["food", "groceries", "transport", "fun", "home"] as const;
 const ACTIVITIES = ["run", "walk", "strength", "cycling", "yoga"] as const;
@@ -82,8 +115,50 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 	const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)] as T;
 	const between = (min: number, max: number) => min + Math.floor(random() * (max - min + 1));
 	const copy = COPY[locale];
+	const now = input.now ?? parseDayKey(today).getTime() + 12 * HOUR_MS;
 	const trackerEntries: Record<string, TrackerEntry> = {};
 	const logs: Record<string, HabitLog> = {};
+	const tasks: Record<string, Task> = {};
+	/** A plan line's task: done with 80% odds, today's first line done already. */
+	const planTask = (
+		habit: Habit,
+		entry: TrackerEntry,
+		line: { text: string; index: number },
+		forDay: DayKey,
+	): string => {
+		const id = `demo-plan-task-${Object.keys(tasks).length}`;
+		const dayStart = parseDayKey(forDay).getTime();
+		let completedAt: number | null = null;
+		let deletedAt: number | null = null;
+		if (forDay < today) {
+			if (random() < 0.8) completedAt = dayStart + between(9, 18) * HOUR_MS;
+			// Older misses were cleared; the last couple of days' are still open.
+			else if (forDay < addDays(today, -2)) deletedAt = dayStart + 21 * HOUR_MS;
+		} else if (forDay === today && line.index === 0) {
+			completedAt = Math.max(parseDayKey(today).getTime(), now - HOUR_MS);
+		}
+		tasks[id] = {
+			id,
+			title: line.text,
+			notes: null,
+			date: forDay,
+			priority: 2,
+			completedAt,
+			identityId: habit.identityId,
+			order: PLAN_TASK_ORDER + Object.keys(tasks).length,
+			repeat: null,
+			time: null,
+			habitId: null,
+			law: null,
+			habitField: null,
+			sourceEntryId: entry.id,
+			lang: locale,
+			createdAt,
+			updatedAt: Math.max(createdAt, completedAt ?? deletedAt ?? createdAt),
+			deletedAt,
+		};
+		return id;
+	};
 
 	const habits = Object.values(data.habits)
 		.filter((habit) => !habit.deletedAt && knownTracker(habit)?.enabled !== false)
@@ -137,6 +212,29 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 
 		for (const date of [...days.keys()].sort()) {
 			const log = days.get(date) ?? null;
+			if (config.type === "plan" && log) {
+				// The evening's plan for the next working day; its lines become tasks.
+				const forDay = addDays(date, weekdayOf(date) === 5 ? 3 : 1);
+				const entry = add(date, {
+					id: trackerEntryKeyId(habit.id, "plan", date),
+					type: "plan",
+					hour: 21,
+					data: { items: [], for: forDay, reflection: null },
+				});
+				const lines = new Set<string>();
+				const size = Math.min(config.size, between(2, 3));
+				while (lines.size < size) lines.add(pick(copy.priorities));
+				entry.data = {
+					...entry.data,
+					items: [...lines].map((text, index) => ({
+						text,
+						taskId: planTask(habit, entry, { text, index }, forDay),
+					})),
+				};
+				const count = dayCountFor(habit, [entry]) ?? 0;
+				logs[log.id] = { ...log, count };
+				continue;
+			}
 			const drafts = log
 				? dayDrafts(config, habit, log.count, {
 						random,
@@ -170,7 +268,7 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 					};
 		}
 	}
-	return { trackerEntries, logs };
+	return { trackerEntries, logs, tasks };
 }
 
 interface DraftContext {
@@ -334,17 +432,17 @@ function dayDrafts(config: TrackerConfig, habit: Habit, count: number, ctx: Draf
 		case "photo":
 			// Photos need real blobs; a meal log (photo optional) gets captions.
 			if (config.photoRequired !== false) return [];
-			return [
-				{
-					type: "photo",
-					hour: 13,
-					data: { photos: [], caption: random() < 0.5 ? "🥗" : "🥦" },
-				},
-			];
+			return [{ type: "photo", hour: 13, data: { photos: [], caption: pick(copy.meals) } }];
 		case "measure":
+			if (config.aggregate === "last") {
+				// A slow drift in the tracker's direction (one decimal).
+				const step = config.direction === "down" ? -1 : 1;
+				const value = Math.round((70 + step * random() * 3) * 10) / 10;
+				return [{ type: "measure", hour: 7, data: { value, note: null } }];
+			}
 			return [{ type: "measure", hour: 8, data: { value: count, note: null } }];
 		default:
-			// plan: needs tasks; not in the demo.
+			// plan: built with its tasks by `buildDemoTrackerEntries`.
 			return [];
 	}
 }

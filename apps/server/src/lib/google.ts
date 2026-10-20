@@ -13,7 +13,10 @@ import { type Logger, safeTag } from "./log";
  */
 
 export const GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v3/certs";
-export const GOOGLE_ISSUERS: readonly string[] = ["https://accounts.google.com", "accounts.google.com"];
+export const GOOGLE_ISSUERS: readonly string[] = [
+	"https://accounts.google.com",
+	"accounts.google.com",
+];
 /** Google's own limit on how old an ID token may be. */
 export const GOOGLE_TOKEN_MAX_AGE_MS = 60 * 60 * 1000;
 const CLOCK_TOLERANCE_MS = 30_000;

@@ -19,6 +19,7 @@ import { Field, Input } from "../ui/field";
 import { IconButton } from "../ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { SegmentedControl } from "../ui/segmented";
+import { type CompletionField, SmartInput } from "../ui/smart-input";
 import type { HabitDraft } from "./draft";
 
 export type DraftUpdate = (patch: Partial<HabitDraft>) => void;
@@ -413,6 +414,10 @@ interface TextFieldProps {
 	maxLength?: number;
 	optional?: boolean;
 	autoFocus?: boolean;
+	/** On-device completion corpus [T5]. The prefixed variant keeps its bare input until T5 styles it. */
+	field?: CompletionField;
+	/** A trailing `<AiSuggest>` [T5] beside the input. */
+	suggest?: ReactNode;
 }
 
 export function DraftTextField({
@@ -425,12 +430,14 @@ export function DraftTextField({
 	maxLength = 160,
 	optional = true,
 	autoFocus,
+	field,
+	suggest,
 }: TextFieldProps) {
 	const { t } = useT();
 	return (
 		<Field label={label} hint={hint} optional={optional ? t("common.optional") : undefined}>
-			{(props) =>
-				prefix ? (
+			{(props) => {
+				const control = prefix ? (
 					<div className="flex items-center rounded-md border border-line bg-sunken/60 pl-3.5 transition-colors focus-within:border-accent focus-within:bg-surface focus-within:ring-3 focus-within:ring-accent/15 hover:border-line-strong">
 						<span className="shrink-0 text-ink-muted">{prefix}</span>
 						<input
@@ -442,6 +449,16 @@ export function DraftTextField({
 							className="h-11 min-w-0 flex-1 bg-transparent px-2 text-ink outline-none focus-visible:outline-none"
 						/>
 					</div>
+				) : field ? (
+					<SmartInput
+						{...props}
+						field={field}
+						value={value}
+						maxLength={maxLength}
+						placeholder={placeholder}
+						autoFocus={autoFocus}
+						onChange={(event) => onChange(event.target.value)}
+					/>
 				) : (
 					<Input
 						{...props}
@@ -451,8 +468,15 @@ export function DraftTextField({
 						autoFocus={autoFocus}
 						onChange={(event) => onChange(event.target.value)}
 					/>
-				)
-			}
+				);
+				if (!suggest) return control;
+				return (
+					<div className="flex items-center gap-1.5">
+						<div className="min-w-0 flex-1">{control}</div>
+						{suggest}
+					</div>
+				);
+			}}
 		</Field>
 	);
 }

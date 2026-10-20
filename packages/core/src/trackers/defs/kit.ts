@@ -1,4 +1,4 @@
-import { type DayKey, minDay } from "../../dates";
+import { type DayKey, addDays, addMonths, minDay } from "../../dates";
 import type { MessageKey, Params, PluralKey, Translator } from "../../i18n";
 import { formatMoney } from "../../money";
 import { foldText } from "../../text";
@@ -38,6 +38,14 @@ export function str(value: unknown): string | null {
 /** Translate a key built at runtime (`tracker.category.${id}`). */
 export function tk(t: Translator, key: string, params?: Params): string {
 	return t.t(key as MessageKey, params);
+}
+
+/**
+ * The label key of a built-in option id (`tracker.category.food`). The id
+ * `other` reads `….misc`: catalog keys ending in `.other` are plural forms.
+ */
+export function optionKey(group: "category" | "activity" | "channel", id: string): string {
+	return `tracker.${group}.${id === "other" ? "misc" : id}`;
 }
 
 /** Plural of a key built at runtime. */
@@ -89,7 +97,9 @@ export function activeStart(ctx: Pick<SummaryContext, "start" | "all">): DayKey 
 }
 
 /** Elapsed days of the period since tracking began (Annex K §1.8.1 daily average). */
-export function elapsedDays(ctx: Pick<SummaryContext, "period" | "start" | "all" | "today">): number {
+export function elapsedDays(
+	ctx: Pick<SummaryContext, "period" | "start" | "all" | "today">,
+): number {
 	return elapsedRange(ctx.period, activeStart(ctx), ctx.today).days;
 }
 
@@ -121,7 +131,10 @@ export function compareToPrevious(
 	const more = current > previous;
 	const key = `tracker.compare.${more ? "more" : "less"}.${ctx.period.kind}`;
 	const good = more === higherIsBetter;
-	return { text: tk(ctx.t, key, { percent: ctx.t.percent(ratio) }), tone: good ? "good" : "warning" };
+	return {
+		text: tk(ctx.t, key, { percent: ctx.t.percent(ratio) }),
+		tone: good ? "good" : "warning",
+	};
 }
 
 /** A value in a chart or stat format. */
@@ -134,6 +147,7 @@ export function formatValue(
 	if (format === "money") return formatMoney(value, currency ?? "USD", t);
 	if (format === "clock") return formatClock(value);
 	if (format === "duration") return t.formatDuration(value);
+	if (format === "percent") return t.percent(value / 100);
 	return t.number(value, Number.isInteger(value) ? 0 : 1);
 }
 
@@ -199,7 +213,7 @@ export interface ChartOptions {
 export function barsChart(
 	ctx: Pick<SummaryContext, "period" | "today" | "t" | "start" | "all">,
 	entries: readonly TrackerEntry[],
-	valueOf: (entry: TrackerEntry) => number,
+	amountOf: (entry: TrackerEntry) => number,
 	options: ChartOptions,
 ): SummaryBlock {
 	const { t } = ctx;
@@ -210,7 +224,7 @@ export function barsChart(
 		if (!bucket.future && bucket.to >= start) {
 			value = 0;
 			for (const entry of entries) {
-				if (entry.date >= bucket.from && entry.date <= bucket.to) value += valueOf(entry);
+				if (entry.date >= bucket.from && entry.date <= bucket.to) value += amountOf(entry);
 			}
 		}
 		return {
@@ -230,7 +244,15 @@ export function barsChart(
 		format: options.format,
 		...(options.currency ? { currency: options.currency } : {}),
 		...(options.reference ? { reference: options.reference } : {}),
-		describe: describeChart(t, options.title, ctx.period, points, "total", options.format, options.currency),
+		describe: describeChart(
+			t,
+			options.title,
+			ctx.period,
+			points,
+			"total",
+			options.format,
+			options.currency,
+		),
 	};
 }
 
@@ -241,7 +263,7 @@ export function barsChart(
 export function dotsChart(
 	ctx: Pick<SummaryContext, "period" | "today" | "t">,
 	valueOfDay: (day: DayKey) => number | null,
-	options: ChartOptions & { chart?: "dots" | "line" },
+	options: ChartOptions & { chart?: "dots" | "line" | "bars" },
 ): SummaryBlock {
 	const { t } = ctx;
 	const buckets = periodBuckets(ctx.period, ctx.today, t);
@@ -300,7 +322,10 @@ export function breakdown(
 	const kept = items.filter((item) => item.value > 0);
 	if (!kept.length) return null;
 	const total = kept.reduce((acc, item) => acc + item.value, 0);
-	const sorted = [...kept].sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+	// Plain code-unit order on ties: identical on web and Hermes (no `Intl`).
+	const sorted = [...kept].sort(
+		(a, b) => b.value - a.value || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
+	);
 	const out: BreakdownItem[] = sorted.map((item) => ({
 		key: item.key,
 		label: item.label,
@@ -316,13 +341,13 @@ export function breakdown(
 export function tally(
 	entries: readonly TrackerEntry[],
 	keyOf: (entry: TrackerEntry) => string | null,
-	valueOf: (entry: TrackerEntry) => number = () => 1,
+	amountOf: (entry: TrackerEntry) => number = () => 1,
 ): Map<string, number> {
 	const out = new Map<string, number>();
 	for (const entry of entries) {
 		const key = keyOf(entry);
 		if (key === null) continue;
-		out.set(key, (out.get(key) ?? 0) + valueOf(entry));
+		out.set(key, (out.get(key) ?? 0) + amountOf(entry));
 	}
 	return out;
 }
@@ -404,7 +429,11 @@ export function line(
 /** "First line of a text…" (single line, ≤ max characters). */
 export function firstLine(text: string | null, max = 60): string | null {
 	if (!text) return null;
-	const first = text.split(/\r?\n/).find((part) => part.trim())?.trim() ?? "";
+	const first =
+		text
+			.split(/\r?\n/)
+			.find((part) => part.trim())
+			?.trim() ?? "";
 	if (!first) return null;
 	return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
 }
@@ -417,4 +446,34 @@ export function inPeriod(ctx: Pick<SummaryContext, "entries">, ...types: string[
 /** Entries of the given types in the current period of `ctx`, as a fraction label. */
 export function shortDay(t: Translator, day: DayKey): string {
 	return t.formatDayShort(day);
+}
+
+/**
+ * Entries from exactly one week, one month and N years before today (Annex
+ * K §1.8.5 "On this day"), nearest first.
+ */
+export function onThisDay(
+	entries: readonly TrackerEntry[],
+	today: DayKey,
+): { entry: TrackerEntry; ago: "week" | "month" | number }[] {
+	const targets = new Map<DayKey, "week" | "month" | number>();
+	targets.set(addDays(today, -7), "week");
+	targets.set(addMonths(today, -1), "month");
+	for (let years = 1; years <= 10; years++) targets.set(addMonths(today, -12 * years), years);
+	const rank = (ago: "week" | "month" | number) =>
+		ago === "week" ? 0 : ago === "month" ? 1 : 1 + ago;
+	const out: { entry: TrackerEntry; ago: "week" | "month" | number }[] = [];
+	for (const entry of entries) {
+		if (entry.deletedAt) continue;
+		const ago = targets.get(entry.date);
+		if (ago !== undefined) out.push({ entry, ago });
+	}
+	return out.sort((a, b) => rank(a.ago) - rank(b.ago));
+}
+
+/** "1 week ago", "1 month ago", "2 years ago". */
+export function onThisDayLabel(ago: "week" | "month" | number, t: Translator): string {
+	if (ago === "week") return t.t("tracker.onThisDay.week");
+	if (ago === "month") return t.t("tracker.onThisDay.month");
+	return t.tp("tracker.onThisDay.years", ago);
 }

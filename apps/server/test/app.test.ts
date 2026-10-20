@@ -109,6 +109,12 @@ describe("device label", () => {
 		expect(deviceLabel("\u0000\u001f")).toBeNull();
 		expect(deviceLabel(undefined)).toBeNull();
 		expect(deviceLabel("a".repeat(500))).toHaveLength(120);
+		// UTF-8 read as Latin-1 (curl, most HTTP libraries) and percent-encoding (OkHttp is ASCII-only).
+		expect(deviceLabel("Atomic Android \u00c2\u00b7 Pixel 8")).toBe("Atomic Android · Pixel 8");
+		expect(deviceLabel("Atomic%20Android%20%C2%B7%20Pixel%208")).toBe("Atomic Android · Pixel 8");
+		expect(deviceLabel("Atomic iOS · Ana\u2019s iPhone")).toBe("Atomic iOS · Ana’s iPhone");
+		expect(deviceLabel("100% done")).toBe("100% done");
+		expect(deviceLabel("%E0%A4%A")).toBe("%E0%A4%A");
 	});
 });
 

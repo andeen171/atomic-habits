@@ -103,7 +103,15 @@ export type FieldSpec = FieldBase &
 		| { kind: "photos"; max: number }
 		/** The book picker (`useBooks`) with "+ New book" and "No specific book". */
 		| { kind: "book" }
-		| { kind: "lines"; placeholder: string; min: number; max: number; itemMax: number }
+		| {
+				kind: "lines";
+				placeholder: string;
+				min: number;
+				max: number;
+				itemMax: number;
+				/** Input lines shown at first (the plan's `size`); more can be added up to `max`. */
+				rows?: number;
+		  }
 		| { kind: "day"; options: { value: DayKey; label: string }[] }
 	);
 
@@ -275,9 +283,8 @@ export function parseDurationInput(text: string): number | null {
 		const [a, b, c] = [Number(clock[1]), Number(clock[2]), clock[3] ? Number(clock[3]) : null];
 		return c === null ? a * 3600 + b * 60 : a * 3600 + b * 60 + c;
 	}
-	const units = /^(?:(\d+(?:[.,]\d+)?)\s*h)?\s*(?:(\d+(?:[.,]\d+)?)\s*m(?:in)?)?\s*(?:(\d+)\s*s)?$/.exec(
-		value,
-	);
+	const units =
+		/^(?:(\d+(?:[.,]\d+)?)\s*h)?\s*(?:(\d+(?:[.,]\d+)?)\s*m(?:in)?)?\s*(?:(\d+)\s*s)?$/.exec(value);
 	if (units && (units[1] || units[2] || units[3])) {
 		const h = units[1] ? Number(units[1].replace(",", ".")) : 0;
 		const m = units[2] ? Number(units[2].replace(",", ".")) : 0;
@@ -326,7 +333,8 @@ export function formToData(
 		const value = values[spec.key];
 		if (isBlank(value)) {
 			if (spec.required) errors[spec.key] = required();
-			data[spec.key] = spec.emptyValue ?? (spec.kind === "photos" || spec.kind === "lines" ? [] : null);
+			data[spec.key] =
+				spec.emptyValue ?? (spec.kind === "photos" || spec.kind === "lines" ? [] : null);
 			continue;
 		}
 		switch (spec.kind) {
@@ -351,9 +359,7 @@ export function formToData(
 				}
 				const factor = 10 ** spec.decimals;
 				data[spec.key] =
-					spec.scale !== undefined
-						? Math.round(n * spec.scale)
-						: Math.round(n * factor) / factor;
+					spec.scale !== undefined ? Math.round(n * spec.scale) : Math.round(n * factor) / factor;
 				break;
 			}
 			case "duration": {
@@ -452,6 +458,8 @@ export function formToData(
 		if (!spec.group) continue;
 		const group = groups.get(spec.group.id) ?? { first: spec, any: false };
 		const stored = data[spec.key];
+		// A member with its own error (typed but invalid) already tells the user what to fix.
+		if (spec.key in errors) group.any = true;
 		if (filled.has(spec.key) && !(typeof stored === "number" && stored <= 0)) group.any = true;
 		groups.set(spec.group.id, group);
 	}

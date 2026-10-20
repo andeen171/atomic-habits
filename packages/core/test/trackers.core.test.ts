@@ -10,7 +10,14 @@ import {
 import { identityTemplates } from "../src/content";
 import { addDays, toDayKey } from "../src/dates";
 import { FEATURES } from "../src/flags";
-import { type Habit, type HabitLog, V1_COLLECTIONS, habitSchema, logId } from "../src/model";
+import {
+	type Habit,
+	type HabitLog,
+	V1_COLLECTIONS,
+	habitSchema,
+	logId,
+	taskSchema,
+} from "../src/model";
 import { createMemoryStorage } from "../src/storage";
 import { type AtomicStore, type CommitEvent, createAtomicStore } from "../src/store";
 import { runSync } from "../src/sync-engine";
@@ -865,6 +872,9 @@ describe("demo (spec §3.1, §8.1)", () => {
 		const tracked = Object.values(data.habits).filter((h) => h.tracker != null);
 		expect(tracked.map((h) => (h.tracker as { type: string }).type).sort()).toEqual([
 			"expense",
+			"measure",
+			"photo",
+			"plan",
 			"reading",
 			"session",
 			"slip",
@@ -875,6 +885,49 @@ describe("demo (spec §3.1, §8.1)", () => {
 		expect(entries.some((e) => e.type === "none")).toBe(true);
 		expect(entries.some((e) => e.type === "book" && e.data.status === "finished")).toBe(true);
 		for (const e of entries) expect(trackerEntrySchema.safeParse(e).success).toBe(true);
+		// The organized identity's plan: every line is a task linked to its plan (D17).
+		expect(data.identities["demo-identity-organized"]).toBeDefined();
+		const plans = entries.filter((e) => e.type === "plan");
+		expect(plans.length).toBeGreaterThan(5);
+		const planTasks = Object.values(data.tasks).filter((t) => t.sourceEntryId != null);
+		for (const task of Object.values(data.tasks)) {
+			expect(taskSchema.safeParse(task).success).toBe(true);
+		}
+		for (const plan of plans) {
+			expect(plan.id).toBe(`${plan.habitId}:plan:${plan.date}`);
+			for (const item of plan.data.items as { text: string; taskId: string }[]) {
+				const task = data.tasks[item.taskId];
+				expect(task).toMatchObject({
+					title: item.text,
+					date: plan.data.for,
+					habitId: null,
+					sourceEntryId: plan.id,
+					priority: 2,
+				});
+			}
+		}
+		expect(planTasks.length).toBe(
+			plans.reduce((n, p) => n + (p.data.items as unknown[]).length, 0),
+		);
+		// Mostly done; none completed or deleted in the future.
+		const done = planTasks.filter((t) => t.completedAt != null);
+		expect(done.length / planTasks.length).toBeGreaterThan(0.5);
+		for (const t of planTasks) {
+			expect(t.completedAt ?? 0).toBeLessThanOrEqual(NOW);
+			expect(t.deletedAt ?? 0).toBeLessThanOrEqual(NOW);
+			expect(t.updatedAt).toBeGreaterThanOrEqual(t.completedAt ?? t.deletedAt ?? 0);
+		}
+		// Push-ups are summed; the meal log holds captions (no blobs in the demo).
+		const pushUps = data.habits["demo-habit-pushUps"] as Habit;
+		expect(pushUps.tracker).toMatchObject({ type: "measure", aggregate: "sum" });
+		const pushLog = Object.values(data.logs).find((l) => l.habitId === pushUps.id && l.count > 0);
+		expect(pushLog).toBeDefined();
+		const meals = entries.filter((e) => e.habitId === "demo-habit-vegetables");
+		expect(meals.length).toBeGreaterThan(0);
+		for (const meal of meals) {
+			expect(meal.data.photos).toEqual([]);
+			expect(String(meal.data.caption).length).toBeGreaterThan(0);
+		}
 		expect(reconcilePlan(data, "all")).toEqual([]);
 		expect(store.getState().actions.reconcileTrackers()).toBe(0);
 		expect(store.getState().actions.reconcileTrackers({ window: reconcileWindow(TODAY) })).toBe(0);

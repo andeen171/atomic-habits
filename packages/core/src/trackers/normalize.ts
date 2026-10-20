@@ -1,6 +1,6 @@
 import { type DayKey, parseTime } from "../dates";
 import { countWords } from "./format";
-import type { TrackerConfig, TrackerEntry } from "./schema";
+import { type TrackerConfig, type TrackerEntry, dropUnsafeChars } from "./schema";
 
 /**
  * Save-time fields of a tracker entry (spec §3.1; Annex K §3.1 `normalize`).
@@ -8,7 +8,7 @@ import type { TrackerConfig, TrackerEntry } from "./schema";
  * older session never cascades into later ones, and a threshold entry keeps
  * the deadline that applied when it was logged.
  *
- * Runtime imports: `dates`, `format`.
+ * Runtime imports: `dates`, `format`, `schema`.
  */
 
 /** An entry as an action is about to write it (before validation). */
@@ -72,6 +72,11 @@ function lastPage(draft: TrackerEntryDraft, ctx: NormalizeContext): number {
 	return last;
 }
 
+/** Line breaks as LF, without characters that cost 6 bytes on the wire (`hasUnsafeChars`). */
+function cleanText(text: string): string {
+	return dropUnsafeChars(text.indexOf("\r") < 0 ? text : text.replace(/\r\n?/g, "\n"));
+}
+
 /** Trimmed text, null when empty or absent; other values pass for the schema to judge. */
 function trimmedOrNull(value: unknown): unknown {
 	if (value === undefined || value === null) return null;
@@ -82,6 +87,8 @@ function trimmedOrNull(value: unknown): unknown {
 
 /**
  * Computes the save-time fields of a draft:
+ * - every text field: CRLF as LF, control characters and lone surrogates
+ *   dropped (so a full writing page stays under `MAX_RECORD_BYTES`);
  * - expense: the currency defaults to the tracker's;
  * - reading: `pages = max(0, toPage − lastPage(book))` when a bookmark is given;
  * - writing: `words = countWords(text)` when there is text;
@@ -95,6 +102,10 @@ export function normalizeTrackerEntry(
 ): TrackerEntryDraft {
 	const { config } = ctx;
 	const data = { ...draft.data };
+	for (const key of Object.keys(data)) {
+		const value = data[key];
+		if (typeof value === "string") data[key] = cleanText(value);
+	}
 	switch (draft.type) {
 		case "expense": {
 			const currency = typeof data.currency === "string" ? data.currency.trim().toUpperCase() : "";
@@ -138,11 +149,12 @@ export function normalizeTrackerEntry(
 						const raw = typeof item === "string" ? { text: item } : (item as object | null);
 						if (!raw || typeof raw !== "object") return null;
 						const text = (raw as { text?: unknown }).text;
-						if (typeof text !== "string" || !text.trim()) return null;
+						const clean = typeof text === "string" ? cleanText(text).trim() : "";
+						if (!clean) return null;
 						const taskId = (raw as { taskId?: unknown }).taskId;
 						return {
 							...raw,
-							text: text.trim().slice(0, MAX_PLAN_TEXT),
+							text: clean.slice(0, MAX_PLAN_TEXT),
 							taskId: typeof taskId === "string" ? taskId : null,
 						};
 					})

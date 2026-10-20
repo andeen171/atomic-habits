@@ -1,7 +1,7 @@
 import { parseTime } from "../../dates";
 import type { Translator } from "../../i18n";
-import type { FieldSpec } from "../forms";
 import { formatClock } from "../format";
+import type { FieldSpec } from "../forms";
 import { TRACKER_META } from "../meta";
 import type { TrackerDef } from "../registry";
 import { type TrackerConfig, type TrackerEntry, sleepTrackerSchema } from "../schema";
@@ -50,14 +50,27 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	const qualities = list.map((e) => num(e.data.quality)).filter((v): v is number => v !== null);
 	const items = [
 		stat("onTime", t.t("tracker.sleep.onTimeRate"), t.percent(rate), rate, {
-			hint: t.t("tracker.stat.daysOf", { count: t.number(onTime.length), total: t.number(list.length) }),
+			hint: t.t("tracker.stat.daysOf", {
+				count: t.number(onTime.length),
+				total: t.number(list.length),
+			}),
 		}),
-		stat("bedtime", t.t("tracker.sleep.averageBedtime"), formatClock(Math.round(bedtime)), Math.round(bedtime)),
+		stat(
+			"bedtime",
+			t.t("tracker.sleep.averageBedtime"),
+			formatClock(Math.round(bedtime)),
+			Math.round(bedtime),
+		),
 	];
 	const averageSlept = average(slept);
 	if (averageSlept !== null) {
 		items.push(
-			stat("slept", t.t("tracker.sleep.averageSleep"), t.formatDuration(averageSlept * 60), averageSlept * 60),
+			stat(
+				"slept",
+				t.t("tracker.sleep.averageSleep"),
+				t.formatDuration(averageSlept * 60),
+				averageSlept * 60,
+			),
 		);
 	}
 	if (qualities.length) {
@@ -96,7 +109,12 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 					const value = night ? sleptOf(night) : null;
 					return value === null ? null : value * 60;
 				},
-				{ id: "durations", title: t.t("tracker.sleep.durations"), format: "duration", chart: "bars" },
+				{
+					id: "durations",
+					title: t.t("tracker.sleep.durations"),
+					format: "duration",
+					chart: "bars",
+				},
 			),
 		insight !== null && { kind: "note", id: "insight", text: insight, tone: "default" },
 	);

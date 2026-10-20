@@ -1,6 +1,6 @@
 import { type DayKey, diffDays } from "./dates";
 import { FEATURES, type FeatureFlag } from "./flags";
-import type { Locale } from "./i18n";
+import type { Locale, MessageKey } from "./i18n";
 import type { HabitColor, HabitKind, Schedule, TimeOfDay } from "./model";
 import { collapseSpaces, foldText } from "./text";
 import type { TrackerConfigInput } from "./trackers/schema";
@@ -290,6 +290,17 @@ export function lawPrinciple(law: 1 | 2 | 3 | 4, kind: HabitKind): string {
 			? (["invisible", "reframe", "difficult", "accountability"] as const)
 			: (["intention", "bundling", "two-minute", "immediate"] as const);
 	return ids[law - 1] ?? ids[0];
+}
+
+/**
+ * The law chip of a principle (PrincipleHero, PrincipleQuote): laws 1–4 use
+ * the law's name, law 5 (breaking bad habits) the "Breaking" filter label,
+ * and general principles (law 0) have no chip.
+ */
+export function principleLawKey(law: Principle["law"]): MessageKey | null {
+	if (law === 0) return null;
+	if (law === 5) return "habits.filter.break";
+	return `law.${law}.name` as MessageKey;
 }
 
 /** A stable principle for each calendar day. */

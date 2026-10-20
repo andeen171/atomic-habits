@@ -64,6 +64,12 @@ export interface SyncResult {
 	futureRejected: string[];
 	/** Records refused by the sync quota; they stay pending. */
 	quotaRejected: number;
+	/**
+	 * The pull caught up (and the derived writes ran). False when it was cut
+	 * short (page guard) or the state is `partial`. Translation work waits
+	 * for a completed pull (spec §3.6).
+	 */
+	complete: boolean;
 }
 
 interface RoundState {
@@ -261,6 +267,7 @@ async function syncRound(
 		...(round.clockOffsetMs === undefined ? {} : { clockOffsetMs: round.clockOffsetMs }),
 		futureRejected: [...round.futureRejected],
 		quotaRejected: round.quotaRejected,
+		complete: outcome === "done",
 	};
 }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ATTACHMENT_MIMES } from "./attachments";
+import { ATTACHMENT_MIMES, SHA256_RE } from "./attachments";
 
 /**
  * Account, plan and server-capability contracts shared by the client (T5)
@@ -61,6 +61,8 @@ const aiFeatureSchema = z.looseObject({
 	beta: z.boolean().default(true),
 	/** The server's end-to-end deadline; the client waits `timeoutMs + 5 s`. */
 	timeoutMs: z.number().int(),
+	/** The same for `ai.translate` (`AI_TRANSLATE_TIMEOUT_MS`); absent: use `timeoutMs`. */
+	translateTimeoutMs: z.number().int().optional(),
 });
 
 const blobsFeatureSchema = z.looseObject({
@@ -167,6 +169,132 @@ export type ExportLink = z.infer<typeof exportLinkSchema>;
 /** `account.revokeSession` / `account.revokeOtherSessions`: how many sessions ended. */
 export const revokeResultSchema = z.looseObject({ revoked: z.number().int() });
 export type RevokeResult = z.infer<typeof revokeResultSchema>;
+
+/*
+ * Photo backup (spec §4.3, D23), on when `ServerInfo.features.blobs` is set.
+ * Blobs are content-addressed per account (lowercase hex SHA-256 of the
+ * bytes); JPEG and WebP only, at most `features.blobs.maxFileBytes` each.
+ *
+ * - `POST /trpc/blobs.missing {hashes}` → `{missing}`: which of these the
+ *   server doesn't hold for this account (in request order, no repeats).
+ * - `PUT /blobs/<sha256>` with the raw bytes → 201 (stored) or 200 (already
+ *   there; only its last-seen time moves). 120 per minute per account.
+ * - `GET /blobs/<sha256>` → the bytes, for the account's own blobs only
+ *   (404 otherwise); immutable, cache privately forever.
+ *
+ * A refused PUT answers JSON `{message, code}` with a `BLOB_ERROR_CODES` code.
+ * Photo backup off answers 501 everywhere (`code: "BLOBS_DISABLED"` on the
+ * REST routes, `NOT_IMPLEMENTED` on `blobs.missing`).
+ */
+
+/** Hashes per `blobs.missing` call. */
+export const BLOBS_MISSING_MAX = 500;
+
+export const blobsMissingInputSchema = z.object({
+	hashes: z.array(z.string().regex(SHA256_RE)).max(BLOBS_MISSING_MAX),
+});
+export type BlobsMissingInput = z.infer<typeof blobsMissingInputSchema>;
+
+export const blobsMissingSchema = z.looseObject({ missing: z.array(z.string()) });
+export type BlobsMissing = z.infer<typeof blobsMissingSchema>;
+
+/** A successful `PUT /blobs/<sha256>`. */
+export const blobUploadSchema = z.looseObject({
+	sha256: z.string(),
+	size: z.number().int(),
+	mime: z.enum(ATTACHMENT_MIMES),
+	/** False when the server already had it (idempotent re-upload). */
+	created: z.boolean(),
+});
+export type BlobUpload = z.infer<typeof blobUploadSchema>;
+
+/**
+ * `code` of a refused `PUT /blobs/<sha256>`:
+ * - `INVALID_HASH` (400): the path isn't a lowercase hex SHA-256;
+ * - `HASH_MISMATCH` (400): the bytes don't hash to the path (corrupted upload; retry);
+ * - `TOO_LARGE` (413): over `features.blobs.maxFileBytes` (never retry);
+ * - `UNSUPPORTED_TYPE` (415): not JPEG or WebP by its first bytes (never retry);
+ * - `QUOTA_EXCEEDED` (413): the plan's photo storage is full (`plan.storageFull`;
+ *   stop uploading, keep the photo on the device);
+ * - `BLOBS_DISABLED` (501): photo backup is off on this server.
+ * Any other 413 (a proxy's) counts as `TOO_LARGE`. 429 carries `Retry-After`.
+ */
+export const BLOB_ERROR_CODES = [
+	"INVALID_HASH",
+	"HASH_MISMATCH",
+	"TOO_LARGE",
+	"UNSUPPORTED_TYPE",
+	"QUOTA_EXCEEDED",
+	"BLOBS_DISABLED",
+] as const;
+export type BlobErrorCode = (typeof BLOB_ERROR_CODES)[number];
+
+/*
+ * Billing (spec §4.3, Annex C §1.5). Clients never talk to Stripe-specific
+ * routes: `billing.checkout` and `billing.portal` return a URL to open, and
+ * Stripe sends the browser back to the server's `/billing/return` page,
+ * which hands over to the app by client kind.
+ */
+
+export const BILLING_INTERVALS = ["month", "year"] as const;
+export type BillingInterval = (typeof BILLING_INTERVALS)[number];
+
+/** Who opened checkout: decides where `/billing/return` sends the browser. */
+export const BILLING_CLIENTS = ["web", "desktop", "native"] as const;
+export type BillingClient = (typeof BILLING_CLIENTS)[number];
+
+/** How the browser came back: paid, gave up, or left the billing portal. */
+export const BILLING_RESULTS = ["success", "cancel", "portal"] as const;
+export type BillingResult = (typeof BILLING_RESULTS)[number];
+
+/**
+ * Native: `/billing/return` opens `atomic://billing?result=<BillingResult>`;
+ * pass it to `WebBrowser.openAuthSessionAsync(url, BILLING_DEEP_LINK)`.
+ */
+export const BILLING_DEEP_LINK = "atomic://billing";
+
+/**
+ * Web: `/billing/return` redirects to `returnTo` with this query parameter
+ * added (inside the hash for hash routes: `…/#/account?billing=success`).
+ * `returnTo` must be on an `APP_WEB_URL` origin.
+ */
+export const BILLING_RESULT_PARAM = "billing";
+
+/** `POST /trpc/billing.checkout`. */
+export const billingCheckoutInputSchema = z.object({
+	interval: z.enum(BILLING_INTERVALS),
+	client: z.enum(BILLING_CLIENTS),
+	/** Web only: where to land afterwards (an `APP_WEB_URL` origin; ignored otherwise). */
+	returnTo: z.string().max(2048).optional(),
+});
+export type BillingCheckoutInput = z.infer<typeof billingCheckoutInputSchema>;
+
+/** `POST /trpc/billing.portal`. */
+export const billingPortalInputSchema = z.object({
+	client: z.enum(BILLING_CLIENTS),
+	returnTo: z.string().max(2048).optional(),
+});
+export type BillingPortalInput = z.infer<typeof billingPortalInputSchema>;
+
+/** Both billing procedures answer with the page to open. */
+export const billingUrlSchema = z.looseObject({ url: z.string().url() });
+export type BillingUrl = z.infer<typeof billingUrlSchema>;
+
+/**
+ * `error.data.atomic.reason` of a refused billing call:
+ * - `unverified` (412): email is on and the address isn't confirmed yet;
+ * - `no-customer` (412): the portal needs a past checkout (`canManageBilling`);
+ * - `already-subscribed` (409): this plan and interval are already active;
+ * - `interval-unavailable` (400): the server sells no yearly plan.
+ * Billing off answers `NOT_IMPLEMENTED` (501); a Stripe outage `BAD_GATEWAY` (502).
+ */
+export const BILLING_ERROR_REASONS = [
+	"unverified",
+	"no-customer",
+	"already-subscribed",
+	"interval-unavailable",
+] as const;
+export type BillingErrorReason = (typeof BILLING_ERROR_REASONS)[number];
 
 /** Stripe's zero-decimal currencies (amounts are whole units). */
 const ZERO_DECIMAL = new Set([

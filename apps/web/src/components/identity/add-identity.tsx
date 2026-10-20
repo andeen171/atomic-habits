@@ -4,7 +4,7 @@ import { useActions, useIdentities, useLocale } from "@atomic/core/react";
 import { Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { Button } from "../ui/button";
-import { Input } from "../ui/field";
+import { SmartInput } from "../ui/smart-input";
 
 /** Inline form + suggestions from the identity templates. */
 export function AddIdentity() {
@@ -29,7 +29,8 @@ export function AddIdentity() {
 		<section className="rounded-xl border border-line border-dashed bg-surface/60 p-5 md:p-6">
 			<h2 className="mb-3 font-semibold text-h3 text-ink">{t("identity.add")}</h2>
 			<form onSubmit={submit} className="flex gap-2">
-				<Input
+				<SmartInput
+					field="identity.statement"
 					value={statement}
 					maxLength={120}
 					aria-label={t("identity.add")}

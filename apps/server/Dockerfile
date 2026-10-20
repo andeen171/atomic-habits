@@ -22,7 +22,8 @@ RUN bun install --frozen-lockfile --production --ignore-scripts --omit peer --fi
 FROM oven/bun:${BUN_VERSION}-slim
 ENV NODE_ENV=production \
 	PORT=3000 \
-	DATABASE_URL=file:/data/atomic.db
+	DATABASE_URL=file:/data/atomic.db \
+	BLOB_DIR=/data/blobs
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./

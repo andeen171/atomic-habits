@@ -46,6 +46,7 @@ export function buildServerInfo(config: Config, offers: readonly Offer[]): Serve
 						limits: { ...config.plans.limits },
 						beta: true,
 						timeoutMs: ai.timeoutMs,
+						translateTimeoutMs: ai.translateTimeoutMs,
 					}
 				: null,
 			blobs: config.blobs

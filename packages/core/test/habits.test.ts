@@ -298,6 +298,17 @@ describe("goal history (targetOn / goalOn)", () => {
 		expect(habitStats(h, past, TODAY).totalDays).toBe(2);
 	});
 
+	test("raw records: a missing or malformed history falls back to the current goal", () => {
+		const raw = (goalHistory: unknown) => ({ ...habit({ target: 7 }), goalHistory }) as Habit;
+		expect(targetOn(raw(undefined), TODAY)).toBe(7);
+		expect(targetOn(raw("oops"), TODAY)).toBe(7);
+		expect(
+			targetOn(raw([null, 3, { until: 5 }, { until: addDays(TODAY, 1), target: 0 }]), TODAY),
+		).toBe(7);
+		const mixed = raw([null, { until: addDays(TODAY, 1), target: 4, schedule: { type: "daily" } }]);
+		expect(goalOn(mixed, TODAY)).toEqual({ target: 4, schedule: { type: "daily" } });
+	});
+
 	test("sameGoal ignores weekday order; normalizeSchedule sorts and de-duplicates", () => {
 		const a = { target: 3, schedule: { type: "weekdays" as const, days: [5, 1, 3] } };
 		const b = { target: 3, schedule: { type: "weekdays" as const, days: [1, 3, 5, 5] } };
@@ -361,6 +372,11 @@ describe("dayVotes and compounding", () => {
 		};
 		const [stats] = identityStats([identity], [writer], index, TODAY);
 		expect([stats?.votes, stats?.recentVotes]).toEqual([302, 302]);
+	});
+
+	test("compounding starts at 1× on every line", () => {
+		expect(compounding(0)).toEqual({ better: 1, same: 1, worse: 1 });
+		expect(compounding(30).better).toBeCloseTo(1.3478, 3);
 	});
 
 	test("compounding has a flat 1× line", () => {

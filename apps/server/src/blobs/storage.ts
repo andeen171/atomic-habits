@@ -15,7 +15,8 @@ import type { BlobConfig } from "../config";
  * Every path is built only from a validated user id and a validated SHA-256.
  */
 export interface BlobStorage {
-	put(userId: string, sha: string, bytes: Uint8Array): Promise<void>;
+	/** Atomic: a reader sees the whole object or none. `mime` is a hint for S3 consoles. */
+	put(userId: string, sha: string, bytes: Uint8Array, mime?: string): Promise<void>;
 	/** The bytes, or null when the object does not exist. */
 	get(userId: string, sha: string): Promise<Uint8Array | null>;
 	exists(userId: string, sha: string): Promise<boolean>;
@@ -59,7 +60,7 @@ export function createDiskStorage(dir: string): BlobStorage {
 			if (!(await file.exists())) return null;
 			return new Uint8Array(await file.arrayBuffer());
 		},
-		exists(userId, sha) {
+		async exists(userId, sha) {
 			return Bun.file(pathOf(userId, sha)).exists();
 		},
 		async delete(userId, sha) {
@@ -81,15 +82,19 @@ export function createS3Storage(config: Extract<BlobConfig, { storage: "s3" }>):
 	});
 	const keyOf = (userId: string, sha: string) => `u/${checkUser(userId)}/${checkSha(sha)}`;
 	return {
-		async put(userId, sha, bytes) {
-			await client.write(keyOf(userId, sha), bytes);
+		async put(userId, sha, bytes, mime) {
+			await client.write(keyOf(userId, sha), bytes, mime ? { type: mime } : undefined);
 		},
 		async get(userId, sha) {
-			const file = client.file(keyOf(userId, sha));
-			if (!(await file.exists())) return null;
-			return new Uint8Array(await file.arrayBuffer());
+			try {
+				return await client.file(keyOf(userId, sha)).bytes();
+			} catch (error) {
+				// One request instead of HEAD + GET; only "no such object" means null.
+				if ((error as { code?: unknown })?.code === "NoSuchKey") return null;
+				throw error;
+			}
 		},
-		exists(userId, sha) {
+		async exists(userId, sha) {
 			return client.file(keyOf(userId, sha)).exists();
 		},
 		async delete(userId, sha) {

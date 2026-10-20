@@ -3,13 +3,16 @@ import { logsFor, sortHabits } from "./habits";
 import type { Habit } from "./model";
 import {
 	type LevelUpSuggestion,
+	type MonthGoal,
 	type MonthProgress,
 	currentMonthKey,
 	levelUpSuggestion,
 	monthGoal,
 	monthHistory,
+	monthsWonInRange,
 } from "./month";
 import { useAtomic, useLogIndex, useToday } from "./react-context";
+import { monthBehindCandidate } from "./today-cards";
 
 /**
  * Month goal and level-up hooks (Annex H §3.4). React module: exported from
@@ -67,4 +70,28 @@ export function useLevelUpSuggestions(): LevelUpSuggestion[] {
 		}
 		return out;
 	}, [habits, index, today, weekStartsOn]);
+}
+
+/** The Insights "Months won" tile for the last `rangeDays` days (spec §5.5). */
+export function useMonthsWon(rangeDays: number): { won: number; total: number } {
+	const habits = useAtomic((s) => s.data.habits);
+	const index = useLogIndex();
+	const today = useToday();
+	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
+	return useMemo(
+		() => monthsWonInRange(Object.values(habits), index, today, rangeDays, weekStartsOn),
+		[habits, index, today, rangeDays, weekStartsOn],
+	);
+}
+
+/** The Today month-behind promo's habit and month, or null (spec §5.1). */
+export function useMonthBehind(): { habit: Habit; goal: MonthGoal } | null {
+	const habits = useAtomic((s) => s.data.habits);
+	const index = useLogIndex();
+	const today = useToday();
+	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
+	return useMemo(
+		() => monthBehindCandidate(Object.values(habits), index, today, weekStartsOn),
+		[habits, index, today, weekStartsOn],
+	);
 }

@@ -111,14 +111,31 @@ export function goalOn(
 	day: DayKey,
 ): { target: number; schedule: Schedule } {
 	const history = habit.goalHistory;
-	if (history?.length) {
+	if (Array.isArray(history) && history.length) {
 		let best: { until: DayKey; target: number; schedule: Schedule } | null = null;
 		for (const entry of history) {
+			// Raw records (kept by hydration when they don't parse) may hold anything.
+			if (!isGoalEntry(entry)) continue;
 			if (entry.until > day && (best === null || entry.until < best.until)) best = entry;
 		}
 		if (best) return { target: best.target, schedule: best.schedule };
 	}
 	return { target: habit.target, schedule: habit.schedule };
+}
+
+function isGoalEntry(
+	entry: unknown,
+): entry is { until: DayKey; target: number; schedule: Schedule } {
+	if (typeof entry !== "object" || entry === null) return false;
+	const { until, target, schedule } = entry as Record<string, unknown>;
+	return (
+		typeof until === "string" &&
+		typeof target === "number" &&
+		target >= 1 &&
+		typeof schedule === "object" &&
+		schedule !== null &&
+		typeof (schedule as { type?: unknown }).type === "string"
+	);
 }
 
 /** The daily target in effect on `day` (fast path when there is no history). */

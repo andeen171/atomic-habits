@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { SmartInput } from "@/components/ui/smart-input";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { SCORECARD_RATINGS, type ScorecardItem, type ScorecardRating } from "@atomic/core";
@@ -120,7 +121,8 @@ function AddBehavior() {
 					onChange={(event) => setTime(event.target.value)}
 					className="sm:w-32"
 				/>
-				<Input
+				<SmartInput
+					field="scorecard.label"
 					value={label}
 					maxLength={160}
 					aria-label={t("scorecard.add")}

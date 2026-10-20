@@ -29,7 +29,17 @@ import {
 	shouldReplace,
 } from "../src/sync";
 import { markAllPending, pushBatches, runSync } from "../src/sync-engine";
-import { NAME, T0, entity, hydrated, recordingKv, v1Habit, v1MainKey } from "./support/persistence";
+import {
+	NAME,
+	T0,
+	channelHub,
+	entity,
+	hydrated,
+	recordingKv,
+	settle,
+	v1Habit,
+	v1MainKey,
+} from "./support/persistence";
 import { fakeSyncServer, wire } from "./support/sync-server";
 
 /**
@@ -661,6 +671,61 @@ describe("corrected clock (D45)", () => {
 	});
 });
 
+describe("corrected clock across tabs (Phase 1A reverify)", () => {
+	test("a re-stamped future edit (restampFuture) reaches the other tabs instead of being reverted by them", async () => {
+		const server = fakeSyncServer();
+		const disk = createMemoryStorage();
+		const hub = channelHub();
+		// This device's clock runs an hour fast (before the controller learns the offset).
+		const fast = () => Date.now() + HOUR;
+		const open = () =>
+			createAtomicStore({ storage: disk, now: fast, debounceMs: 0, crossTab: hub.open() });
+		const a = open();
+		const b = open();
+		await hydrated(a);
+		await hydrated(b);
+		for (const tab of [a, b]) tab.getState().actions.setTracking(true);
+		const habit = a.getState().actions.createHabit({ name: "Read" });
+		await a.flush();
+		await settle(10);
+		// Tab B holds the future-stamped copy.
+		expect(b.getState().data.habits[habit.id]?.updatedAt).toBe(habit.updatedAt);
+
+		const first = await runSync(a, server.transport);
+		expect(first.futureRejected).toEqual([`habits/${habit.id}`]);
+		// The controller: offset known, re-stamp on the corrected clock.
+		a.getState().actions.setClockOffset(-HOUR);
+		a.getState().actions.restampFuture(first.futureRejected, Date.now());
+		await a.flush();
+		await settle(20);
+		const restamped = a.getState().data.habits[habit.id]?.updatedAt ?? 0;
+		expect(restamped).toBeLessThanOrEqual(Date.now());
+		// Tab B took the lower stamp (it would otherwise keep, and write back, the "newer" one).
+		expect(b.getState().data.habits[habit.id]?.updatedAt).toBe(restamped);
+
+		await runSync(a, server.transport);
+		await a.flush();
+		await settle(20);
+		expect(a.getState().data.habits[habit.id]?.updatedAt).toBe(restamped);
+		expect(server.docs.get(`habits/${habit.id}`)?.updatedAt).toBe(restamped);
+		expect(pendingKeys(a)).toEqual([]);
+
+		// A stale write of the old version (a third tab that missed it) is repaired, not adopted.
+		const stale = createAtomicStore({
+			storage: createMemoryStorage(),
+			now: fast,
+			debounceMs: 0,
+			crossTab: hub.open(),
+		});
+		await hydrated(stale);
+		b.getState().actions.updateHabit(habit.id, { name: "Read more" });
+		await b.flush();
+		await settle(20);
+		expect(a.getState().data.habits[habit.id]?.name).toBe("Read more");
+		for (const tab of [a, b, stale]) tab.dispose();
+	});
+});
+
 describe("equal stamps: a deterministic tie-break (amends D45)", () => {
 	test("compareVersions: updatedAt first, then canonical JSON by code point; key order never counts", () => {
 		const a = taskDoc("t1", 100, { title: "A" });
@@ -765,6 +830,122 @@ describe("equal stamps: a deterministic tie-break (amends D45)", () => {
 		await runSync(store, server.transport);
 		expect(pendingKeys(store)).toEqual([]);
 		expect(server.docs.get("tasks/t1")?.data.title).toBe("Other tab");
+	});
+});
+
+describe("equal stamps decided like the server: on the wire form (Phase 1A reverify)", () => {
+	/** A habit as a v1 build writes it (no v2 fields), dated in the future for device B. */
+	const T = NOW + 2_000_000;
+	const v1Doc = (extra: Record<string, unknown> = {}) =>
+		v1Habit("h1", { updatedAt: T, createdAt: T0, ...extra });
+	const view = (store: AtomicStore) => store.getState().data.habits.h1;
+
+	test("a v1 and a v2 device edit an older build's document to the same stamp: they converge with the server", async () => {
+		const server = fakeSyncServer();
+		const raw = v1Doc();
+		server.put(wire("habits", raw));
+		const b = device();
+		await runSync(b, server.transport);
+		expect(view(b)?.updatedAt).toBe(T);
+
+		// Device A (v1: stamp = max(now, prev + 1)) and device B (v2) both stamp T + 1.
+		const xA = { ...raw, timeOfDay: "evening", updatedAt: T + 1 };
+		await server.transport.push({ records: [wire("habits", xA)] });
+		b.getState().actions.updateHabit("h1", { timeOfDay: "morning" });
+		const yB = view(b) as unknown as Record<string, unknown>;
+		expect(yB.updatedAt).toBe(T + 1);
+		// The orders disagree: the server's (wire form) vs. the normalized copy's.
+		expect(compareVersions(xA, yB)).toBeGreaterThan(0);
+		const normalized = { ...xA, ...collectionSchemas.habits.parse({ ...xA, emojiAuto: false }) };
+		expect(compareVersions(normalized, yB)).toBeLessThan(0);
+
+		for (let round = 0; round < 2; round++) await runSync(b, server.transport);
+		expect(view(b)?.timeOfDay).toBe("evening");
+		expect(server.docs.get("habits/h1")?.data.timeOfDay).toBe("evening");
+		expect(pendingKeys(b)).toEqual([]);
+	});
+
+	test("a version that beat this device's copy on the server replaces it when nothing is pending here", async () => {
+		const server = fakeSyncServer();
+		// A v1 habit with the v1 default icon: this build derives its icon (🌱), so
+		// the normalized copy doesn't compare the way the stored one did.
+		const raw = v1Doc({ emoji: "✨" });
+		server.put(wire("habits", raw));
+		const b = device();
+		await runSync(b, server.transport);
+		// Two v1 devices edit it to the same stamp; "morning" wins on the server.
+		await server.transport.push({
+			records: [wire("habits", { ...raw, timeOfDay: "evening", updatedAt: T + 1 })],
+		});
+		await runSync(b, server.transport);
+		expect(view(b)).toMatchObject({ timeOfDay: "evening", emoji: "🌱", emojiAuto: true });
+		const output = await server.transport.push({
+			records: [wire("habits", { ...raw, timeOfDay: "morning", updatedAt: T + 1 })],
+		});
+		expect(output.accepted).toBe(1);
+		// The pulled version loses to B's copy in the sync order (✨ < 🌱), but
+		// B has no claim on the document: the server's copy wins.
+		await runSync(b, server.transport);
+		expect(view(b)).toMatchObject({ timeOfDay: "morning", emoji: "🌱" });
+		expect(pendingKeys(b)).toEqual([]);
+	});
+
+	test("re-pulling an older build's documents applies nothing (the same version, icon derived here)", async () => {
+		const server = fakeSyncServer();
+		server.put(wire("habits", v1Doc({ emoji: "✨" })));
+		server.put(wire("habits", v1Habit("h2", { updatedAt: T0 + 5 })));
+		const b = device();
+		expect((await runSync(b, server.transport)).pulled).toBe(2);
+		const before = b.getState().data.habits;
+		b.getState().actions.setSyncMeta({ cursor: 0 });
+		expect((await runSync(b, server.transport)).pulled).toBe(0);
+		expect(b.getState().data.habits).toBe(before);
+	});
+
+	test("a tab that adopted the server's copy over a pending one tells the other tabs, which follow", async () => {
+		const server = fakeSyncServer();
+		const raw = v1Doc();
+		server.put(wire("habits", raw));
+		const disk = createMemoryStorage();
+		const hub = channelHub();
+		const open = () =>
+			createAtomicStore({ storage: disk, now: () => NOW, debounceMs: 0, crossTab: hub.open() });
+		const a = open();
+		const b = open();
+		await hydrated(a);
+		await hydrated(b);
+		for (const tab of [a, b]) tab.getState().actions.setTracking(true);
+		await runSync(a, server.transport);
+		await settle(10);
+		expect(view(b)?.updatedAt).toBe(T);
+
+		await server.transport.push({
+			records: [wire("habits", { ...raw, timeOfDay: "evening", updatedAt: T + 1 })],
+		});
+		// Tab B edits (T + 1, pending); tab A gets it, pushes it, and adopts the
+		// server's "evening" (it wins on the wire form; in the sync order on the
+		// normalized copies it loses).
+		b.getState().actions.updateHabit("h1", { timeOfDay: "morning" });
+		await b.flush();
+		await settle(10);
+		expect(view(a)?.timeOfDay).toBe("morning");
+		await runSync(a, server.transport);
+		await a.flush();
+		await settle(20);
+		for (let round = 0; round < 2; round++) {
+			for (const tab of [a, b]) {
+				await runSync(tab, server.transport);
+				await tab.flush();
+				await settle(20);
+			}
+		}
+		expect(server.docs.get("habits/h1")?.data.timeOfDay).toBe("evening");
+		expect(view(a)?.timeOfDay).toBe("evening");
+		expect(view(b)?.timeOfDay).toBe("evening");
+		expect(pendingKeys(a)).toEqual([]);
+		expect(pendingKeys(b)).toEqual([]);
+		a.dispose();
+		b.dispose();
 	});
 });
 

@@ -78,7 +78,8 @@ export function registerAccountRoutes(app: Hono<AppEnv>, services: Services) {
 			} catch {
 				// Rendered as an invalid link below.
 			}
-			const field = (name: string) => (typeof form[name] === "string" ? (form[name] as string) : "");
+			const field = (name: string) =>
+				typeof form[name] === "string" ? (form[name] as string) : "";
 			const locale = localeOf(c, field("lang"));
 			const token = field("token");
 			const password = field("password");

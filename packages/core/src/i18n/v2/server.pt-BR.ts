@@ -31,6 +31,9 @@ export const serverPtBR: Record<keyof typeof serverEn, string> = {
 	"page.tooMany": "Muitas tentativas. Tente de novo em um minuto.",
 	"page.billing.success": "Pagamento recebido. Seu plano atualiza em alguns segundos.",
 	"page.billing.cancel": "Pagamento cancelado. Nada foi cobrado.",
+	"page.billing.title": "Atomic Pro",
+	"page.billing.portal": "Qualquer mudança no seu plano aparece no Atomic em alguns segundos.",
+	"page.billing.backToApp": "Volte ao Atomic para ver seu plano.",
 	"page.openApp": "Abrir o Atomic",
 	"page.close": "Você já pode fechar esta aba.",
 };

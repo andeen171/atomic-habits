@@ -1,5 +1,8 @@
 import { protectedProcedure, publicProcedure, router } from "./init";
 import { accountRouter } from "./routers/account";
+import { aiRouter } from "./routers/ai";
+import { billingRouter } from "./routers/billing";
+import { blobsRouter } from "./routers/blobs";
 import { metaProcedure } from "./routers/meta";
 import { syncRouter } from "./routers/sync";
 
@@ -13,6 +16,9 @@ export const appRouter = router({
 	meta: metaProcedure,
 	sync: syncRouter,
 	account: accountRouter,
+	billing: billingRouter,
+	ai: aiRouter,
+	blobs: blobsRouter,
 });
 
 export type AppRouter = typeof appRouter;

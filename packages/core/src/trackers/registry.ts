@@ -32,6 +32,16 @@ import type {
 	SummaryContext,
 } from "./summary";
 
+/** Built-in options and helpers of the definitions that the apps render directly. */
+export { CONNECTION_CHANNELS, circleStatus } from "./defs/connection";
+export { EXPENSE_CATEGORIES, type ExpenseCategoryId, expenseCategory } from "./defs/expense";
+export { formatMeasure } from "./defs/measure";
+export { photoLoggingBlocked, photosOf } from "./defs/photo";
+export { type PlanItem, planItems } from "./defs/plan";
+export { BOOK_STATUSES, type BookStatus, booksOf, habitBooks } from "./defs/reading";
+export { DAY_PARTS as SLIP_DAY_PARTS } from "./defs/slip";
+export { WORKOUT_ACTIVITIES, workoutActivity } from "./defs/workout";
+
 /**
  * Tracker definitions (Annex K §3.1; spec §3.5): `TrackerMeta` (the
  * data-integrity half, `meta.ts`) plus the UI half — icon, defaults,

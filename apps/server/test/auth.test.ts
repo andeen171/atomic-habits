@@ -1,9 +1,23 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import type { AccountInfo } from "@atomic/core";
+import { eq } from "drizzle-orm";
+import { session, user } from "../src/db/schema";
+import { disabledAuthPaths, isDisabledAuthPath } from "../src/lib/auth";
+import {
+	EMAIL_ENV,
+	type FakeGoogle,
+	GOOGLE_ANDROID_CLIENT,
+	GOOGLE_ENV,
+	createFakeGoogle,
+	createFakeNet,
+} from "./fakes";
 import {
 	type AuthBody,
 	BASE_URL,
 	type TestApp,
+	type TestServer,
 	bearer,
+	createTestServer,
 	postJson,
 	setupApp,
 	signUp,
@@ -212,5 +226,315 @@ describe("unused auth flows", () => {
 			});
 			expect(response.status).toBe(404);
 		}
+	});
+});
+
+// ── Milestone B: hardening, Google, re-authentication (spec §4.2, §4.5, §4.6) ──
+
+async function googleSignIn(
+	target: TestApp,
+	token: string,
+	headers: Record<string, string> = {},
+	nonce?: string,
+) {
+	return postJson(
+		target,
+		"/api/auth/sign-in/social",
+		{ provider: "google", idToken: nonce ? { token, nonce } : { token } },
+		headers,
+	);
+}
+
+async function status(target: TestApp, token: string): Promise<number> {
+	return (await target.request(`${BASE_URL}/trpc/me`, { headers: bearer(token) })).status;
+}
+
+async function accountInfo(target: TestApp, token: string): Promise<AccountInfo> {
+	return trpcData<AccountInfo>(
+		await target.request(`${BASE_URL}/trpc/account.get`, { headers: bearer(token) }),
+	);
+}
+
+/** Routes nobody may call, whatever the configuration (spec §4.2). */
+const ALWAYS_OFF = [
+	"/list-sessions",
+	"/revoke-session",
+	"/revoke-sessions",
+	"/revoke-other-sessions",
+	"/update-session",
+	"/change-email",
+	"/link-social",
+	"/unlink-account",
+	"/list-accounts",
+	"/get-access-token",
+	"/refresh-token",
+	"/account-info",
+	"/verify-password",
+	"/callback/google",
+	"/delete-user/callback",
+	"/forget-password",
+	"/reset-password/abcdefghijklmnopqrstuvwx",
+];
+
+/** Routes that exist only with email (D30). */
+const EMAIL_ONLY: [method: "GET" | "POST", path: string][] = [
+	["GET", "/verify-email?token=x"],
+	["POST", "/send-verification-email"],
+	["POST", "/request-password-reset"],
+	["POST", "/reset-password"],
+];
+
+describe("disabled-path matrix (email × Google)", () => {
+	for (const email of [false, true]) {
+		for (const google of [false, true]) {
+			test(`email ${email ? "on" : "off"}, Google ${google ? "on" : "off"}`, async () => {
+				const fake = await createFakeGoogle();
+				const net = createFakeNet(fake);
+				const { app: target } = await createTestServer({
+					env: { ...(email ? EMAIL_ENV : {}), ...(google ? GOOGLE_ENV : {}) },
+					deps: { fetch: net.fetch },
+				});
+				const { token, email: address } = await signUp(target);
+				const call = (method: string, path: string) =>
+					target.request(`${BASE_URL}/api/auth${path}`, {
+						method,
+						headers: { "Content-Type": "application/json", ...bearer(token) },
+						body: method === "POST" ? JSON.stringify({ email: address }) : undefined,
+					});
+
+				for (const path of ALWAYS_OFF) {
+					for (const method of ["GET", "POST"]) {
+						expect([path, method, (await call(method, path)).status]).toEqual([path, method, 404]);
+					}
+				}
+				for (const [method, path] of EMAIL_ONLY) {
+					const code = (await call(method, path)).status;
+					if (email) expect([path, code]).not.toEqual([path, 404]);
+					else expect([path, code]).toEqual([path, 404]);
+				}
+				const social = await call("POST", "/sign-in/social");
+				expect(social.status).toBe(google ? 400 : 404);
+
+				// What every configuration keeps.
+				expect((await call("GET", "/get-session")).status).toBe(200);
+				const rename = await postJson(
+					target,
+					"/api/auth/update-user",
+					{ name: "Ana B" },
+					bearer(token),
+				);
+				expect(rename.status).toBe(200);
+				const change = await postJson(
+					target,
+					"/api/auth/change-password",
+					{ currentPassword: "wrong-password", newPassword: "another password" },
+					bearer(token),
+				);
+				expect(change.status).toBe(400);
+			});
+		}
+	}
+
+	test("/list-sessions answers 404 even with a valid session", async () => {
+		const { token } = await signUp(app);
+		const response = await app.request(`${BASE_URL}/api/auth/list-sessions`, {
+			headers: bearer(token),
+		});
+		expect(response.status).toBe(404);
+		expect(await response.text()).not.toContain(token);
+	});
+
+	test("matching covers :params and trailing slashes", () => {
+		const disabled = disabledAuthPaths({ email: null, google: null });
+		expect(isDisabledAuthPath(disabled, "/callback/google")).toBe(true);
+		expect(isDisabledAuthPath(disabled, "/reset-password/abc")).toBe(true);
+		expect(isDisabledAuthPath(disabled, "/list-sessions/")).toBe(true);
+		expect(isDisabledAuthPath(disabled, "//list-sessions")).toBe(true);
+		expect(isDisabledAuthPath(disabled, "/callback//google")).toBe(true);
+		expect(isDisabledAuthPath(disabled, "/callback")).toBe(false);
+		expect(isDisabledAuthPath(disabled, "/sign-in/email")).toBe(false);
+		expect(isDisabledAuthPath(disabled, "/get-session")).toBe(false);
+	});
+
+	test("auth responses are never cached and send no referrer", async () => {
+		const response = await postJson(app, "/api/auth/sign-up/email", {
+			name: "Ana",
+			email: uniqueEmail(),
+			password: "secret123",
+		});
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+	});
+});
+
+describe("Google sign-in (ID token only, D29)", () => {
+	let google: FakeGoogle;
+	let server: TestServer;
+
+	beforeAll(async () => {
+		google = await createFakeGoogle();
+		const net = createFakeNet(google);
+		server = await createTestServer({ env: GOOGLE_ENV, deps: { fetch: net.fetch } });
+	});
+
+	test("social sign-in without an idToken is refused with 400", async () => {
+		const response = await postJson(server.app, "/api/auth/sign-in/social", {
+			provider: "google",
+			callbackURL: "https://app.example.com",
+		});
+		expect(response.status).toBe(400);
+		expect(((await response.json()) as { code: string }).code).toBe("ID_TOKEN_REQUIRED");
+	});
+
+	test("a valid ID token signs up, then signs in to the same account", async () => {
+		const email = uniqueEmail("gina");
+		const first = await googleSignIn(server.app, await google.idToken({ email, name: "Gina" }));
+		expect(first.status).toBe(200);
+		const body = (await first.json()) as AuthBody;
+		expect(body.token).toBeTruthy();
+		expect(body.user).toMatchObject({ email, name: "Gina" });
+		expect(first.headers.get("set-cookie")).toBeNull();
+
+		const again = await googleSignIn(
+			server.app,
+			await google.idToken({ email, aud: GOOGLE_ANDROID_CLIENT }),
+		);
+		expect(again.status).toBe(200);
+		expect(((await again.json()) as AuthBody).user.id).toBe(body.user.id);
+
+		const info = await accountInfo(server.app, body.token ?? "");
+		expect(info).toMatchObject({ emailVerified: true, hasPassword: false, providers: ["google"] });
+	});
+
+	test("forged, foreign, expired and replayed-nonce tokens are refused", async () => {
+		const email = uniqueEmail("mallory");
+		const other = await createFakeGoogle();
+		const now = Math.floor(Date.now() / 1000);
+		const bad = [
+			await other.idToken({ email }), // signed by an unknown key (same kid)
+			await google.idToken({ email, aud: "someone-else.apps.googleusercontent.com" }),
+			await google.idToken({ email, iss: "https://evil.example.com" }),
+			await google.idToken({ email, iat: now - 7200, exp: now - 3600 }),
+			"not-a-jwt",
+		];
+		for (const token of bad) {
+			expect((await googleSignIn(server.app, token)).status).toBe(401);
+		}
+		const withNonce = await google.idToken({ email, nonce: "n-1" });
+		expect((await googleSignIn(server.app, withNonce, {}, "n-2")).status).toBe(401);
+		expect((await googleSignIn(server.app, withNonce, {}, "n-1")).status).toBe(200);
+	});
+
+	test("pre-registration takeover: Google reclaims an unverified password account (§4.5)", async () => {
+		const email = uniqueEmail("victim");
+		// Someone signs up first with the victim's address and a password.
+		const squat = await postJson(server.app, "/api/auth/sign-up/email", {
+			name: "Squatter",
+			email,
+			password: "squatter-pass-1",
+		});
+		const squatter = (await squat.json()) as AuthBody;
+		const squatToken = squatter.token ?? "";
+		expect(await status(server.app, squatToken)).toBe(200);
+
+		// The owner signs in with Google (which verified the address).
+		const owner = await googleSignIn(server.app, await google.idToken({ email }));
+		expect(owner.status).toBe(200);
+		const ownerBody = (await owner.json()) as AuthBody;
+		expect(ownerBody.user.id).toBe(squatter.user.id);
+
+		// The squatter is signed out everywhere and the password no longer works.
+		expect(await status(server.app, squatToken)).toBe(401);
+		const reuse = await postJson(server.app, "/api/auth/sign-in/email", {
+			email,
+			password: "squatter-pass-1",
+		});
+		expect(reuse.status).toBe(401);
+		const info = await accountInfo(server.app, ownerBody.token ?? "");
+		expect(info).toMatchObject({ emailVerified: true, hasPassword: false, providers: ["google"] });
+		expect(server.logs.some((l) => l.line.includes("reclaimed"))).toBe(true);
+	});
+
+	test("an address Google did not verify never links to an existing account", async () => {
+		const { email, token } = await signUp(server.app, "Una");
+		const response = await googleSignIn(
+			server.app,
+			await google.idToken({ email, email_verified: false }),
+		);
+		expect(response.status).toBe(401);
+		expect(await status(server.app, token)).toBe(200);
+		expect((await accountInfo(server.app, token)).hasPassword).toBe(true);
+	});
+
+	test("a verified password account links and keeps its password and devices", async () => {
+		const { email, password, token, user: owner } = await signUp(server.app, "Vera");
+		await server.db.update(user).set({ emailVerified: true }).where(eq(user.id, owner.id));
+		const response = await googleSignIn(server.app, await google.idToken({ email }));
+		expect(response.status).toBe(200);
+		const googleToken = ((await response.json()) as AuthBody).token ?? "";
+		expect(await status(server.app, token)).toBe(200);
+		const info = await accountInfo(server.app, googleToken);
+		expect(info).toMatchObject({ hasPassword: true, providers: ["credential", "google"] });
+		const signIn = await postJson(server.app, "/api/auth/sign-in/email", { email, password });
+		expect(signIn.status).toBe(200);
+	});
+});
+
+describe("account deletion needs re-authentication (D55)", () => {
+	let google: FakeGoogle;
+	let server: TestServer;
+
+	beforeAll(async () => {
+		google = await createFakeGoogle();
+		const net = createFakeNet(google);
+		server = await createTestServer({ env: GOOGLE_ENV, deps: { fetch: net.fetch } });
+	});
+
+	const deleteUser = (token: string, body: Record<string, unknown> = {}) =>
+		postJson(server.app, "/api/auth/delete-user", body, bearer(token));
+
+	const userExists = async (id: string) =>
+		(await server.db.select({ id: user.id }).from(user).where(eq(user.id, id))).length === 1;
+
+	test("a Google-only account deletes only right after a fresh Google sign-in", async () => {
+		const email = uniqueEmail("gone");
+		const first = (await (
+			await googleSignIn(server.app, await google.idToken({ email }))
+		).json()) as AuthBody;
+		const stale = first.token ?? "";
+		// Signed in 11 minutes ago: past `freshAge`.
+		await server.db
+			.update(session)
+			.set({ createdAt: new Date(Date.now() - 11 * 60_000) })
+			.where(eq(session.token, stale));
+		const refused = await deleteUser(stale);
+		expect(refused.status).toBe(400);
+		expect(((await refused.json()) as { code: string }).code).toBe("SESSION_EXPIRED");
+		expect(await userExists(first.user.id)).toBe(true);
+
+		const fresh = (await (
+			await googleSignIn(server.app, await google.idToken({ email }))
+		).json()) as AuthBody;
+		const deleted = await deleteUser(fresh.token ?? "");
+		expect(deleted.status).toBe(200);
+		expect(await userExists(first.user.id)).toBe(false);
+		expect(await status(server.app, fresh.token ?? "")).toBe(401);
+		expect(await status(server.app, stale)).toBe(401);
+	});
+
+	test("an account with a password confirms with it, even on a fresh session", async () => {
+		const { token, password, user: owner } = await signUp(server.app, "Pia");
+		const missing = await deleteUser(token);
+		expect(missing.status).toBe(400);
+		expect(((await missing.json()) as { code: string }).code).toBe("PASSWORD_REQUIRED");
+		const wrong = await deleteUser(token, { password: "not my password" });
+		expect(wrong.status).toBe(400);
+		expect(await userExists(owner.id)).toBe(true);
+		expect((await deleteUser(token, { password })).status).toBe(200);
+		expect(await userExists(owner.id)).toBe(false);
+	});
+
+	test("without a session the guard defers to Better Auth (401)", async () => {
+		expect((await postJson(server.app, "/api/auth/delete-user", {})).status).toBe(401);
 	});
 });

@@ -59,6 +59,47 @@ const currency = z.string().regex(/^[A-Z]{3}$/);
 const money = z.number().int().min(0).max(1_000_000_000_000);
 const label = (max: number) => z.string().trim().min(1).max(max);
 const note = (max: number) => z.string().max(max).nullable().default(null);
+
+/** Control characters other than tab and line feed, DEL, or half of a surrogate pair. */
+function unsafeAt(text: string, i: number): 0 | 1 | 2 {
+	const code = text.charCodeAt(i);
+	if (code < 0x20) return code === 0x09 || code === 0x0a ? 0 : 1;
+	if (code === 0x7f) return 1;
+	if (code >= 0xd800 && code <= 0xdbff) {
+		const next = text.charCodeAt(i + 1);
+		return next >= 0xdc00 && next <= 0xdfff ? 2 : 1;
+	}
+	return code >= 0xdc00 && code <= 0xdfff ? 1 : 0;
+}
+
+/**
+ * Whether a text holds characters that carry no text but cost up to 6 bytes
+ * each on the wire (`\u0001`): control characters other than tab and line
+ * feed, DEL and unpaired surrogates. Without them a 16 000-unit writing page
+ * costs at most 48 KB, under `MAX_RECORD_BYTES`. A loop: Hermes-safe.
+ */
+export function hasUnsafeChars(text: string): boolean {
+	for (let i = 0; i < text.length; i++) {
+		const kind = unsafeAt(text, i);
+		if (kind === 1) return true;
+		if (kind === 2) i++;
+	}
+	return false;
+}
+
+/** The text without the characters `hasUnsafeChars` looks for. */
+export function dropUnsafeChars(text: string): string {
+	let out = "";
+	let run = 0;
+	for (let i = 0; i < text.length; i++) {
+		const kind = unsafeAt(text, i);
+		if (kind === 1) {
+			out += text.slice(run, i);
+			run = i + 1;
+		} else if (kind === 2) i++;
+	}
+	return run === 0 ? text : out + text.slice(run);
+}
 const photos = (max: number) => z.array(attachmentRefSchema).max(max).default([]);
 
 const trackerBase = {
@@ -270,7 +311,13 @@ export const ENTRY_DATA = {
 		mode: z.enum(["timer", "stopwatch", "manual"]).default("manual"),
 	}),
 	writing: z.looseObject({
-		text: z.string().max(16_000).nullable().default(null),
+		/** ≤ 16 000 units without wire-costly characters (`normalizeTrackerEntry` drops them). */
+		text: z
+			.string()
+			.max(16_000)
+			.refine((text) => !hasUnsafeChars(text), "Unsupported characters")
+			.nullable()
+			.default(null),
 		words: z.number().int().min(0).max(100_000).default(0),
 		title: note(120),
 		project: note(60),

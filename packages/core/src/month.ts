@@ -12,9 +12,17 @@ import {
 	startOfWeek,
 	toDayKey,
 } from "./dates";
-import { type HabitLogs, goalOn, scheduledBy, targetOn } from "./habits";
+import { type HabitLogs, type LogIndex, goalOn, logsFor, scheduledBy, targetOn } from "./habits";
+import type { PluralKey, Translator } from "./i18n";
 import type { Habit } from "./model";
-import { canExceedTarget, isTrackerActive, measureOf } from "./trackers/meta";
+import {
+	canExceedTarget,
+	isTrackerActive,
+	knownTracker,
+	measureOf,
+	trackerUnitKind,
+	trackerUnitWord,
+} from "./trackers/meta";
 
 /**
  * The monthly goal and the Goldilocks level-up (item 1; Annex H §1.1 and
@@ -591,4 +599,197 @@ export function monthPace(
 	if (goal.neededPerDay === null) return null;
 	const extraPerDay = goal.neededPerDay - targetOn(habit, today);
 	return extraPerDay > 0 ? { extraPerDay } : null;
+}
+
+// ── Insights: months won in a range (spec §5.5, D62) ──
+
+/**
+ * The "Months won" tile: won months of build habits whose span reaches into
+ * the last `rangeDays` days (today included). Complete months count, and the
+ * current month counts once it is won (`monthsWon`); rest months never do.
+ * Archived habits keep their past months; deleted habits are left out.
+ */
+export function monthsWonInRange(
+	habits: readonly Habit[],
+	index: LogIndex,
+	today: DayKey,
+	rangeDays: number,
+	weekStartsOn: Weekday = 1,
+): { won: number; total: number } {
+	const from = addDays(today, -(Math.max(1, Math.floor(rangeDays)) - 1));
+	let won = 0;
+	let total = 0;
+	for (const habit of habits) {
+		if (habit.deletedAt || habit.kind !== "build") continue;
+		const logs = logsFor(index, habit.id);
+		const start = currentMonthKey(habit, habit.startDate, weekStartsOn);
+		const history: MonthProgress[] = [];
+		for (
+			let month = currentMonthKey(habit, today, weekStartsOn);
+			month >= start;
+			month = addMonthKey(month, -1)
+		) {
+			if (rawSpan(habit, month, weekStartsOn).to < from) break;
+			const progress = monthGoal(habit, logs, month, today, weekStartsOn);
+			if (progress && progress.to >= from) history.push(progress);
+		}
+		const counted = monthsWon(history);
+		won += counted.won;
+		total += counted.total;
+	}
+	return { won, total };
+}
+
+// ── Copy shared by both apps (Annex H §7, spec D8) ──
+
+/** The unit word of the habit's amounts: the tracker's ("pages") or `habit.unit`. */
+function unitWord(habit: Habit, t: Translator): string | null {
+	const config = knownTracker(habit);
+	const word =
+		config?.enabled !== false ? trackerUnitWord(trackerUnitKind(habit), config, t) : null;
+	const own = typeof habit.unit === "string" ? habit.unit.trim() : "";
+	return word ?? (own || null);
+}
+
+/** "310 pages", "6,600 words", "12 glasses", "31": an amount in the habit's unit. */
+export function monthAmount(habit: Habit, count: number, t: Translator): string {
+	const config = knownTracker(habit);
+	const kind = config?.enabled !== false ? trackerUnitKind(habit) : null;
+	if (kind && kind !== "value") return t.tp(`tracker.unit.${kind}` as PluralKey, count);
+	const unit = unitWord(habit, t);
+	return unit ? `${t.number(count)} ${unit}` : t.number(count);
+}
+
+/** "October" / "outubro": the month's name for a sentence. */
+export function monthLabel(month: MonthKey, t: Translator): string {
+	return t.monthName(Number(month.slice(5, 7)) - 1, "long");
+}
+
+/** "214/310 pages" for build months; "17 of 19 days clean" for break months. */
+export function monthProgressLabel(progress: MonthProgress, habit: Habit, t: Translator): string {
+	if (progress.kind === "break") {
+		return t.t("month.cleanDays", {
+			count: t.number(progress.cleanDays),
+			total: t.number(progress.elapsedDays),
+		});
+	}
+	const count = t.number(progress.credited);
+	const goal = t.number(progress.goal);
+	const unit = unitWord(habit, t);
+	return unit
+		? t.t("month.progressUnit", { count, goal, unit })
+		: t.t("month.progress", { count, goal });
+}
+
+/**
+ * The month card's status line (D8): "Reached on Oct 24…", "5 pages ahead of
+ * pace.", "144 pages to go · 12 pages/day over the 12 days left", "2 more
+ * sessions win the month.", and the calm out-of-reach, missed and rest lines.
+ */
+export function monthStatusLine(goal: MonthGoal, habit: Habit, t: Translator): string {
+	switch (goal.status) {
+		case "won":
+			return goal.wonOn
+				? t.t("month.wonOn", { date: t.formatDayShort(goal.wonOn) })
+				: t.t("month.status.won");
+		case "ahead":
+			return t.t("month.ahead", {
+				count: monthAmount(habit, Math.max(0, goal.credited - goal.expected), t),
+			});
+		case "onTrack":
+			return t.t("month.onTrack");
+		case "behind": {
+			if (goal.unit === "weeks" && goal.neededSessions !== null) {
+				return t.tp("month.catchUpSessions", goal.neededSessions);
+			}
+			const toGo = t.t("month.toGo", { remaining: monthAmount(habit, goal.remaining, t) });
+			if (goal.neededPerDay === null || goal.daysLeft <= 0) return toGo;
+			return t.t("month.line", {
+				label: toGo,
+				value: t.tp("month.perDayLeft", goal.daysLeft, {
+					perDay: monthAmount(habit, goal.neededPerDay, t),
+				}),
+			});
+		}
+		case "outOfReach":
+			return t.t("month.outOfReach");
+		case "missed":
+			return t.t("month.missed");
+		case "rest":
+			return t.t("month.rest");
+	}
+}
+
+/** The Today row's pace hint ("+3 pages/day wins October"), or null (`monthPace`). */
+export function monthPaceHint(
+	goal: MonthGoal,
+	habit: Habit,
+	today: DayKey,
+	t: Translator,
+): string | null {
+	const pace = monthPace(goal, habit, today);
+	if (!pace) return null;
+	return t.t("month.paceHint", {
+		amount: monthAmount(habit, pace.extraPerDay, t),
+		month: monthLabel(goal.month, t),
+	});
+}
+
+/** The celebration toast: "Monthly goal reached: Read" / "310 pages in October. Small wins, compounded." */
+export function monthWonToast(
+	goal: MonthGoal,
+	habit: Habit,
+	t: Translator,
+	name: string = habit.name,
+): { title: string; body: string } {
+	return {
+		title: t.t("month.wonToast", { habit: name }),
+		body: t.t("month.wonToastBody", {
+			count: monthAmount(habit, goal.goal, t),
+			month: monthLabel(goal.month, t),
+		}),
+	};
+}
+
+export interface LevelUpCopy {
+	body: string;
+	/** "You beat 10 pages on 24 of 30 days in September." */
+	evidence: string;
+	/** The accept button: "Raise to 12 pages" / "Make it 4× a week". */
+	action: string;
+	/** The toast after accepting: "New daily goal: 12 pages." */
+	accepted: string;
+}
+
+/** Level-up card, banner and toast copy for a suggestion (Annex H §1.1.6, spec §5.3). */
+export function levelUpCopy(s: LevelUpSuggestion, habit: Habit, t: Translator): LevelUpCopy {
+	const month = monthLabel(s.month, t);
+	if (s.kind === "frequency") {
+		const weekly = "weeks" in s.evidence ? s.evidence : { weeksAbove: s.above, weeks: s.of };
+		return {
+			body: t.t("levelUp.bodyFrequency", { month, above: s.above, total: s.of }),
+			evidence: t.t("levelUp.evidenceWeekly", {
+				times: s.from,
+				weeks: weekly.weeksAbove,
+				total: weekly.weeks,
+			}),
+			action: t.t("levelUp.raiseFrequency", { count: s.to }),
+			accepted: t.t("levelUp.acceptedFrequency", { count: s.to }),
+		};
+	}
+	const unit = unitWord(habit, t);
+	const daily = "owed" in s.evidence ? s.evidence : { above: s.above, owed: s.of };
+	return {
+		body: t.t("levelUp.bodyTarget", { month, above: s.above, total: s.of }),
+		evidence: t.t("levelUp.evidence", {
+			target: monthAmount(habit, s.from, t),
+			above: daily.above,
+			owed: daily.owed,
+			month,
+		}),
+		action: unit
+			? t.t("levelUp.raiseToUnit", { count: t.number(s.to), unit })
+			: t.t("levelUp.raiseTo", { count: t.number(s.to) }),
+		accepted: t.t("levelUp.accepted", { goal: monthAmount(habit, s.to, t) }),
+	};
 }

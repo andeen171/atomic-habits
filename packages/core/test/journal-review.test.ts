@@ -6,6 +6,7 @@ import { createTranslator } from "../src/i18n";
 import {
 	CHECKIN_QUIET_DAYS,
 	type JournalNudge,
+	checkinDismissKey,
 	checkinReason,
 	goldilocksSuggestion,
 	integrityYear,
@@ -399,6 +400,12 @@ describe("Goldilocks check-in (Annex J §1.8, D9)", () => {
 		expect(checkinReason({ ...h, deletedAt: 1 }, stats(0.9), [], TODAY, false)).toBeNull();
 	});
 
+	test("checkinDismissKey: one dismissal per habit and month", () => {
+		expect(checkinDismissKey("h1", "2026-10-01")).toBe("checkin:h1:2026-10");
+		expect(checkinDismissKey("h1", "2026-10-31")).toBe(checkinDismissKey("h1", "2026-10-01"));
+		expect(checkinDismissKey("h1", "2026-11-01")).toBe("checkin:h1:2026-11");
+	});
+
 	test("goldilocksSuggestion: +10% (10→11, 8→9, 15→17, 300→330, capped at 10,000), half, two-minute", () => {
 		const s = (target: number, difficulty: Parameters<typeof goldilocksSuggestion>[1]) =>
 			goldilocksSuggestion(habit({ target, twoMinute: "Read one page" }), difficulty);
@@ -439,7 +446,7 @@ describe("Goldilocks check-in (Annex J §1.8, D9)", () => {
 			target: 12,
 			viaLevelUp: true,
 		});
-		const plain = { type: "target", target: 11 };
+		const plain = { type: "target", target: 11 } as const;
 		expect(goldilocksSuggestion(h, "too-easy", { ...levelUp, kind: "frequency" })).toEqual(plain);
 		expect(goldilocksSuggestion(h, "too-easy", { ...levelUp, habitId: "other" })).toEqual(plain);
 		expect(goldilocksSuggestion(h, "too-easy", { ...levelUp, from: 8 })).toEqual(plain);

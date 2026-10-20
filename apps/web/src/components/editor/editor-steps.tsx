@@ -5,9 +5,11 @@ import { type HabitTemplate, habitTemplates, identityTemplates } from "@atomic/c
 import { useIdentities, useLocale } from "@atomic/core/react";
 import { Check, Plus } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
+import { AiSuggest } from "../ai/ai-suggest";
 import { TrackerBadge } from "../trackers/tracker-badge";
 import { TrackerField } from "../trackers/tracker-picker";
-import { Field, Input } from "../ui/field";
+import { Field } from "../ui/field";
+import { SmartInput } from "../ui/smart-input";
 import type { HabitDraft } from "./draft";
 import {
 	ColorPicker,
@@ -47,6 +49,9 @@ export function BasicsFields({
 }) {
 	const { t } = useT();
 	const isBreak = draft.kind === "break";
+	const identities = useIdentities();
+	const identityStatement =
+		draft.newIdentity?.trim() || identities.find((i) => i.id === draft.identityId)?.statement;
 	return (
 		<div className="flex flex-col gap-5">
 			{editing ? (
@@ -75,8 +80,9 @@ export function BasicsFields({
 							color={draft.color}
 							onChange={(emoji) => update({ emoji })}
 						/>
-						<Input
+						<SmartInput
 							{...props}
+							field="habit.name"
 							value={draft.name}
 							maxLength={120}
 							autoFocus={autoFocus}
@@ -89,6 +95,16 @@ export function BasicsFields({
 								}
 							}}
 							className="text-h3"
+						/>
+						<AiSuggest
+							kind="habit.name"
+							label={t("form.name")}
+							input={() => ({
+								partial: draft.name.trim().slice(0, 80) || undefined,
+								identity: identityStatement?.slice(0, 120),
+								kind: draft.kind,
+							})}
+							onPick={(name) => update({ name })}
 						/>
 					</div>
 				)}
@@ -202,7 +218,8 @@ export function IdentityFields({ draft, update }: StepProps) {
 			>
 				{creating ? (
 					<div className="flex flex-col gap-3">
-						<Input
+						<SmartInput
+							field="identity.statement"
 							value={draft.newIdentity ?? ""}
 							autoFocus
 							maxLength={120}
@@ -293,6 +310,7 @@ export function ObviousFields({ draft, update, habitId }: StepProps) {
 			<div className="flex flex-col gap-5">
 				<DraftTextField
 					label={t("form.trigger")}
+					field="habit.cueLocation"
 					value={draft.cueLocation}
 					onChange={(cueLocation) => update({ cueLocation })}
 					placeholder={t("form.triggerPlaceholder")}
@@ -301,6 +319,7 @@ export function ObviousFields({ draft, update, habitId }: StepProps) {
 				<div className="flex flex-col gap-2">
 					<DraftTextField
 						label={t("form.invisible")}
+						field="habit.environment"
 						value={draft.environment}
 						onChange={(environment) => update({ environment })}
 						placeholder={t("form.invisiblePlaceholder")}
@@ -320,6 +339,24 @@ export function ObviousFields({ draft, update, habitId }: StepProps) {
 				<CueTimeField value={draft.cueTime} onChange={(cueTime) => update({ cueTime })} />
 				<DraftTextField
 					label={t("form.cueLocation")}
+					field="habit.cueLocation"
+					suggest={
+						<AiSuggest
+							kind="habit.intention"
+							label={t("form.cueLocation")}
+							input={() => ({
+								habit: draft.name.trim(),
+								kind: draft.kind,
+								timeOfDay: draft.timeOfDay,
+							})}
+							onPick={(intention) =>
+								update({
+									cueLocation: intention.location,
+									...(intention.time ? { cueTime: intention.time } : {}),
+								})
+							}
+						/>
+					}
 					value={draft.cueLocation}
 					onChange={(cueLocation) => update({ cueLocation })}
 					placeholder={t("form.cueLocationPlaceholder")}
@@ -330,6 +367,15 @@ export function ObviousFields({ draft, update, habitId }: StepProps) {
 				label={t("form.stackAfter")}
 				hint={t("form.stackAfterHint")}
 				prefix={t("form.stackAfterPrefix")}
+				field="habit.stackAfter"
+				suggest={
+					<AiSuggest
+						kind="habit.stack"
+						label={t("form.stackAfter")}
+						input={() => ({ habit: draft.name.trim() })}
+						onPick={(stackAfter) => update({ stackAfter })}
+					/>
+				}
 				value={draft.stackAfter}
 				onChange={(stackAfter) => update({ stackAfter })}
 				placeholder={t("form.stackAfterPlaceholder")}
@@ -337,6 +383,7 @@ export function ObviousFields({ draft, update, habitId }: StepProps) {
 			<div className="flex flex-col gap-2">
 				<DraftTextField
 					label={t("form.environment")}
+					field="habit.environment"
 					value={draft.environment}
 					onChange={(environment) => update({ environment })}
 					placeholder={t("form.environmentPlaceholder")}
@@ -358,6 +405,7 @@ export function EasyFields({ draft, update, habitId }: StepProps) {
 				<div className="flex flex-col gap-2">
 					<DraftTextField
 						label={t("form.difficult")}
+						field="habit.twoMinute"
 						value={draft.twoMinute}
 						onChange={(twoMinute) => update({ twoMinute })}
 						placeholder={t("form.difficultPlaceholder")}
@@ -374,6 +422,15 @@ export function EasyFields({ draft, update, habitId }: StepProps) {
 		<div className="flex flex-col gap-6">
 			<DraftTextField
 				label={t("form.twoMinute")}
+				field="habit.twoMinute"
+				suggest={
+					<AiSuggest
+						kind="habit.twoMinute"
+						label={t("form.twoMinute")}
+						input={() => ({ habit: draft.name.trim(), kind: draft.kind })}
+						onPick={(twoMinute) => update({ twoMinute })}
+					/>
+				}
 				value={draft.twoMinute}
 				onChange={(twoMinute) => update({ twoMinute })}
 				placeholder={t("form.twoMinutePlaceholder")}
@@ -390,7 +447,8 @@ export function EasyFields({ draft, update, habitId }: StepProps) {
 						onChange={(target) => update({ target })}
 						label={t("form.target")}
 					/>
-					<Input
+					<SmartInput
+						field="habit.unit"
 						value={draft.unit}
 						maxLength={24}
 						disabled={draft.target <= 1}
@@ -414,6 +472,7 @@ export function SatisfyingFields({ draft, update, habitId }: StepProps) {
 			<div className="flex flex-col gap-5">
 				<DraftTextField
 					label={t("form.unattractive")}
+					field="habit.bundle"
 					value={draft.bundle}
 					onChange={(bundle) => update({ bundle })}
 					placeholder={t("form.unattractivePlaceholder")}
@@ -421,6 +480,7 @@ export function SatisfyingFields({ draft, update, habitId }: StepProps) {
 				<div className="flex flex-col gap-2">
 					<DraftTextField
 						label={t("form.unsatisfying")}
+						field="habit.reward"
 						value={draft.reward}
 						onChange={(reward) => update({ reward })}
 						placeholder={t("form.unsatisfyingPlaceholder")}
@@ -437,6 +497,7 @@ export function SatisfyingFields({ draft, update, habitId }: StepProps) {
 			<DraftTextField
 				label={t("form.bundle")}
 				hint={t("form.bundleHint")}
+				field="habit.bundle"
 				value={draft.bundle}
 				onChange={(bundle) => update({ bundle })}
 				placeholder={t("form.bundlePlaceholder")}
@@ -444,12 +505,14 @@ export function SatisfyingFields({ draft, update, habitId }: StepProps) {
 			<DraftTextField
 				label={t("form.reward")}
 				hint={t("form.rewardHint")}
+				field="habit.reward"
 				value={draft.reward}
 				onChange={(reward) => update({ reward })}
 				placeholder={t("form.rewardPlaceholder")}
 			/>
 			<DraftTextField
 				label={t("form.why")}
+				field="habit.why"
 				value={draft.why}
 				onChange={(why) => update({ why })}
 				placeholder={t("form.whyPlaceholder")}

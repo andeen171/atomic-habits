@@ -5,10 +5,15 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { matchedRoutes } from "hono/route";
+import { deleteUserGuard } from "./account/delete-guard";
+import { registerAccountRoutes } from "./account/routes";
+import { registerBillingRoutes, subscriptionSuccessHandler } from "./billing/return";
+import { registerBlobRoutes } from "./blobs/routes";
 import type { Config } from "./config";
+import { disabledAuthPaths, isDisabledAuthPath } from "./lib/auth";
 import { safeTag } from "./lib/log";
 import { retryAfterSeconds } from "./lib/rate-limit";
-import { bearerOnlyRequest, withoutCookies } from "./lib/request";
+import { authResponse, bearerOnlyRequest } from "./lib/request";
 import type { AppEnv, Services } from "./services";
 import { createContextFactory } from "./trpc/context";
 import { AtomicCause } from "./trpc/init";
@@ -42,7 +47,7 @@ function bodyLimits(config: Config): MiddlewareHandler<AppEnv> {
 		if (!limiter) {
 			limiter = bodyLimit({
 				maxSize,
-				onError: (c) => c.json({ message: "Payload too large" }, 413),
+				onError: (c) => c.json({ message: "Payload too large", code: "TOO_LARGE" }, 413),
 			});
 			limiters.set(maxSize, limiter);
 		}
@@ -93,7 +98,7 @@ export function routeTemplate(c: Context<AppEnv>): string {
 
 /**
  * Builds the HTTP app (Hono): request log, CORS, body limits, Better Auth
- * under `/api/auth/*` and tRPC under `/trpc/*`.
+ * under `/api/auth/*`, tRPC under `/trpc/*` and the account pages.
  */
 export function createApp(services: Services) {
 	const { config, log } = services;
@@ -148,6 +153,21 @@ export function createApp(services: Services) {
 
 	app.use("*", bodyLimits(config));
 
+	// Checkout's success URL always passes through the Stripe plugin's
+	// `/subscription/success`; it only ever redirects to `/billing/return`.
+	if (config.billing) {
+		app.get("/api/auth/subscription/success", subscriptionSuccessHandler(services));
+	}
+
+	// The disabled-path matrix (spec §4.2), parameterized routes included.
+	const disabledAuth = disabledAuthPaths(config);
+	app.use("/api/auth/*", async (c, next) => {
+		if (isDisabledAuthPath(disabledAuth, c.req.path.slice("/api/auth".length))) {
+			return c.json({ message: "Not found" }, 404);
+		}
+		await next();
+	});
+
 	// Google sign-in is ID-token only: the redirect flow can't work cookie-less.
 	if (config.google) {
 		app.post("/api/auth/sign-in/social", async (c, next) => {
@@ -163,10 +183,13 @@ export function createApp(services: Services) {
 		});
 	}
 
+	// Accounts with a password confirm deletion with it (spec §4.5).
+	app.post("/api/auth/delete-user", deleteUserGuard(services));
+
 	// Better Auth: /api/auth/sign-up/email, /sign-in/email, /get-session, /sign-out…
 	app.on(["GET", "POST"], "/api/auth/*", async (c) => {
 		const request = await bearerOnlyRequest(c.req.raw, c.get("clientIp"));
-		return withoutCookies(await services.auth.handler(request));
+		return authResponse(await services.auth.handler(request));
 	});
 
 	// tRPC over plain HTTP: POST /trpc/sync.push, GET /trpc/sync.pull?input=…, GET /trpc/meta
@@ -188,17 +211,29 @@ export function createApp(services: Services) {
 					cause: safeTag(error.cause?.name),
 				});
 			},
-			responseMeta: ({ errors }) => {
+			responseMeta: ({ errors, paths }) => {
+				const headers = new Headers();
+				// AI answers are the user's content: never stored by any cache.
+				if (paths?.some((path) => path.startsWith("ai."))) {
+					headers.set("Cache-Control", "no-store");
+				}
 				const retryAt = errors
 					.map((error) => (error.cause instanceof AtomicCause ? error.cause.retryAt : undefined))
 					.find((at) => at !== undefined);
-				if (retryAt === undefined) return {};
-				const headers = new Headers();
-				headers.set("Retry-After", String(retryAfterSeconds(retryAt, services.now())));
+				if (retryAt !== undefined) {
+					headers.set("Retry-After", String(retryAfterSeconds(retryAt, services.now())));
+				}
 				return { headers };
 			},
 		}),
 	);
+
+	// Photo backup: PUT/GET /blobs/:sha256 (501 when BLOB_STORAGE=off).
+	registerBlobRoutes(app, services);
+	// Password reset form, "email confirmed" page and the export download.
+	registerAccountRoutes(app, services);
+	// Where Stripe sends the browser back (billing on only).
+	if (config.billing) registerBillingRoutes(app, services);
 
 	app.notFound((c) => c.json({ message: "Not found" }, 404));
 

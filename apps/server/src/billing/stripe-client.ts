@@ -2,21 +2,28 @@ import Stripe from "stripe";
 import type { BillingConfig } from "../config";
 
 /**
- * The Stripe API calls the server makes, as a narrow structural type: the
- * real `stripe` client satisfies it, and tests pass a fake (spec §4.2 `deps`).
- * Milestone C (billing) adds the calls the provider needs (prices,
- * subscription retrieval); account deletion (spec §4.5) needs these two.
+ * The parts of the Stripe client the server and `@better-auth/stripe` use
+ * (spec §4.2 `deps.stripe`): the real client satisfies it, and tests pass a
+ * fake that implements these resources in memory (no network).
+ *
+ * - `subscriptions`: retrieve (webhook re-retrieve, reconcile), list and
+ *   update (the plugin's upgrade flow), cancel (account deletion);
+ * - `customers`: search, list and create (lazy customer at first checkout),
+ *   retrieve (the plugin's email sync), del (account deletion);
+ * - `prices`: retrieve (offers, checkout);
+ * - `checkout.sessions`, `billingPortal.sessions`: the hosted pages;
+ * - `webhooks`: signature verification (`constructEventAsync`).
  */
-export interface StripeApi {
-	subscriptions: { cancel(id: string): Promise<unknown> };
-	customers: { del(id: string): Promise<unknown> };
-}
+export type StripeApi = Pick<
+	Stripe,
+	"subscriptions" | "customers" | "prices" | "checkout" | "billingPortal" | "webhooks"
+>;
 
 /** Pinned explicitly (spec §4.2): the version `stripe@22.6.2` was generated for. */
 export const STRIPE_API_VERSION = "2026-08-26.dahlia" as const;
 
 /** The real client, over the injected `fetch`. */
-export function createStripeClient(config: BillingConfig, fetchImpl: typeof fetch): StripeApi {
+export function createStripeClient(config: BillingConfig, fetchImpl: typeof fetch): Stripe {
 	return new Stripe(config.stripeSecretKey, {
 		apiVersion: STRIPE_API_VERSION,
 		httpClient: Stripe.createFetchHttpClient(fetchImpl),

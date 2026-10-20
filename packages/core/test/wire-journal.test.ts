@@ -133,7 +133,7 @@ describe("journal entries on the wire", () => {
 		await runSync(phone, server.transport);
 		await runSync(laptop, server.transport);
 		expect(journalOf(laptop)[entry.id]?.deletedAt).toBe(clock.now);
-		expect(check({ ...(journalOf(laptop)[entry.id] as never), updatedAt: clock.now }).ok).toBe(
+		expect(check({ ...(journalOf(laptop)[entry.id] as object), updatedAt: clock.now }).ok).toBe(
 			true,
 		);
 		clock.now += 1_000;

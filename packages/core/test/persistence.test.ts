@@ -1562,7 +1562,7 @@ describe("partial hydration: nothing derived from missing records leaves the dev
 		expect(whole.getState().data.logs[missing]?.count).toBe(1);
 	});
 
-	test("a corrupt slice: the re-pull brings its records back; edits wait for a whole session to be pushed", async () => {
+	test("a corrupt slice: the re-pull brings its records back; edits wait for it to complete to be pushed", async () => {
 		quiet();
 		const server = fakeSyncServer();
 		const kv = recordingKv();
@@ -1695,5 +1695,405 @@ describe("native-like async storage (expo-sqlite kv)", () => {
 		const reloaded = storeOn(asyncKv(base));
 		await hydrated(reloaded);
 		expect(reloaded.getState().data.logs["h1:2024-01-01"]?.count).toBe(1);
+	});
+});
+
+describe("recovery from corrupt keys lasts until the re-pull completed (Phase 1A reverify)", () => {
+	/** A device that logged a day with a note in 2025 and synced it; then the 2025 slice is corrupted. */
+	const corruptedAfterSync = async (kv: KeyValueStorage) => {
+		const server = fakeSyncServer();
+		const a = storeOn(kv);
+		await hydrated(a);
+		a.getState().actions.setTracking(true);
+		const habit = a.getState().actions.createHabit({ name: "Read", startDate: "2025-01-01" });
+		a.getState().actions.setCount(habit.id, "2025-03-01", 1);
+		a.getState().actions.setNote(habit.id, "2025-03-01", "Finished the book");
+		a.getState().actions.setCount(habit.id, "2025-03-02", 1);
+		await runSync(a, server.transport);
+		await a.flush();
+		await kv.setItem(slice("logs:2025"), '{"broken":');
+		const logId = `${habit.id}:2025-03-01`;
+		const onServer = () =>
+			server.docs.get(`logs/${logId}`)?.data as { note: string; count: number };
+		return { server, habit, logId, onServer };
+	};
+
+	for (const [label, open] of [
+		["a synchronous backend", () => recordingKv()],
+		[
+			"IndexedDB",
+			() => {
+				const factory = new IDBFactory();
+				return createIndexedDbStorage({ indexedDB: factory, localStorage: null });
+			},
+		],
+	] as const) {
+		test(`${label}: an edit made over the missing record is rebased onto the server's copy, not pushed over it`, async () => {
+			quiet();
+			const kv = open();
+			const { server, habit, logId, onServer } = await corruptedAfterSync(kv);
+
+			// Session B: partial and offline. The user checks the day again; its log is missing here.
+			const b = storeOn(kv, { now: () => T0 + 5_000_000 });
+			await hydrated(b);
+			expect(b.getState().partial).toBe(true);
+			b.getState().actions.setCount(habit.id, "2025-03-01", 2);
+			expect(b.getState().data.logs[logId]?.note).toBeNull();
+			expect(b.getState().sync.recovering?.provisional).toEqual({ [`logs/${logId}`]: true });
+			await b.flush(); // rewrites the corrupt slice with the new log alone
+
+			// Session C reads every key, and is still partial: pushes wait for the re-pull.
+			const c = storeOn(kv, { now: () => T0 + 6_000_000 });
+			await hydrated(c);
+			expect(c.getState().partial).toBe(true);
+			const pushes = server.pushes.length;
+			await runSync(c, server.transport);
+			expect(server.pushes.length).toBe(pushes);
+			expect(onServer()).toMatchObject({ note: "Finished the book", count: 1 });
+			// The re-pull completed: whole again, with the edit rebased onto the server's log.
+			expect(c.getState().partial).toBe(false);
+			expect(c.getState().sync.recovering).toBeUndefined();
+			expect(c.getState().data.logs[logId]).toMatchObject({ note: "Finished the book", count: 2 });
+			await runSync(c, server.transport);
+			expect(onServer()).toMatchObject({ note: "Finished the book", count: 2 });
+			expect(Object.keys(c.getState().data.logs)).toHaveLength(2);
+			await c.flush();
+
+			const d = storeOn(kv, { now: () => T0 + 7_000_000 });
+			await hydrated(d);
+			expect(d.getState().partial).toBe(false);
+		});
+	}
+
+	test("a log a recovering device deletes again leaves the server's copy alone", async () => {
+		quiet();
+		const kv = recordingKv();
+		const { server, habit, logId, onServer } = await corruptedAfterSync(kv);
+		const b = storeOn(kv, { now: () => T0 + 5_000_000 });
+		await hydrated(b);
+		b.getState().actions.setCount(habit.id, "2025-03-01", 1);
+		b.getState().actions.setNote(habit.id, "2025-03-01", "Oops");
+		const log = b.getState().data.logs[logId];
+		b.setState((s) => ({
+			data: {
+				...s.data,
+				logs: { ...s.data.logs, [logId]: { ...(log as NonNullable<typeof log>), deletedAt: T0 } },
+			},
+		}));
+		await runSync(b, server.transport);
+		expect(b.getState().partial).toBe(false);
+		expect(b.getState().data.logs[logId]).toMatchObject({
+			note: "Finished the book",
+			deletedAt: null,
+		});
+		await runSync(b, server.transport);
+		expect(onServer()).toMatchObject({ note: "Finished the book", count: 1 });
+	});
+
+	for (const [label, wrap] of [
+		["synchronous (localStorage-like)", (kv: KeyValueStorage) => kv],
+		["async without keys() (native-like)", (kv: KeyValueStorage) => asyncKv(kv)],
+	] as const) {
+		test(`${label}: a corrupt slice stays listed, so the next session is partial too and rebuilds nothing`, async () => {
+			quiet();
+			const today = toDayKey(Date.now());
+			const server = fakeSyncServer();
+			const base = recordingKv();
+			const open = () => createAtomicStore({ storage: wrap(base), debounceMs: 0 });
+			const a = open();
+			await hydrated(a);
+			a.getState().actions.setTracking(true);
+			const habit = a.getState().actions.createHabit({
+				name: "Spend less",
+				startDate: today,
+				tracker: { type: "expense", currency: "BRL" },
+			} as never);
+			a.getState().actions.addTrackerEntry({
+				habitId: habit.id,
+				date: today,
+				type: "expense",
+				data: { amount: 1250, category: "food" },
+			});
+			a.getState().actions.setNote(habit.id, today, "Lunch with Ana, paid for both");
+			await runSync(a, server.transport);
+			await a.flush();
+			const logKey = `${habit.id}:${today}`;
+			const serverNote = () => (server.docs.get(`logs/${logKey}`)?.data as { note: string }).note;
+			const corrupt = slice(`logs:${today.slice(0, 4)}`);
+			await base.setItem(corrupt, '{"broken":');
+
+			// Session B: partial, offline, just opened and closed.
+			const b = open();
+			await hydrated(b);
+			expect(b.getState().partial).toBe(true);
+			await b.flush();
+			expect(base.raw(corrupt)).toBe('{"broken":');
+			const meta = parse(base.raw(META)) as unknown as MetaValue;
+			expect(meta.slices).toContain(corrupt.slice(NAME.length + 1));
+
+			// Session C, online: partial until the re-pull, so start-up rebuilt nothing.
+			const c = open();
+			await hydrated(c);
+			expect(c.getState().partial).toBe(true);
+			expect(c.getState().data.logs[logKey]).toBeUndefined();
+			await runSync(c, server.transport);
+			expect(c.getState().partial).toBe(false);
+			expect(c.getState().data.logs[logKey]?.note).toBe("Lunch with Ana, paid for both");
+			await runSync(c, server.transport);
+			expect(serverNote()).toBe("Lunch with Ana, paid for both");
+			await c.flush();
+			// The re-pulled log replaced the corrupt payload (backed up once).
+			expect(parse(base.raw(corrupt))[logKey]).toMatchObject({
+				note: "Lunch with Ana, paid for both",
+			});
+			const backups = Object.keys(await dump(base)).filter((k) =>
+				k.startsWith(`${corrupt}:corrupt:`),
+			);
+			expect(backups).toHaveLength(1);
+			const reloaded = open();
+			await hydrated(reloaded);
+			expect(reloaded.getState().partial).toBe(false);
+			expect(reloaded.getState().data.logs[logKey]?.note).toBe("Lunch with Ana, paid for both");
+		});
+	}
+
+	test("a corrupt slice awaiting its re-pull is backed up once, not on every start", async () => {
+		quiet();
+		const factory = new IDBFactory();
+		const kv = () => createIndexedDbStorage({ indexedDB: factory, localStorage: null });
+		const a = storeOn(kv());
+		await hydrated(a);
+		a.getState().actions.setTracking(true);
+		const habit = a.getState().actions.createHabit({ name: "Read", startDate: "2025-01-01" });
+		a.getState().actions.setCount(habit.id, "2025-03-01", 1);
+		await a.flush();
+		await kv().setItem(slice("logs:2025"), `{"big":"${"x".repeat(100_000)}"`);
+		const partial: boolean[] = [];
+		for (let i = 0; i < 4; i++) {
+			const s = storeOn(kv());
+			await hydrated(s);
+			partial.push(s.getState().partial);
+			await s.flush();
+			await settle(1);
+		}
+		expect(partial).toEqual([true, true, true, true]);
+		const backups = Object.keys(await dump(kv())).filter((k) => k.includes(":corrupt:"));
+		expect(backups).toHaveLength(1);
+	});
+
+	test("a corrupt meta key: unsynced edits of the sliced collections stay pending", async () => {
+		quiet();
+		const kv = createMemoryStorage();
+		const a = storeOn(kv);
+		await hydrated(a);
+		a.getState().actions.setTracking(true);
+		const habit = a.getState().actions.createHabit({ name: "Read" });
+		a.getState().actions.setCount(habit.id, "2026-10-01", 1);
+		await a.flush();
+		await kv.setItem(META, "{not json");
+		const b = storeOn(kv);
+		await hydrated(b);
+		expect(b.getState().data.logs[`${habit.id}:2026-10-01`]?.count).toBe(1);
+		expect(b.getState().sync).toMatchObject({ tracking: true, schemaRev: 1 });
+		expect(b.getState().sync.pending).toEqual({
+			[`habits/${habit.id}`]: true,
+			[`logs/${habit.id}:2026-10-01`]: true,
+		});
+		// Pushed once the re-pull completed.
+		const server = fakeSyncServer();
+		await runSync(b, server.transport);
+		await runSync(b, server.transport);
+		expect(server.docs.get(`logs/${habit.id}:2026-10-01`)).toBeDefined();
+	});
+});
+
+describe("a v1 user near a localStorage quota (Phase 1A reverify)", () => {
+	// 600: not even the meta key fits. 1500: it does, but not the end state
+	// (normalized records, full settings), so the migration could never finish.
+	test.each([600, 1500])(
+		"%i characters free: every change is saved in place, in the older layout, and nothing is lost",
+		async (headroom) => {
+			quiet();
+			const habits: Record<string, unknown> = {};
+			const logs: Record<string, unknown> = {};
+			for (let h = 0; h < 10; h++) habits[`h${h}`] = v1Habit(`h${h}`, { order: h });
+			for (let i = 0; i < 6000; i++) {
+				const log = v1Log(`h${i % 10}`, nthDay(Math.floor(i / 10)), { updatedAt: T0 + i });
+				logs[log.id] = log;
+			}
+			const main = v1MainKey({ habits, logs }, { cursor: 10, pending: {}, lastSyncedAt: T0 });
+			// A v1 build could still toggle a day here (it rewrites its one key).
+			const kv = quotaKv(NAME.length + main.length + headroom, { [NAME]: main });
+			const store = storeOn(kv);
+			await hydrated(store);
+			store.getState().actions.archiveHabit("h3");
+			await store.flush();
+			expect(store.getState().persistError).toBeNull();
+			// Saved at once, not after moving thousands of logs one at a time.
+			expect(kv.log.length).toBeLessThan(5);
+			store.getState().actions.setCount("h1", nthDay(10), 0);
+			await store.flush();
+			expect(store.getState().persistError).toBeNull();
+			expect(kv.getItem(META)).toBeNull();
+
+			const reloaded = storeOn(kv);
+			await hydrated(reloaded);
+			const state = reloaded.getState();
+			expect(state.data.habits.h3?.archivedAt).not.toBeNull();
+			expect(state.data.logs[`h1:${nthDay(10)}`]?.count).toBe(0);
+			expect(Object.keys(state.data.logs)).toHaveLength(6000);
+			expect(state.sync).toMatchObject({ cursor: 10, tracking: true });
+			expect(state.sync.pending).toMatchObject({
+				"habits/h3": true,
+				[`logs/h1:${nthDay(10)}`]: true,
+			});
+
+			// Room again: the next session migrates.
+			const roomy = quotaKv(10 * main.length, await dump(kv));
+			const later = storeOn(roomy);
+			await hydrated(later);
+			later.getState().actions.archiveHabit("h4");
+			await later.flush();
+			expect(later.getState().persistError).toBeNull();
+			expect(
+				Object.keys((parse(roomy.getItem(NAME)) as unknown as MainValue).state.data).sort(),
+			).toEqual([...MAIN_COLLECTIONS].sort());
+			expect(Object.keys(storeOn(roomy).getState().data.logs)).toHaveLength(6000);
+		},
+	);
+});
+
+describe("cross-tab: hydration, legacy writes and pending keys (Phase 1A reverify)", () => {
+	test("a write another tab announces while this tab is still hydrating is merged, not lost", async () => {
+		quiet();
+		const base = createMemoryStorage();
+		const hub = channelHub();
+		const a = storeOn(base, { crossTab: hub.open() });
+		await hydrated(a);
+		a.getState().actions.createHabit({ name: "Existing" });
+		await a.flush();
+
+		// Tab B reads the disk now, but its (async) hydration resolves later.
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const slow: KeyValueStorage = {
+			getItem: (key) => {
+				const value = base.getItem(key);
+				return gate.then(() => value);
+			},
+			setItem: (key, value) => base.setItem(key, value),
+			removeItem: (key) => base.removeItem(key),
+			keys: (prefix) => gate.then(() => base.keys?.(prefix) ?? []),
+		};
+		const b = storeOn(slow, { crossTab: hub.open() });
+		await settle();
+		const x = a.getState().actions.createHabit({ name: "Written while B hydrated" });
+		await a.flush();
+		await settle(10);
+		a.dispose();
+		release();
+		await hydrated(b);
+		await settle(10);
+		expect(b.getState().data.habits[x.id]?.name).toBe("Written while B hydrated");
+		b.getState().actions.createHabit({ name: "Edit in B" });
+		await b.flush();
+		await settle(10);
+		const reloaded = storeOn(recordingKv(await dump(base)));
+		expect(reloaded.getState().data.habits[x.id]?.name).toBe("Written while B hydrated");
+		b.dispose();
+	});
+
+	test("a stale v1 tab's save that lands before the legacy key is removed is merged, not deleted", async () => {
+		quiet();
+		const name = "atomic-reverify-k3";
+		const factory = new IDBFactory();
+		const local = recordingKv({
+			[name]: v1MainKey({ habits: { h1: v1Habit("h1") } }),
+		});
+		const idb = createIndexedDbStorage({ indexedDB: factory, localStorage: local });
+		// The first IndexedDB write is slow: the stale v1 tab saves in between.
+		let unhold!: () => void;
+		let hold: Promise<void> | null = new Promise((resolve) => {
+			unhold = resolve;
+		});
+		const slowIdb: MigratingStorage = {
+			...idb,
+			setItem: async (key: string, value: string) => {
+				if (hold) await hold;
+				return idb.setItem(key, value);
+			},
+		};
+		const store = createAtomicStore({
+			name,
+			storage: slowIdb,
+			debounceMs: 0,
+			crossTab: true,
+			now: () => T0 + 1_000_000,
+		});
+		try {
+			await hydrated(store);
+			local.setItem(
+				name,
+				v1MainKey({
+					habits: { h1: v1Habit("h1"), v1new: v1Habit("v1new", { updatedAt: T0 + 5 }) },
+				}),
+			);
+			const event = new Event("storage");
+			Object.defineProperty(event, "key", { value: name });
+			globalThis.dispatchEvent(event);
+			unhold();
+			hold = null;
+			await store.flush();
+			await settle(20);
+			expect(store.getState().data.habits.v1new).toBeDefined();
+			await store.flush();
+			await settle(20);
+			// Merged into IndexedDB, then removed.
+			expect(local.raw(name)).toBeNull();
+		} finally {
+			store.dispose();
+		}
+	});
+
+	test("two signed-in tabs stop pushing a key once one of them pushed it (pending keys aren't handed back)", async () => {
+		quiet();
+		const server = fakeSyncServer();
+		const disk = createMemoryStorage();
+		const hub = channelHub();
+		const open = () => storeOn(disk, { crossTab: hub.open() });
+		const a = open();
+		const b = open();
+		await hydrated(a);
+		await hydrated(b);
+		for (const tab of [a, b]) tab.getState().actions.setTracking(true);
+		b.getState().actions.createHabit({ name: "Read" });
+		await b.flush();
+		await settle(10);
+		for (let round = 0; round < 3; round++) {
+			for (const tab of [a, b]) {
+				await runSync(tab, server.transport);
+				await tab.flush();
+				await settle(20);
+			}
+		}
+		expect(server.pushes).toHaveLength(1);
+		expect(a.getState().sync.pending).toEqual({});
+		expect(b.getState().sync.pending).toEqual({});
+		// A later edit is pending in both tabs again, and pushed once.
+		const habit = Object.values(a.getState().data.habits)[0] as { id: string };
+		a.getState().actions.updateHabit(habit.id, { name: "Read daily" });
+		await a.flush();
+		await settle(20);
+		expect(Object.keys(b.getState().sync.pending)).toEqual([`habits/${habit.id}`]);
+		await runSync(b, server.transport);
+		await b.flush();
+		await settle(20);
+		await runSync(a, server.transport);
+		expect(server.pushes).toHaveLength(2);
+		expect(server.docs.get(`habits/${habit.id}`)?.data.name).toBe("Read daily");
+		a.dispose();
+		b.dispose();
 	});
 });

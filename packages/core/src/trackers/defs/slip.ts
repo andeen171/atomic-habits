@@ -100,7 +100,10 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 			id: s.id,
 			entryId: s.id,
 			primary: firstLine(str(s.data.note), 120) as string,
-			secondary: [str(s.data.cue) ? cueLabel(str(s.data.cue) as string, t) : null, t.formatDayShort(s.date)]
+			secondary: [
+				str(s.data.cue) ? cueLabel(str(s.data.cue) as string, t) : null,
+				t.formatDayShort(s.date),
+			]
 				.filter(Boolean)
 				.join(" · "),
 		}));
@@ -108,7 +111,15 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 		stat("slips", t.t("tracker.slip.slips"), t.number(slips.length), slips.length),
 		stat("clean", t.t("tracker.slip.cleanDays"), t.number(clean), clean),
 	];
-	if (cost) items.push(stat("cost", t.t("tracker.slip.costTotal"), cost, slips.reduce((a, s) => a + costOf(s), 0)));
+	if (cost)
+		items.push(
+			stat(
+				"cost",
+				t.t("tracker.slip.costTotal"),
+				cost,
+				slips.reduce((a, s) => a + costOf(s), 0),
+			),
+		);
 	const sentence = costSentence(config, slips, period.kind, t);
 	return blocks(
 		{ kind: "stats", id: "stats", items },

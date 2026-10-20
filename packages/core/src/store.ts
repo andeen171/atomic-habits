@@ -50,11 +50,20 @@ import {
 	emptySync,
 	hydratePersisted,
 	isKnownCollection,
+	layoutKeyOf,
 	logNormalization,
+	unionRecovery,
 } from "./persist-layout";
 import { anchorOf, isKnownRule, isLegacyCheckoff, sanitizeRepeat, seriesState } from "./recurrence";
 import { type KeyValueStorage, createMemoryStorage } from "./storage";
-import { type WireSyncRecord, compareVersions, pendingKey, shouldReplace } from "./sync";
+import {
+	type WireSyncRecord,
+	canonicalJson,
+	compareVersions,
+	parsePendingKey,
+	pendingKey,
+	shouldReplace,
+} from "./sync";
 import { type TrackerActions, createTrackerActions } from "./trackers/actions";
 import { type HabitDay, buildTrackerEntryIndex, pairsForHabit } from "./trackers/measure";
 import {
@@ -242,8 +251,13 @@ export interface AtomicState {
 	/**
 	 * Hydration could not read every stored key (a read failed, a key was
 	 * corrupt, or hydration threw), so `data` may lack records that exist on
-	 * disk or on the server. In memory only: it lasts for the session, and a
-	 * later session that reads every key starts without it.
+	 * disk or on the server. Not persisted itself:
+	 * - A failed read or a failed hydration lasts for the session (nothing is
+	 *   written then), and a later session that reads every key starts without it.
+	 * - A corrupt key starts a recovery that is persisted (`SyncMeta.recovering`):
+	 *   every session is partial until the re-pull it requested completed (at once
+	 *   when not tracking). Records created meanwhile over a record that lived in
+	 *   the corrupt key are rebased onto the server's copy when it arrives.
 	 *
 	 * While set, nothing derived from the missing records may leave the
 	 * device: derived writers are no-ops (tracker and legacy-series
@@ -334,6 +348,144 @@ export function deriveAutoEmojis(data: AtomicData): AtomicData {
 		}
 	}
 	return habits ? { ...data, habits } : data;
+}
+
+type Json = Record<string, unknown>;
+
+const isJson = (value: unknown): value is Json =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * A local record as the server sees it when this device pushes it: the
+ * entity as `data`, merged with its envelope (`validateWireRecord`).
+ */
+const wireOf = (record: Json): Json => ({
+	...record,
+	id: record.id,
+	updatedAt: record.updatedAt,
+	deletedAt: record.deletedAt ?? null,
+});
+
+/**
+ * The same version as this build stores it. The icon of an auto-icon habit
+ * is derived on each device (`deriveAutoEmojis`), so it never makes two
+ * copies differ.
+ */
+function sameVersion(collection: string, a: Json, b: Json): boolean {
+	if (compareVersions(a, b) === 0) return true;
+	if (collection !== "habits" || a.emojiAuto !== true || b.emojiAuto !== true) return false;
+	return compareVersions({ ...a, emoji: null }, { ...b, emoji: null }) === 0;
+}
+
+/**
+ * Whether a version from the server replaces the local copy (last-write-wins,
+ * spec §2.7, D45). `wire` is the record as the server stored and compared it
+ * (`data` plus the envelope, before `upgradeRecord` and the schema);
+ * `normalized` is what this build would store (null when it can't parse it).
+ *
+ * - Different stamps: the greater one wins.
+ * - The same version (it normalizes to the local copy): nothing to do, so a
+ *   re-pull of an older build's documents applies nothing.
+ * - Equal stamps, the local copy pending: the sync order on the wire forms.
+ *   That is exactly the comparison the server makes when this device pushes
+ *   its copy, so the two always agree. Comparing the normalized copy instead
+ *   can disagree for a document an older build wrote (it lacks fields that
+ *   normalization adds): the device would keep its copy, clear the key and
+ *   stay out of step with the server for good.
+ * - Equal stamps, nothing pending: the server's copy. This device has no
+ *   claim on the document, and the server already ordered the versions it
+ *   saw (a normalized local copy of an older build's document doesn't
+ *   compare the way the stored one did).
+ */
+function remoteReplaces(
+	collection: string,
+	current: Json | undefined,
+	wire: Json,
+	normalized: Json | null,
+	pending: boolean,
+): boolean {
+	if (current === undefined) return true;
+	if (wire.updatedAt !== current.updatedAt) return compareVersions(wire, current) > 0;
+	if (normalized && sameVersion(collection, normalized, current)) return false;
+	const order = compareVersions(wire, wireOf(current));
+	if (order === 0) return false;
+	return pending ? order > 0 : true;
+}
+
+/** Values a record created from nothing holds for fields nobody set. */
+const isBlank = (value: unknown): boolean =>
+	value === null ||
+	value === undefined ||
+	value === false ||
+	value === 0 ||
+	value === "" ||
+	(Array.isArray(value) && value.length === 0) ||
+	(isJson(value) && Object.keys(value).length === 0);
+
+const ENVELOPE = new Set(["id", "createdAt", "updatedAt", "deletedAt"]);
+
+/**
+ * A record created over a missing base while recovering (`SyncRecovery`),
+ * rebased onto the server's copy: the server's fields, with the ones the
+ * user set on top (the local record's non-blank fields: it started from
+ * nothing, so its blank fields are defaults, not edits). It keeps the local
+ * stamp, so it still wins last-write-wins and is pushed.
+ */
+function rebaseProvisional(server: Json, local: Json): Json {
+	const out: Json = { ...server };
+	for (const key in local) {
+		if (ENVELOPE.has(key) || isBlank(local[key])) continue;
+		out[key] = local[key];
+	}
+	out.updatedAt = local.updatedAt;
+	out.deletedAt = local.deletedAt ?? null;
+	return out;
+}
+
+/** At most this many records keep retired versions (they are sent with every announcement). */
+const MAX_RETIRED = 200;
+/** At most this many settled pending keys are remembered (see `settled`). */
+const MAX_SETTLED = 50_000;
+
+/** FNV-1a (32 bits) of a string, base 36. */
+function fnv1a(text: string): string {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < text.length; i++) {
+		hash ^= text.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(36);
+}
+
+const versionIds = new WeakMap<object, string>();
+
+/**
+ * A short id of a record's version: its stamp and a hash of its content in
+ * the sync order's terms (`sameVersion`); "-" for no record. Records are
+ * never mutated, so it is cached per object.
+ */
+function versionId(collection: string, record: unknown): string {
+	if (!isJson(record)) return "-";
+	let id = versionIds.get(record);
+	if (id === undefined) {
+		const comparable =
+			collection === "habits" && record.emojiAuto === true ? { ...record, emoji: null } : record;
+		id = `${String(record.updatedAt)}:${fnv1a(canonicalJson(comparable))}`;
+		versionIds.set(record, id);
+	}
+	return id;
+}
+
+/** The collection of a pending key (`collection/id`). */
+const collectionOfKey = (key: string): string => {
+	const slash = key.indexOf("/");
+	return slash < 0 ? key : key.slice(0, slash);
+};
+
+/** A record of a known collection by its pending key. */
+function recordAt(data: AtomicData, key: string): unknown {
+	const parsed = parsePendingKey(key);
+	return parsed ? (data[parsed.collection] as Record<string, unknown>)[parsed.id] : undefined;
 }
 
 const partialize = (state: AtomicState): PersistedState => ({
@@ -461,6 +613,60 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 	let mergeExternal: (changes: ExternalChanges, opts?: { markAdopted?: boolean }) => void =
 		() => {};
 	let announce: (keys: string[]) => void = () => {};
+	/** Merges what other tabs announced while this one was hydrating (set up below). */
+	let drainEarly: () => void = () => {};
+
+	/**
+	 * Versions this tab replaced with a version the sync order ranks lower
+	 * (pendingKey → versions): `restampFuture` lowering an unpushable future
+	 * stamp, or a server copy adopted on an equal stamp (`remoteReplaces`).
+	 * Every other tab still holding one would keep it in a merge (it is
+	 * "newer") and write it back, and this tab would adopt it again: the
+	 * record would never converge. So they are sent with every cross-tab
+	 * announcement; a tab never adopts a retired version, and replaces its
+	 * own retired copy with the one on disk. An entry is dropped once the
+	 * record's current version outranks it.
+	 */
+	const retired = new Map<string, unknown[]>();
+	const isRetired = (key: string, version: unknown): boolean =>
+		retired.get(key)?.some((old) => compareVersions(old, version) === 0) ?? false;
+	const retire = (key: string, version: unknown) => {
+		if (version === undefined || isRetired(key, version)) return;
+		const list = retired.get(key);
+		if (list) list.push(version);
+		else retired.set(key, [version]);
+		if (retired.size > MAX_RETIRED) {
+			const oldest = retired.keys().next().value;
+			if (oldest !== undefined) retired.delete(oldest);
+		}
+	};
+
+	/**
+	 * Pending keys dropped while tracking (pushed, settled by a server copy, or
+	 * refused for good), by this tab or another, with the version of the record
+	 * then (`versionId`). Pending keys are unioned across tabs, so a tab still
+	 * listing one would hand it back through the meta key: two tabs would
+	 * re-push it, and sync again, for good. A tab drops a key another tab
+	 * settled at the version it holds, and never takes back a key whose record
+	 * is still a settled version. An edit makes a new version, so its key is
+	 * taken as usual.
+	 */
+	const settled = new Map<string, string>();
+	const isSettled = (key: string, record: unknown): boolean => {
+		const id = settled.get(key);
+		if (id === undefined) return false;
+		if (id === versionId(collectionOfKey(key), record)) return true;
+		settled.delete(key);
+		return false;
+	};
+	const settle = (key: string, id: string) => {
+		settled.delete(key);
+		settled.set(key, id);
+		if (settled.size > MAX_SETTLED) {
+			const oldest = settled.keys().next().value;
+			if (oldest !== undefined) settled.delete(oldest);
+		}
+	};
 
 	const storage = createSplitStorage(kv, name, {
 		debounceMs: options.debounceMs,
@@ -487,6 +693,8 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 		persist(
 			(set, get) => {
 				markHydrated = () => {
+					// First: their re-reads queue ahead of this tab's first write.
+					drainEarly();
 					set({ hydrated: true });
 					// App start (spec §3.1): recent entry-driven days follow their entries
 					// again (catches v1 clients toggling tracker habits). A no-op while
@@ -537,6 +745,11 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 				 * While this tab tracks, every record it adopts is marked pending, or
 				 * no tab would ever push it. Re-pushing a synced record is harmless
 				 * (last-write-wins).
+				 *
+				 * Retired versions (see `retired`) are never adopted, and a retired
+				 * copy of this tab's gives way to whatever is on disk. A recovery in
+				 * progress (`SyncMeta.recovering`) is unioned: this tab is then
+				 * `partial` too, until its own re-pull completed.
 				 */
 				mergeExternal = (changes, opts = {}) => {
 					set((state) => {
@@ -551,13 +764,20 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 							for (const id in incoming) {
 								const record = incoming[id];
 								if (typeof record !== "object" || record === null) continue;
+								const key = pendingKey(collection, id);
+								if (retired.size && isRetired(key, record)) continue;
 								const mine = current[id];
 								// The sync order: an equal stamp is broken by content, the same way in every tab.
-								if (mine !== undefined && compareVersions(record, mine) <= 0) continue;
+								const stale = mine !== undefined && retired.size > 0 && isRetired(key, mine);
+								if (mine !== undefined && !stale && compareVersions(record, mine) <= 0) continue;
 								records ??= { ...current };
 								records[id] = record;
-								const key = pendingKey(collection, id);
-								if (mark && !state.sync.pending[key] && state.sync.superseded[key] === undefined) {
+								if (
+									mark &&
+									!state.sync.pending[key] &&
+									state.sync.superseded[key] === undefined &&
+									!(settled.size && isSettled(key, record))
+								) {
 									pending ??= { ...state.sync.pending };
 									pending[key] = true;
 								}
@@ -569,6 +789,8 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						}
 						for (const key in changes.pending) {
 							if (state.sync.pending[key] || pending?.[key]) continue;
+							// Settled by a tab (maybe this one) at the version held here: a stale listing.
+							if (settled.size && isSettled(key, recordAt(data ?? state.data, key))) continue;
 							pending ??= { ...state.sync.pending };
 							pending[key] = true;
 						}
@@ -596,14 +818,33 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 							}
 							if (next) foreign = { ...foreign, [collection]: next };
 						}
-						if (!data && !pending && settings === state.settings && foreign === state.foreign) {
+						const mine = state.sync.recovering ?? null;
+						const recovering = changes.recovering ? unionRecovery(mine, changes.recovering) : mine;
+						const joined =
+							recovering !== mine &&
+							(recovering?.keys.length !== mine?.keys.length ||
+								Object.keys(recovering?.provisional ?? {}).length !==
+									Object.keys(mine?.provisional ?? {}).length);
+						if (
+							!data &&
+							!pending &&
+							!joined &&
+							settings === state.settings &&
+							foreign === state.foreign
+						) {
 							return state;
+						}
+						let sync = pending ? { ...state.sync, pending } : state.sync;
+						if (joined && recovering) {
+							// Recovered by this tab's own re-pull, like at hydration.
+							sync = { ...sync, recovering, schemaRev: Math.min(sync.schemaRev, 1) };
 						}
 						return {
 							data: data ? deriveAutoEmojis(data) : state.data,
 							settings,
-							sync: pending ? { ...state.sync, pending } : state.sync,
+							sync,
 							foreign,
+							...(joined ? { partial: true } : {}),
 						};
 					});
 				};
@@ -678,28 +919,53 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						}
 					}
 					let wrote = false;
+					/** Versions this commit replaced with lower ones (`restampFuture`). */
+					const lowered: [string, unknown][] = [];
 					set((state) => {
 						const track = origin !== "remote" && state.sync.tracking;
 						let data: AtomicData | null = null;
 						let pending: Record<string, true> | null = null;
+						const recovering = track ? state.sync.recovering : undefined;
+						let provisional: Record<string, true> | null = null;
 						for (const collection of COLLECTIONS) {
 							const list = accepted[collection];
 							if (!list?.length) continue;
 							data ??= { ...state.data };
-							const records = { ...state.data[collection] } as Record<string, unknown>;
+							const before = state.data[collection] as Record<string, unknown>;
+							const records = { ...before } as Record<string, unknown>;
 							for (const entity of list) {
+								const key = pendingKey(collection, entity.id);
+								const previous = before[entity.id];
+								if (previous !== undefined && compareVersions(entity, previous) < 0) {
+									lowered.push([key, previous]);
+								}
+								// Created over a record this device couldn't read (it lived in a
+								// corrupt key): rebased onto the server's copy when it arrives.
+								if (
+									recovering &&
+									previous === undefined &&
+									recovering.provisional[key] === undefined &&
+									recovering.keys.includes(layoutKeyOf(name, collection, entity))
+								) {
+									provisional ??= { ...recovering.provisional };
+									provisional[key] = true;
+								}
 								records[entity.id] = entity;
 								if (track) {
 									pending ??= { ...state.sync.pending };
-									pending[pendingKey(collection, entity.id)] = true;
+									pending[key] = true;
 								}
 							}
 							(data as Record<Collection, unknown>)[collection] = records;
 						}
 						if (!data) return state;
 						wrote = true;
-						return { data, sync: pending ? { ...state.sync, pending } : state.sync };
+						let sync = pending ? { ...state.sync, pending } : state.sync;
+						if (recovering && provisional)
+							sync = { ...sync, recovering: { ...recovering, provisional } };
+						return { data, sync };
 					});
+					for (const [key, version] of lowered) retire(key, version);
 					if (wrote) emitCommit({ origin, changes: accepted });
 				};
 
@@ -1467,6 +1733,8 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						const series = new Set<string>();
 						const changedTrackers = new Set<string>();
 						const derived: CommitChanges = {};
+						/** Local versions replaced by a version the sync order ranks lower. */
+						const retiredNow: [string, unknown][] = [];
 						set((state) => {
 							let data: Record<Collection, Record<string, Doc>> | null = null;
 							let pending: Record<string, true> | null = null;
@@ -1476,25 +1744,31 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 								pending ??= { ...state.sync.pending };
 								delete pending[key];
 							};
+							const recovering = state.sync.recovering;
+							let provisional: Record<string, true> | null = null;
 							for (const record of records) {
 								// Collections from newer clients are skipped, not fatal.
 								if (!isKnownCollection(record.collection)) continue;
 								const collection = record.collection;
 								const key = pendingKey(collection, record.id);
 								const current = (data ?? state.data)[collection][record.id] as Doc | undefined;
-								// Documents written by older builds are upgraded before validation (§2.3).
-								const candidate = upgradeRecord(collection, {
+								const isPending = (pending ?? state.sync.pending)[key] === true;
+								// What the server stored and compared: the decision mirrors it exactly.
+								const wire: Json = {
 									...record.data,
 									id: record.id,
 									updatedAt: record.updatedAt,
 									deletedAt: record.deletedAt,
-								});
+								};
+								// Documents written by older builds are upgraded before validation (§2.3).
+								const candidate = upgradeRecord(collection, wire);
 								const parsed = collectionSchemas[collection].safeParse(candidate);
 								const known = (superseded ?? state.sync.superseded)[key];
 								if (!parsed.success) {
 									// A newer document this build can't read (a newer schema
 									// revision): read-only until the app updates (spec §2.7).
-									if (current && compareVersions(candidate, current) <= 0) continue;
+									if (current && !remoteReplaces(collection, current, wire, null, isPending))
+										continue;
 									if (known !== undefined && known >= record.updatedAt) continue;
 									superseded ??= { ...state.sync.superseded };
 									superseded[key] = record.updatedAt;
@@ -1506,14 +1780,46 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 									delete superseded[key];
 								}
 								// Keep fields this client doesn't know so it never erases them.
-								const next = { ...candidate, ...(parsed.data as object) } as Doc;
-								if (!shouldReplace(current, next)) continue;
+								let next = { ...candidate, ...(parsed.data as object) } as Doc;
+								let keepPending = false;
+								if (current && recovering && (provisional ?? recovering.provisional)[key]) {
+									// Created here over a base this device couldn't read: the
+									// server's copy is that base (spec addition, `SyncRecovery`).
+									provisional ??= { ...recovering.provisional };
+									delete provisional[key];
+									// A newer local edit is rebased onto it. Otherwise the server's
+									// copy stays: it is newer, or the local record was deleted, and
+									// deleting what was created here says nothing about it.
+									if (!current.deletedAt && current.updatedAt > next.updatedAt) {
+										const rebased = validated(
+											collection,
+											rebaseProvisional(next as unknown as Json, current as unknown as Json),
+										) as Doc | null;
+										if (rebased) {
+											next = rebased;
+											keepPending = true;
+										}
+									}
+								} else if (
+									!remoteReplaces(
+										collection,
+										current as unknown as Json | undefined,
+										wire,
+										next as unknown as Json,
+										isPending,
+									)
+								) {
+									continue;
+								}
+								if (current !== undefined && compareVersions(next, current) < 0) {
+									retiredNow.push([key, current]);
+								}
 								if (!data) data = { ...state.data } as Record<Collection, Record<string, Doc>>;
 								if (data[collection] === (state.data[collection] as unknown)) {
 									data[collection] = { ...data[collection] };
 								}
 								data[collection][record.id] = next;
-								unpend(key);
+								if (!keepPending) unpend(key);
 								applied++;
 								const written = changes as Record<Collection, Doc[]>;
 								if (written[collection]) written[collection].push(next);
@@ -1531,7 +1837,7 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 									series.add(record.id);
 								}
 							}
-							if (!data && !pending && !superseded) return state;
+							if (!data && !pending && !superseded && !provisional) return state;
 							let nextData = data ? (data as unknown as AtomicData) : state.data;
 							if (changedTrackers.size) {
 								const index = buildTrackerEntryIndex(nextData.trackerEntries);
@@ -1578,18 +1884,22 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 									(derived as Record<Collection, unknown>)[collection] = list;
 								}
 							}
+							let sync = state.sync;
+							if (pending || superseded) {
+								sync = {
+									...sync,
+									pending: pending ?? state.sync.pending,
+									superseded: superseded ?? state.sync.superseded,
+								};
+							}
+							if (provisional && recovering)
+								sync = { ...sync, recovering: { ...recovering, provisional } };
 							return {
 								data: data || nextData !== state.data ? deriveAutoEmojis(nextData) : state.data,
-								sync:
-									pending || superseded
-										? {
-												...state.sync,
-												pending: pending ?? state.sync.pending,
-												superseded: superseded ?? state.sync.superseded,
-											}
-										: state.sync,
+								sync,
 							};
 						});
+						for (const [key, version] of retiredNow) retire(key, version);
 						if (applied) emitCommit({ origin, changes });
 						if (!isEmpty(derived)) emitCommit({ origin: "derived", changes: derived });
 						return { applied, pairs, series: [...series] };
@@ -1636,7 +1946,8 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						sync: result.sync,
 						foreign: result.foreign,
 						persistError: earlyPersistError ?? current.persistError,
-						partial: hydrationGaps !== null,
+						// A recovery from corrupt keys lasts until its re-pull completed (`watchRecovery`).
+						partial: hydrationGaps !== null || result.sync.recovering !== undefined,
 					};
 				},
 				onRehydrateStorage: () => (_state, error) => {
@@ -1651,39 +1962,150 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 		storage.setItem(name, { state: partialize(store.getState()), version: STORE_VERSION });
 
 	/**
-	 * Corrupt keys found at hydration (backed up; the storage requested a
-	 * re-pull) are removed once their records can't come back any other way:
-	 * right away when not tracking, else once the re-pull completed
-	 * (`schemaRev` is current again). Until then every session reads them as
-	 * corrupt and stays `partial`, so nothing derived from the missing
-	 * records reaches the server.
+	 * A recovery from corrupt keys (`SyncMeta.recovering`: recorded at
+	 * hydration, kept across sessions) ends once their records can't come back
+	 * any other way: at once when not tracking, else when the requested
+	 * re-pull completed (`schemaRev` is current again). The corrupt keys this
+	 * session found and nothing replaced are then removed, and the recovery is
+	 * cleared. After a re-pull the state is whole: `partial` ends (unless a
+	 * read failed this session) and the start-up tracker reconciliation runs.
+	 * Until then every session is `partial`, so nothing derived from the
+	 * missing records reaches the server.
 	 */
 	let dropped = false;
-	const dropWhenRecovered = (state: AtomicState) => {
+	let ending = false;
+	const watchRecovery = (state: AtomicState) => {
 		// `hydrationGaps` is reported before `merge`, so it is set once hydrated.
-		if (dropped || !state.hydrated || !hydrationGaps?.corrupt.length) return;
-		if (state.sync.tracking && state.sync.schemaRev < SCHEMA_REV) return;
-		dropped = true;
-		void storage.dropCorrupt();
+		if (ending || !state.hydrated) return;
+		const corrupt = (hydrationGaps?.corrupt.length ?? 0) > 0 && !dropped;
+		const { recovering, tracking } = state.sync;
+		if (!recovering && !corrupt) return;
+		if (tracking && state.sync.schemaRev < SCHEMA_REV) return;
+		ending = true;
+		try {
+			if (corrupt) {
+				dropped = true;
+				void storage.dropCorrupt();
+			}
+			if (!recovering) return;
+			const whole = tracking && hydrationGaps?.unreadable !== true;
+			store.setState((s) => {
+				const { recovering: _done, ...sync } = s.sync;
+				return {
+					sync,
+					partial: whole ? false : hydrationGaps !== null,
+				};
+			});
+			if (whole) {
+				try {
+					store.getState().actions.reconcileTrackers({ window: reconcileWindow(toDayKey(now())) });
+				} catch (error) {
+					console.warn("[atomic] Tracker reconciliation after recovery failed", error);
+				}
+			}
+		} finally {
+			ending = false;
+		}
 	};
-	const stopDropWatch = store.subscribe(dropWhenRecovered);
-	dropWhenRecovered(store.getState());
+	const stopRecoveryWatch = store.subscribe(watchRecovery);
+	watchRecovery(store.getState());
 
 	// Cross-tab merging (web): other tabs announce the keys they wrote.
 	const opened = openChannel(options.crossTab, name);
-	const onMessage = (event: { data: unknown }) => {
-		const message = event.data as { keys?: unknown; tracking?: unknown } | null;
-		const keys = message?.keys;
-		if (!Array.isArray(keys) || !store.getState().hydrated) return;
-		// A writer that wasn't tracking (or didn't say) left its edits unmarked.
-		const markAdopted = message?.tracking !== true;
+	type Announcement = { keys: string[]; markAdopted: boolean; settled: [string, string][] };
+	/** Announcements (and legacy writes) received while hydrating: merged right after. */
+	const early: Announcement[] = [];
+	let legacyEarly = false;
+
+	/** Pending keys this tab settled since its last announcement (see `settled`). */
+	const unsent = new Map<string, string>();
+	/** Dropping keys another tab settled: not settled here again (no echo). */
+	let absorbing = false;
+	const stopSettleWatch = opened
+		? store.subscribe((state, prev) => {
+				if (absorbing || !state.hydrated || state.sync.pending === prev.sync.pending) return;
+				if (!state.sync.tracking || !prev.sync.tracking) return;
+				for (const key in prev.sync.pending) {
+					if (state.sync.pending[key]) continue;
+					const record = recordAt(state.data, key);
+					// Gone (orphaned, or the data was wiped): nothing for other tabs to drop.
+					if (record === undefined) continue;
+					const id = versionId(collectionOfKey(key), record);
+					settle(key, id);
+					unsent.set(key, id);
+				}
+			})
+		: () => {};
+
+	/** Another tab's settled keys become this tab's; returns them. */
+	const absorbSettled = (value: unknown): [string, string][] => {
+		if (!isJson(value)) return [];
+		const out: [string, string][] = [];
+		for (const key in value) {
+			const id = value[key];
+			if (typeof id !== "string") continue;
+			settle(key, id);
+			out.push([key, id]);
+		}
+		return out;
+	};
+
+	/** Drops the pending keys another tab settled at the version this tab holds. */
+	const dropSettled = (entries: readonly [string, string][]) => {
+		if (!entries.length) return;
+		absorbing = true;
+		try {
+			store.setState((state) => {
+				let pending: Record<string, true> | null = null;
+				for (const [key, id] of entries) {
+					if (!(pending ?? state.sync.pending)[key]) continue;
+					if (versionId(collectionOfKey(key), recordAt(state.data, key)) !== id) continue;
+					pending ??= { ...state.sync.pending };
+					delete pending[key];
+				}
+				return pending ? { sync: { ...state.sync, pending } } : state;
+			});
+		} finally {
+			absorbing = false;
+		}
+	};
+
+	/** Another tab's retired versions become this tab's (see `retired`). */
+	const absorbRetired = (value: unknown) => {
+		if (!isJson(value)) return;
+		for (const key in value) {
+			const versions = value[key];
+			if (!Array.isArray(versions)) continue;
+			for (const version of versions) if (isJson(version)) retire(key, version);
+		}
+	};
+
+	/** This tab's retired versions that still outrank the record's current version. */
+	const liveRetired = (): Record<string, unknown[]> | undefined => {
+		if (!retired.size) return undefined;
+		const { data } = store.getState();
+		const out: Record<string, unknown[]> = {};
+		for (const [key, versions] of retired) {
+			const parsed = parsePendingKey(key);
+			const current = parsed ? data[parsed.collection][parsed.id] : undefined;
+			const live =
+				current === undefined ? [] : versions.filter((v) => compareVersions(v, current) > 0);
+			if (!live.length) retired.delete(key);
+			else {
+				if (live.length !== versions.length) retired.set(key, live);
+				out[key] = live;
+			}
+		}
+		return retired.size ? out : undefined;
+	};
+
+	const mergeAnnounced = ({ keys, markAdopted, settled: settledKeys }: Announcement) => {
 		void storage
-			.readKeys(
-				keys.filter((key): key is string => typeof key === "string"),
-				() => store.getState(),
-			)
+			.readKeys(keys, () => store.getState())
 			.then((changes) => {
 				if (changes) mergeExternal(changes, { markAdopted });
+				// After the merge: the records it brought may be the settled versions.
+				dropSettled(settledKeys);
 				// Writes what the disk lacks (it may hold an older copy of ours), and
 				// nothing else, so the other tab gets no echo.
 				return storage.repair({ state: partialize(store.getState()), version: STORE_VERSION });
@@ -1692,13 +2114,33 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 				console.warn("[atomic] Could not merge another tab's changes", error),
 			);
 	};
+	const onMessage = (event: { data: unknown }) => {
+		const message = event.data as {
+			keys?: unknown;
+			tracking?: unknown;
+			retired?: unknown;
+			settled?: unknown;
+		} | null;
+		const keys = message?.keys;
+		if (!Array.isArray(keys)) return;
+		absorbRetired(message?.retired);
+		const announcement: Announcement = {
+			keys: keys.filter((key): key is string => typeof key === "string"),
+			// A writer that wasn't tracking (or didn't say) left its edits unmarked.
+			markAdopted: message?.tracking !== true,
+			settled: absorbSettled(message?.settled),
+		};
+		// Hydrating: the disk may have been read before this write landed, and
+		// this tab's first write would replace it unmerged (K1). Merged right after.
+		if (!store.getState().hydrated) early.push(announcement);
+		else mergeAnnounced(announcement);
+	};
 	// A stale v1 tab writes the legacy localStorage key (IndexedDB fires no events of its own).
 	const target = globalThis as {
 		addEventListener?: (type: string, listener: (event: { key?: unknown }) => void) => void;
 		removeEventListener?: (type: string, listener: (event: { key?: unknown }) => void) => void;
 	};
-	const onStorage = (event: { key?: unknown }) => {
-		if (event.key !== name || !store.getState().hydrated) return;
+	const mergeLegacy = () => {
 		void storage
 			.readLegacy()
 			.then((changes) => {
@@ -1708,11 +2150,38 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 			})
 			.catch((error: unknown) => console.warn("[atomic] Could not merge legacy data", error));
 	};
+	const onStorage = (event: { key?: unknown }) => {
+		if (event.key !== name) return;
+		if (!store.getState().hydrated) legacyEarly = true;
+		else mergeLegacy();
+	};
+	drainEarly = () => {
+		const queued = early.splice(0);
+		if (queued.length) {
+			mergeAnnounced({
+				keys: [...new Set(queued.flatMap((a) => a.keys))],
+				markAdopted: queued.some((a) => a.markAdopted),
+				settled: queued.flatMap((a) => a.settled),
+			});
+		}
+		if (legacyEarly) {
+			legacyEarly = false;
+			mergeLegacy();
+		}
+	};
 	if (opened) {
 		announce = (keys) => {
 			try {
 				// `tracking` tells tracking tabs whether these writes carry their pending keys.
-				opened.channel.postMessage({ keys, tracking: store.getState().sync.tracking });
+				const retiredVersions = liveRetired();
+				const settledKeys = unsent.size ? Object.fromEntries(unsent) : null;
+				unsent.clear();
+				opened.channel.postMessage({
+					keys,
+					tracking: store.getState().sync.tracking,
+					...(retiredVersions ? { retired: retiredVersions } : {}),
+					...(settledKeys ? { settled: settledKeys } : {}),
+				});
 			} catch {
 				// the channel was closed
 			}
@@ -1739,7 +2208,9 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 		},
 		dispose() {
 			announce = () => {};
-			stopDropWatch();
+			drainEarly = () => {};
+			stopRecoveryWatch();
+			stopSettleWatch();
 			if (opened) {
 				opened.channel.removeEventListener("message", onMessage);
 				if (opened.owned) opened.channel.close?.();

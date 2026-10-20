@@ -106,6 +106,25 @@ export function streakLabel(
 		: t.tp("streak.days", streak.current);
 }
 
+/**
+ * The strength stat's label: "Strength" for build habits and "Freedom" for
+ * break habits (D61), on cards and Insights (`short`) or on habit detail with
+ * its hint (`detail`).
+ */
+export function strengthLabel(
+	habit: Pick<Habit, "kind">,
+	t: Translator,
+	variant: "short" | "detail" = "short",
+): { label: string; hint: string | null } {
+	const free = habit.kind === "break";
+	if (variant === "short") {
+		return { label: t.t(free ? "habits.freedom" : "habits.strength"), hint: null };
+	}
+	return free
+		? { label: t.t("detail.freedom"), hint: t.t("detail.freedomHint") }
+		: { label: t.t("detail.strength"), hint: t.t("detail.strengthHint") };
+}
+
 // ── Blueprint board (Annex H §1.3 + §3.3, concepts per spec §5.3 / D14) ──
 
 export const BLUEPRINT_FIELDS = [

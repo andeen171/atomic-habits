@@ -1,6 +1,6 @@
 import type { Translator } from "../../i18n";
-import type { ChoiceOption, FieldSpec } from "../forms";
 import { METRES_PER_UNIT, formatDistance } from "../format";
+import type { ChoiceOption, FieldSpec } from "../forms";
 import { TRACKER_META } from "../meta";
 import type { TrackerDef } from "../registry";
 import { type TrackerConfig, type TrackerEntry, workoutTrackerSchema } from "../schema";
@@ -15,6 +15,7 @@ import {
 	list,
 	num,
 	ofType,
+	optionKey,
 	stat,
 	str,
 	sum,
@@ -44,7 +45,7 @@ const CUSTOM_EMOJI = "🏅";
 /** An activity's label and emoji: a built-in id, or the user's own label. */
 export function workoutActivity(value: string, t: Translator): { label: string; emoji: string } {
 	const builtIn = WORKOUT_ACTIVITIES.find((a) => a.id === value);
-	if (builtIn) return { label: tk(t, `tracker.activity.${builtIn.id}`), emoji: builtIn.emoji };
+	if (builtIn) return { label: tk(t, optionKey("activity", builtIn.id)), emoji: builtIn.emoji };
 	return { label: value, emoji: CUSTOM_EMOJI };
 }
 
@@ -108,7 +109,12 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	];
 	if (distance > 0) {
 		items.push(
-			stat("distance", t.t("tracker.workout.distance"), formatDistance(distance, config.distanceUnit, t), distance),
+			stat(
+				"distance",
+				t.t("tracker.workout.distance"),
+				formatDistance(distance, config.distanceUnit, t),
+				distance,
+			),
 		);
 	}
 	if (effort !== null) {
@@ -150,7 +156,7 @@ export const workoutDef: TrackerDef<Config> = {
 		const { config, t } = ctx;
 		const options: ChoiceOption[] = WORKOUT_ACTIVITIES.map((a) => ({
 			value: a.id,
-			label: tk(t, `tracker.activity.${a.id}`),
+			label: tk(t, optionKey("activity", a.id)),
 			emoji: a.emoji,
 		}));
 		for (const label of config.activities) {
@@ -224,7 +230,9 @@ export const workoutDef: TrackerDef<Config> = {
 
 	draft(type, ctx) {
 		if (type !== "workout") return {};
-		const last = str(latest(ofType(ctx.index.byHabit.get(ctx.habit.id) ?? [], "workout"), "activity"));
+		const last = str(
+			latest(ofType(ctx.index.byHabit.get(ctx.habit.id) ?? [], "workout"), "activity"),
+		);
 		return { activity: ctx.config.defaultActivity ?? last };
 	},
 

@@ -20,7 +20,7 @@ export async function getUsage(db: Database, userId: string, now: number): Promi
 			(SELECT bytes FROM sync_cursor WHERE user_id = :user) AS sync_bytes`,
 		args: { ":user": userId, ":day": utcDay(now) },
 	});
-	const row = result.rows[0] ?? {};
+	const row: Record<string, unknown> = result.rows[0] ?? {};
 	const n = (value: unknown) => Number(value ?? 0);
 	return {
 		aiRequestsToday: n(row.ai_requests),

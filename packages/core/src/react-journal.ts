@@ -86,9 +86,14 @@ export const HABIT_JOURNAL_LIMIT = 20;
  * The habit detail's "Journal & notes" (Annex J §1.5): the 20 newest
  * entries and day notes (`total` counts all of them), the active contract,
  * and the Goldilocks check-in prompt, which never says "strong" while the
- * habit's level-up card is visible (D9).
+ * habit's level-up card is visible (D9). The page passes `levelUpVisible`
+ * when it knows whether it shows that card; otherwise the card counts as
+ * visible whenever the habit has a level-up suggestion.
  */
-export function useHabitJournal(habitId: string): {
+export function useHabitJournal(
+	habitId: string,
+	options: { levelUpVisible?: boolean } = {},
+): {
 	items: JournalTimelineItem[];
 	total: number;
 	contract: JournalEntry | undefined;
@@ -100,13 +105,15 @@ export function useHabitJournal(habitId: string): {
 	const index = useLogIndex();
 	const today = useToday();
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
+	const { levelUpVisible } = options;
 	return useMemo(() => {
 		let checkin: CheckinReason | null = null;
 		if (habit && !habit.deletedAt) {
 			const logs = logsFor(index, habit.id);
 			const stats = habitStats(habit, logs, today, weekStartsOn);
-			const levelUpVisible = levelUpSuggestion(habit, logs, today, weekStartsOn) !== null;
-			checkin = checkinReason(habit, stats, journal, today, levelUpVisible);
+			const levelUp =
+				levelUpVisible ?? levelUpSuggestion(habit, logs, today, weekStartsOn) !== null;
+			checkin = checkinReason(habit, stats, journal, today, levelUp);
 		}
 		return {
 			items: timeline.slice(0, HABIT_JOURNAL_LIMIT),
@@ -114,7 +121,7 @@ export function useHabitJournal(habitId: string): {
 			contract: activeContract(journal, habitId, today),
 			checkin,
 		};
-	}, [timeline, journal, habit, habitId, index, today, weekStartsOn]);
+	}, [timeline, journal, habit, habitId, index, today, weekStartsOn, levelUpVisible]);
 }
 
 /** The recovery plan for a habit's missed or slipped day (Today's banners). */

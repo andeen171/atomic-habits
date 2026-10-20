@@ -96,10 +96,19 @@ const PAGE_STYLE = [
 	".button{display:block;margin-top:20px;width:100%;padding:12px 16px;border:0;border-radius:10px;background:var(--accent);color:var(--on-accent);font:inherit;font-weight:600;text-align:center;text-decoration:none;cursor:pointer}",
 ].join("");
 
-/** A complete page: `<html lang>`, one centred card, the brand and a heading. */
-export function renderPage(options: { locale: Locale; title: string; body: SafeHtml }): string {
+/**
+ * A complete page: `<html lang>`, one centred card, the brand and a heading.
+ * `head` adds escaped markup to `<head>` (the billing return page's
+ * `<meta http-equiv="refresh">` into the app; pages never carry script).
+ */
+export function renderPage(options: {
+	locale: Locale;
+	title: string;
+	body: SafeHtml;
+	head?: SafeHtml;
+}): string {
 	return `<!doctype html>${
-		html`<html lang="${options.locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${options.title} · Atomic</title><style>${raw(PAGE_STYLE)}</style></head><body><main><p class="brand">Atomic</p><h1>${options.title}</h1>${options.body}</main></body></html>`
+		html`<html lang="${options.locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">${options.head ?? raw("")}<title>${options.title} · Atomic</title><style>${raw(PAGE_STYLE)}</style></head><body><main><p class="brand">Atomic</p><h1>${options.title}</h1>${options.body}</main></body></html>`
 			.html
 	}`;
 }

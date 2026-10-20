@@ -26,6 +26,7 @@ import {
 	num,
 	ofType,
 	onDay,
+	optionKey,
 	previousEntries,
 	recentTexts,
 	stat,
@@ -63,7 +64,7 @@ export function expenseCategory(
 	const custom = config.categories.find((c) => c.id === id);
 	if (custom) return { label: custom.label, emoji: custom.emoji };
 	const builtIn = EXPENSE_CATEGORIES.find((c) => c.id === id);
-	if (builtIn) return { label: tk(t, `tracker.category.${builtIn.id}`), emoji: builtIn.emoji };
+	if (builtIn) return { label: tk(t, optionKey("category", builtIn.id)), emoji: builtIn.emoji };
 	return { label: id, emoji: "🏷️" };
 }
 
@@ -73,7 +74,7 @@ function categoryOptions(config: Config, t: Translator, current: string | null):
 	const options: ChoiceOption[] = [];
 	for (const c of EXPENSE_CATEGORIES) {
 		if (hidden.has(c.id) && c.id !== current) continue;
-		options.push({ value: c.id, label: tk(t, `tracker.category.${c.id}`), emoji: c.emoji });
+		options.push({ value: c.id, label: tk(t, optionKey("category", c.id)), emoji: c.emoji });
 	}
 	for (const c of config.categories) options.push({ value: c.id, label: c.label, emoji: c.emoji });
 	if (current && !options.some((o) => o.value === current)) {
@@ -96,7 +97,7 @@ function totalsByCurrency(entries: readonly TrackerEntry[], config: Config): [st
 		totals.set(code, (totals.get(code) ?? 0) + amountOf(entry));
 	}
 	return [...totals].sort(([a], [b]) =>
-		a === config.currency ? -1 : b === config.currency ? 1 : a.localeCompare(b),
+		a === config.currency ? -1 : b === config.currency ? 1 : a < b ? -1 : a > b ? 1 : 0,
 	);
 }
 
@@ -322,7 +323,9 @@ export const expenseDef: TrackerDef<Config> = {
 				: null;
 		}
 		const amount = moneyList(totalsByCurrency(expenses, config), t);
-		const spent = onDay(t, day, today, "tracker.expense.today", "tracker.expense.onDay", { amount });
+		const spent = onDay(t, day, today, "tracker.expense.today", "tracker.expense.onDay", {
+			amount,
+		});
 		return `${spent} · ${t.tp("tracker.expense.items", expenses.length)}`;
 	},
 
@@ -346,7 +349,8 @@ export const expenseDef: TrackerDef<Config> = {
 		const spent = inPeriod(ctx, "expense")
 			.filter((e) => currencyOf(e, config) === config.currency)
 			.reduce((acc, e) => acc + amountOf(e), 0);
-		const budget = config.budget !== null && config.budget > 0 ? budgetLine(config, spent, t, "headline") : null;
+		const budget =
+			config.budget !== null && config.budget > 0 ? budgetLine(config, spent, t, "headline") : null;
 		if (budget) return budget;
 		if (spent <= 0) return null;
 		return t.t("tracker.expense.headlineMonth", {

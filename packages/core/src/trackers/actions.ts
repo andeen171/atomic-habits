@@ -122,6 +122,27 @@ function liveOfTypes(
 	return out;
 }
 
+/** Entity ids are at most 80 characters (spec §2.1). */
+const MAX_ID = 80;
+
+/**
+ * The id of a new plan line's task: `${planId}:${n}`, the first `n` no task
+ * record uses (live or deleted). Two devices that each save the day's plan
+ * offline create the same ids, so their tasks merge by last-write-wins
+ * instead of leaving duplicates that no plan item links (reverify K5). A
+ * plan id too long for that falls back to a random id.
+ */
+function planTaskId(planId: string, tasks: Readonly<Record<string, Task>>, taken: Set<string>) {
+	for (let n = 0; n < 1000; n++) {
+		const id = `${planId}:${n}`;
+		if (id.length > MAX_ID) break;
+		if (tasks[id] || taken.has(id)) continue;
+		taken.add(id);
+		return id;
+	}
+	return createId();
+}
+
 const hasPhotos = (data: Record<string, unknown>) =>
 	Array.isArray(data.photos) && data.photos.length > 0;
 
@@ -444,6 +465,7 @@ export function createTrackerActions(internals: StoreInternals): TrackerActions 
 			const lang = internals.translator().locale;
 			let order = nextOrder(allTasks);
 			const tasks: Task[] = [];
+			const taken = new Set<string>();
 			const items = lines.map((text, i) => {
 				const index = pairedWith[i];
 				const old = index != null ? oldItems[index] : undefined;
@@ -459,7 +481,7 @@ export function createTrackerActions(internals: StoreInternals): TrackerActions 
 				}
 				const ts = internals.stamp();
 				const created = internals.validated("tasks", {
-					id: createId(),
+					id: planTaskId(id, allTasks, taken),
 					title: text,
 					notes: null,
 					date: forDay,

@@ -407,6 +407,15 @@ export function checkinReason(
 }
 
 /**
+ * The device-local dismissal key of the habit-detail check-in prompt
+ * (Annex J §1.5): `checkin:<habitId>:<YYYY-MM>`, so "Not now" lasts for the
+ * rest of the month.
+ */
+export function checkinDismissKey(habitId: string, today: DayKey): string {
+	return `checkin:${habitId}:${today.slice(0, 7)}`;
+}
+
+/**
  * What a check-in suggests. `viaLevelUp`: the "too easy" target comes from
  * the month's level-up suggestion, and applying it calls `acceptLevelUp`
  * (spec §3.4, D9).

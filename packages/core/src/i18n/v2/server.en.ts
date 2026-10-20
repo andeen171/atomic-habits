@@ -36,6 +36,9 @@ export const serverEn = {
 	"page.tooMany": "Too many attempts. Try again in a minute.",
 	"page.billing.success": "Payment received. Your plan updates in a few seconds.",
 	"page.billing.cancel": "Checkout canceled. Nothing was charged.",
+	"page.billing.title": "Atomic Pro",
+	"page.billing.portal": "Any change to your plan shows up in Atomic in a few seconds.",
+	"page.billing.backToApp": "Go back to Atomic to see your plan.",
 	"page.openApp": "Open Atomic",
 	"page.close": "You can close this tab.",
 } as const;

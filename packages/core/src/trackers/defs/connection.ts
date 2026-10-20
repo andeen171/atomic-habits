@@ -17,6 +17,7 @@ import {
 	list,
 	num,
 	ofType,
+	optionKey,
 	recentTexts,
 	stat,
 	str,
@@ -38,7 +39,7 @@ export const CONNECTION_CHANNELS = [
 
 function channel(id: unknown, t: Translator): { label: string; emoji: string } {
 	const found = CONNECTION_CHANNELS.find((c) => c.id === id) ?? CONNECTION_CHANNELS[5];
-	return { label: tk(t, `tracker.channel.${found.id}`), emoji: found.emoji };
+	return { label: tk(t, optionKey("channel", found.id)), emoji: found.emoji };
 }
 
 const personOf = (e: TrackerEntry) => str(e.data.person);
@@ -85,7 +86,7 @@ export function circleStatus(
 	});
 	return rows
 		.sort((a, b) => {
-			if ((a.overdueBy > 0) !== (b.overdueBy > 0)) return a.overdueBy > 0 ? -1 : 1;
+			if (a.overdueBy > 0 !== b.overdueBy > 0) return a.overdueBy > 0 ? -1 : 1;
 			if (a.overdueBy !== b.overdueBy) return b.overdueBy - a.overdueBy;
 			if ((a.since === null) !== (b.since === null)) return a.since === null ? 1 : -1;
 			return (b.since ?? 0) - (a.since ?? 0);
@@ -96,7 +97,12 @@ export function circleStatus(
 function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	const { config, t } = ctx;
 	const connections = inPeriod(ctx, "connection");
-	const people = new Set(connections.map(personOf).filter(Boolean).map((p) => personKey(p as string)));
+	const people = new Set(
+		connections
+			.map(personOf)
+			.filter(Boolean)
+			.map((p) => personKey(p as string)),
+	);
 	const moments = connections
 		.filter((c) => str(c.data.note))
 		.slice(0, 5)
@@ -106,13 +112,20 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 			primary: firstLine(str(c.data.note), 120) as string,
 			secondary: [personOf(c), t.formatDayShort(c.date)].filter(Boolean).join(" · "),
 		}));
-	const circle = circleStatus(config, ctx.all, ctx.today, t).map(({ overdueBy: _o, ...row }) => row);
+	const circle = circleStatus(config, ctx.all, ctx.today, t).map(
+		({ overdueBy: _o, ...row }) => row,
+	);
 	return blocks(
 		{
 			kind: "stats",
 			id: "stats",
 			items: [
-				stat("count", t.t("tracker.connection.count"), t.number(connections.length), connections.length),
+				stat(
+					"count",
+					t.t("tracker.connection.count"),
+					t.number(connections.length),
+					connections.length,
+				),
 				stat("people", t.t("tracker.connection.people"), t.number(people.size), people.size),
 			],
 		},
@@ -170,7 +183,7 @@ export const connectionDef: TrackerDef<Config> = {
 				layout: "chips",
 				options: CONNECTION_CHANNELS.map((c) => ({
 					value: c.id,
-					label: tk(t, `tracker.channel.${c.id}`),
+					label: tk(t, optionKey("channel", c.id)),
 					emoji: c.emoji,
 				})),
 			},
@@ -240,7 +253,9 @@ export const connectionDef: TrackerDef<Config> = {
 
 	headline(ctx) {
 		const { t } = ctx;
-		const overdue = circleStatus(ctx.config, ctx.all, ctx.today, t).find((row) => row.overdueBy > 0);
+		const overdue = circleStatus(ctx.config, ctx.all, ctx.today, t).find(
+			(row) => row.overdueBy > 0,
+		);
 		if (overdue) return overdue.secondary ?? null;
 		const count = inPeriod(ctx, "connection").length;
 		return count > 0 ? t.tp("tracker.connection.headline", count) : null;

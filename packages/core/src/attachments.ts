@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Translator } from "./i18n";
 import type { AtomicData } from "./model";
 import type { TrackerEntry } from "./trackers/schema";
 
@@ -154,6 +155,126 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
 	let out = "";
 	for (const byte of digest) out += HEX.charAt(byte >> 4) + HEX.charAt(byte & 15);
 	return out;
+}
+
+// ── Capture and storage (Annex K §1.11; milestone 4C) ──
+// Web (`lib/image.ts`) and native decode, resize and encode with their own
+// image APIs; the sizes, the retry ladder, hashing and the ref come from here,
+// so both apps store the same kind of photo.
+
+/** Long edge of the stored full image, in pixels. */
+export const PHOTO_EDGE = 1600;
+/** Long edge of the thumbnail. */
+export const THUMB_EDGE = 320;
+export const THUMB_QUALITY = 0.7;
+/** A full image larger than this is encoded again with the next step of `PHOTO_ENCODINGS`. */
+export const PHOTO_RETRY_BYTES = 1.5 * 1024 * 1024;
+/** Full-image encodings, tried in order (JPEG q 0.8, then q 0.6, then 1200 px). */
+export const PHOTO_ENCODINGS: readonly { edge: number; quality: number }[] = [
+	{ edge: PHOTO_EDGE, quality: 0.8 },
+	{ edge: PHOTO_EDGE, quality: 0.6 },
+	{ edge: 1200, quality: 0.6 },
+];
+
+export function isAttachmentMime(mime: unknown): mime is AttachmentMime {
+	return typeof mime === "string" && (ATTACHMENT_MIMES as readonly string[]).includes(mime);
+}
+
+/** File extension of a stored blob (native keeps `attachments/<hash>.<ext>`). */
+export function blobExtension(mime: AttachmentMime): "jpg" | "webp" {
+	return mime === "image/webp" ? "webp" : "jpg";
+}
+
+/**
+ * The size that fits `edge` on the long side, keeping the aspect ratio.
+ * Never upscales; at least 1 × 1. Undecodable sizes (0, NaN) give null.
+ */
+export function fitWithin(w: number, h: number, edge: number): { w: number; h: number } | null {
+	if (!(w > 0) || !(h > 0) || !Number.isFinite(w) || !Number.isFinite(h) || !(edge > 0))
+		return null;
+	const scale = Math.min(1, edge / Math.max(w, h));
+	return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+
+/**
+ * What to do with an encoded full image of `bytes` from step `attempt` of
+ * `PHOTO_ENCODINGS`: keep it, encode it again with the next step, or give up
+ * (the last step is still over `MAX_BLOB_BYTES`).
+ */
+export function encodingVerdict(bytes: number, attempt: number): "keep" | "retry" | "too-large" {
+	if (bytes <= PHOTO_RETRY_BYTES) return "keep";
+	if (attempt < PHOTO_ENCODINGS.length - 1) return "retry";
+	return bytes <= MAX_BLOB_BYTES ? "keep" : "too-large";
+}
+
+/** One encoded image, ready to store. `sha` is required when the source is a file URI. */
+export interface EncodedImage {
+	source: BlobSource;
+	mime: string;
+	w: number;
+	h: number;
+	bytes: number;
+	sha?: string;
+}
+
+async function hashOf(image: EncodedImage): Promise<string> {
+	if (image.sha !== undefined) {
+		const sha = image.sha.toLowerCase();
+		if (!SHA256_RE.test(sha)) throw new Error("Not a SHA-256 hex digest");
+		return sha;
+	}
+	if (!("bytes" in image.source)) throw new Error("A file URI needs its SHA-256 (`sha`)");
+	return sha256Hex(image.source.bytes);
+}
+
+/**
+ * Stores a processed photo (full image and thumbnail) in the device's blob
+ * store, content-addressed by SHA-256, and returns the reference an entry
+ * keeps in `data.photos`. Null, with nothing stored, when the images can't
+ * be a valid ref (a MIME type other than JPEG or WebP, a size over
+ * `MAX_BLOB_BYTES`): the app shows `tracker.photoUnsupported`.
+ */
+export async function storePhoto(
+	store: Pick<BlobStore, "write">,
+	image: { full: EncodedImage; thumb: EncodedImage },
+	alt: string | null = null,
+): Promise<AttachmentRef | null> {
+	const { full, thumb } = image;
+	if (!isAttachmentMime(full.mime) || !isAttachmentMime(thumb.mime)) return null;
+	if (!(thumb.bytes >= 1 && thumb.bytes <= MAX_BLOB_BYTES)) return null;
+	const [hash, thumbHash] = await Promise.all([hashOf(full), hashOf(thumb)]);
+	const trimmed = alt?.trim() ?? "";
+	const parsed = attachmentRefSchema.safeParse({
+		hash,
+		thumb: thumbHash,
+		mime: full.mime,
+		w: Math.round(full.w),
+		h: Math.round(full.h),
+		bytes: full.bytes,
+		alt: trimmed ? trimmed.slice(0, 140) : null,
+	});
+	if (!parsed.success) return null;
+	await store.write(hash, full.source, full.mime);
+	if (thumbHash !== hash) await store.write(thumbHash, thumb.source, thumb.mime);
+	return parsed.data;
+}
+
+/**
+ * Alt text of a photo (Annex K §1.11): its own alt, the entry's caption, or
+ * "Photo from Oct 17".
+ */
+export function photoAlt(
+	ref: Pick<AttachmentRef, "alt">,
+	entry: { date: string; data: Record<string, unknown> },
+	t: Pick<Translator, "t" | "formatDayShort">,
+): string {
+	if (ref.alt?.trim()) return ref.alt.trim();
+	const caption = entry.data.caption;
+	if (typeof caption === "string" && caption.trim()) {
+		const first = caption.trim().split("\n")[0] as string;
+		return first.length > 140 ? `${first.slice(0, 139)}…` : first;
+	}
+	return t.t("tracker.photo.alt", { date: t.formatDayShort(entry.date) });
 }
 
 /** An in-memory `BlobStore` (tests, and a fallback where nothing persists). */

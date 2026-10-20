@@ -1,5 +1,7 @@
+import type { AiService } from "./ai/service";
 import type { EntitlementService } from "./billing/entitlements";
-import type { StripeApi } from "./billing/stripe-client";
+import type { BillingProvider } from "./billing/provider";
+import type { BlobService } from "./blobs/service";
 import type { BlobStorage } from "./blobs/storage";
 import type { Config } from "./config";
 import type { Database } from "./db";
@@ -29,8 +31,12 @@ export interface Services {
 	google: GoogleVerifier | null;
 	/** Photo objects; null when photo backup is off (`BLOB_STORAGE=off`). */
 	storage: BlobStorage | null;
-	/** Null when billing is off. */
-	stripe: StripeApi | null;
+	/** Photo backup (uploads, quota, GC, purge); null when `BLOB_STORAGE=off`. */
+	blobs: BlobService | null;
+	/** Checkout, portal, reconciliation and offers; null when billing is off. */
+	billing: BillingProvider | null;
+	/** The AI pipeline; null when AI isn't configured (`AI_FEATURES` gates each part). */
+	ai: AiService | null;
 	now: () => number;
 	/** Outbound HTTP (email, AI, Stripe); a fake in tests. */
 	fetch: typeof fetch;

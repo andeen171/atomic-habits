@@ -51,7 +51,9 @@ function bookTitle(bookId: unknown, books: readonly TrackerEntry[], t: Translato
 	const id = str(bookId);
 	if (!id) return null;
 	const book = books.find((b) => b.id === id);
-	return book ? (str(book.data.title) ?? t.t("tracker.reading.untitled")) : t.t("tracker.reading.deletedBook");
+	return book
+		? (str(book.data.title) ?? t.t("tracker.reading.untitled"))
+		: t.t("tracker.reading.deletedBook");
 }
 
 /**
@@ -130,6 +132,47 @@ export function shelf(
 	};
 }
 
+const STATUS_ORDER: Readonly<Record<BookStatus, number>> = {
+	reading: 0,
+	paused: 1,
+	next: 2,
+	finished: 3,
+	abandoned: 4,
+};
+
+/**
+ * Every live book of a habit for the composer's book picker and the book
+ * list (`useBooks`): being read first (most recently read first), then
+ * paused, up next, finished and set aside.
+ */
+export function habitBooks(
+	index: TrackerEntryIndex,
+	habitId: string,
+	today: DayKey,
+	t: Translator,
+): ShelfBook[] {
+	const all = index.byHabit.get(habitId) ?? [];
+	const sessions = ofType(all, "reading");
+	const lastRead = new Map<string, string>();
+	for (const s of sessions) {
+		const id = str(s.data.bookId);
+		if (id && !lastRead.has(id)) lastRead.set(id, s.date);
+	}
+	const books = ofType(all, "book").map((b, i) => ({
+		book: shelfBook(b, sessions, today, t),
+		recency: lastRead.get(b.id) ?? "",
+		i,
+	}));
+	return books
+		.sort(
+			(a, b) =>
+				STATUS_ORDER[a.book.status] - STATUS_ORDER[b.book.status] ||
+				(a.recency < b.recency ? 1 : a.recency > b.recency ? -1 : 0) ||
+				a.i - b.i,
+		)
+		.map(({ book }) => book);
+}
+
 function amountText(config: Config, pages: number, minutes: number, t: Translator): string {
 	if (config.measure === "minutes" || (pages <= 0 && minutes > 0)) {
 		return t.tp("tracker.unit.minutes", minutes);
@@ -150,9 +193,15 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 		return statusOf(b) === "finished" && day !== null && day >= period.from && day <= period.to;
 	}).length;
 	const format = (value: number) =>
-		config.measure === "minutes" ? t.tp("tracker.unit.minutes", value) : t.tp("tracker.unit.pages", value);
+		config.measure === "minutes"
+			? t.tp("tracker.unit.minutes", value)
+			: t.tp("tracker.unit.pages", value);
 	const ownShelf = shelf(ctx.all, ctx.today, t);
-	const byBook = tally(sessions, (s) => str(s.data.bookId) ?? "", (s) => num(s.data[field]) ?? 0);
+	const byBook = tally(
+		sessions,
+		(s) => str(s.data.bookId) ?? "",
+		(s) => num(s.data[field]) ?? 0,
+	);
 	const quotes = sessions
 		.filter((s) => str(s.data.quote))
 		.slice(0, 5)
@@ -164,8 +213,7 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 				.filter(Boolean)
 				.join(" · "),
 		}));
-	const hasShelf =
-		ownShelf.reading.length + ownShelf.next.length + ownShelf.finished.length > 0;
+	const hasShelf = ownShelf.reading.length + ownShelf.next.length + ownShelf.finished.length > 0;
 	return blocks(
 		hasShelf && { kind: "shelf", id: "shelf", ...ownShelf },
 		{
@@ -174,7 +222,11 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 			items: [
 				stat(
 					"total",
-					t.t(config.measure === "minutes" ? "tracker.reading.minutesRead" : "tracker.reading.pagesRead"),
+					t.t(
+						config.measure === "minutes"
+							? "tracker.reading.minutesRead"
+							: "tracker.reading.pagesRead",
+					),
 					t.number(total),
 					total,
 				),
@@ -186,7 +238,9 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 		barsChart(ctx, sessions, (s) => num(s.data[field]) ?? 0, {
 			id: "perDay",
 			title: t.t(
-				config.measure === "minutes" ? "tracker.reading.minutesPerDay" : "tracker.reading.pagesPerDay",
+				config.measure === "minutes"
+					? "tracker.reading.minutesPerDay"
+					: "tracker.reading.pagesPerDay",
 			),
 			format: "number",
 		}),
@@ -388,7 +442,9 @@ export const readingDef: TrackerDef<Config> = {
 		const total = sum(inPeriod(ctx, "reading"), field);
 		if (total <= 0) return null;
 		const value =
-			field === "minutes" ? ctx.t.tp("tracker.unit.minutes", total) : ctx.t.tp("tracker.unit.pages", total);
+			field === "minutes"
+				? ctx.t.tp("tracker.unit.minutes", total)
+				: ctx.t.tp("tracker.unit.pages", total);
 		return ctx.t.t("tracker.headline.month", { value });
 	},
 };

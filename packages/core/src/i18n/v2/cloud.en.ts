@@ -1,6 +1,7 @@
 /**
  * v2 strings for cloud (account.*, plan.*, ai.*, content.*, complete.*, sync.*) (spec §7). Owner: T5. Copy source: Annex C §7 and spec §7.
  * Spread into `en.ts`; every key also lives in `cloud.pt-BR.ts`.
+ * `sync.cloudPaused` lives in the shared catalog (Phase 1B).
  */
 export const cloudEn = {
 	// Persistence (spec §2.6.5): blocking banner when a local write fails (F, Phase 1A).
@@ -16,4 +17,156 @@ export const cloudEn = {
 	"sync.journal": "Sync journal",
 	"sync.journalHint":
 		"Off: entries written on this device stay on it. Entries from your other devices still arrive.",
+
+	// Sync state (Annex C §1.3, spec §2.7).
+	"sync.pending.one": "{count} change waiting to sync",
+	"sync.pending.other": "{count} changes waiting to sync",
+	"sync.backedUp": "Backed up {time}",
+	"sync.clockSkew":
+		"Your device clock is off by {minutes} min. Fix it so changes sync in the right order.",
+	"sync.serverOutdated":
+		"Your server is older than this app; some data will sync after it's updated.",
+	"sync.retrying": "Couldn't reach the server. Atomic will try again soon.",
+	"sync.storageMeter": "Sync storage: {used} of {limit}",
+	"sync.storageAlmostFull": "Storage on this device is almost full. Export a backup to be safe.",
+	"sync.backupPhotos": "Back up photos",
+	"sync.backupPhotosHint":
+		"Keeps the photos of your entries in your account, so your other devices can show them.",
+	"sync.photosNotInBackups": "Backups don't include photos. Sign in to sync to keep them safe.",
+
+	// Account (Annex C §1.1, §7; spec §7).
+	"account.title": "Account",
+	"account.section": "Account & sync",
+	"account.sectionHint":
+		"Optional. Back up your data and keep your devices in sync — Atomic works fully offline without an account.",
+	"account.continueGoogle": "Continue with Google",
+	"account.or": "or",
+	"account.forgotPassword": "Forgot password?",
+	"account.resetSent": "If an account exists for {email}, we sent a link to reset your password.",
+	"account.serverDefault": "Atomic Cloud",
+	"account.serverChange": "Use a different server",
+	"account.serverOfficial": "Atomic Cloud",
+	"account.serverAdvanced": "Advanced · self-hosting",
+	"account.verifyBanner": "Verify your email so you can recover your account.",
+	"account.verifyResend": "Resend email",
+	"account.verifySent": "Verification email sent to {email}.",
+	"account.showPassword": "Show password",
+	"account.changePassword": "Change password",
+	"account.currentPassword": "Current password",
+	"account.newPassword": "New password",
+	"account.signOutOthers": "Sign out of other devices",
+	"account.passwordChanged": "Password changed",
+	"account.sessions": "Devices",
+	"account.thisDevice": "This device",
+	"account.lastActive": "Active {time}",
+	"account.revoke": "Sign out",
+	"account.revokeOthers": "Sign out of all other devices",
+	"account.unknownDevice": "Unknown device",
+	"account.export": "Download account data",
+	"account.exportHint": "Everything stored on the server, including photos, as a .zip file.",
+	"account.delete": "Delete account",
+	"account.deleteTitle": "Delete your account?",
+	"account.deleteBody":
+		"This permanently deletes your account and everything stored on the server: habits, history, tasks, notes and photos. Other devices will be signed out.",
+	"account.deletePro": "Your Pro subscription will be canceled immediately.",
+	"account.deleteKeepLocal": "Keep my data on this device",
+	"account.deleteEraseLocal": "Also erase this device",
+	"account.deleteConfirmPassword": "Enter your password to confirm",
+	"account.deleteConfirmGoogle": "Confirm with Google",
+	"account.deleteReauthGoogle": "Confirm with Google to delete your account.",
+	"account.deleted": "Your account was deleted.",
+	"account.mergeTitle": "This device already has data",
+	"account.mergeBody":
+		"{count} items are on this device and your account has data too. What should we do?",
+	"account.mergeBoth": "Merge both",
+	"account.mergeUseAccount": "Use only the account's data",
+	"account.updateAvailable": "Atomic {version} is available",
+	"account.updateAction": "Download",
+	"account.errors.invalidCredentials": "Email or password is incorrect.",
+	"account.errors.wrongPassword": "The password is incorrect.",
+	"account.errors.passwordTooShort": "Use at least 8 characters.",
+	"account.errors.passwordTooLong": "Use at most 128 characters.",
+	"account.errors.emailTaken": "There's already an account with this email.",
+	"account.errors.googleLinkBlocked":
+		"This email already has an account. Sign in with your password and verify your email first.",
+	"account.errors.rateLimited": "Too many attempts. Try again in a few minutes.",
+	"account.errors.network": "Can't reach the server. Check your connection.",
+	"account.errors.sessionEnded": "Your session ended. Sign in again to keep syncing.",
+	"account.errors.reauthRequired": "For your security, sign in again to continue.",
+	"account.errors.unverified": "Confirm your email first.",
+	"account.errors.unavailable": "This server doesn't offer this.",
+	"account.errors.server": "The server had a problem. Try again in a moment.",
+	"account.errors.generic": "Something went wrong. Try again.",
+	"account.errors.deleteBilling":
+		"We couldn't cancel your subscription, so nothing was deleted. Try again.",
+
+	// Plans and billing (Annex C §1.4–1.5).
+	"plan.title": "Plan",
+	"plan.free": "Free",
+	"plan.pro": "Pro",
+	"plan.upgradeMonthly": "Upgrade · {price}/month",
+	"plan.upgradeYearly": "{price}/year",
+	"plan.yearlySave": "Save {percent}",
+	"plan.manage": "Manage billing",
+	"plan.renews": "Renews {date}",
+	"plan.ends": "Pro until {date}",
+	"plan.trialEnds": "Trial ends {date}",
+	"plan.grace": "We couldn't charge your card. Update it by {date} to keep Pro.",
+	"plan.confirming": "Confirming your payment…",
+	"plan.welcome": "Welcome to Pro",
+	"plan.pendingUpdate": "Your plan will update shortly.",
+	"plan.included": "Everything is included on this server.",
+	"plan.coreFree": "Habits, tasks, identity, insights and sync are free forever.",
+	"plan.usage.ai": "AI suggestions today",
+	"plan.usage.translate": "Translation today",
+	"plan.usage.storage": "Photo storage",
+	"plan.usage.of": "{used} of {limit}",
+	"plan.storageFull": "Photo storage is full. New photos stay on this device until there's space.",
+	"plan.errors.alreadySubscribed": "You already have this plan.",
+	"plan.errors.noCustomer": "There's no billing to manage yet.",
+	"plan.errors.intervalUnavailable": "This server doesn't offer a yearly plan.",
+	"plan.errors.unavailable": "Billing is unavailable right now. Try again later.",
+
+	// AI beta (Annex C §1.6; no journal kind, D19).
+	"ai.title": "AI assistant",
+	"ai.beta": "Beta",
+	"ai.suggestToggle": "AI suggestions",
+	"ai.translateToggle": "Translate my content to the app language",
+	"ai.consentTitle": "Turn on AI suggestions?",
+	"ai.consentWhat":
+		"Only the text you ask about is sent — for example, a habit's name — never your history.",
+	"ai.consentStore":
+		"Nothing is stored or used for training. Requests are processed and forgotten.",
+	"ai.consentWhere.self": "Processed by a model running on the Atomic server.",
+	"ai.consentWhere.hosted": "Processed by {provider} on our behalf.",
+	"ai.consentLimits": "Free accounts get {count} suggestions a day.",
+	"ai.consentBeta": "AI can be wrong. You always choose what to keep.",
+	"ai.turnOn": "Turn on",
+	"ai.notNow": "Not now",
+	"ai.suggestFor": "AI suggestions for {field}",
+	"ai.loading": "Thinking…",
+	"ai.again": "Try others",
+	"ai.error.quota": "You've used today's {count} AI suggestions. More at {time}.",
+	"ai.error.busy": "The AI is busy. Try again in a moment.",
+	"ai.error.offline": "AI suggestions need a connection.",
+	"ai.error.timeout": "That took too long. Try again.",
+	"ai.error.unverified": "Verify your email to use AI.",
+	"ai.error.failed": "Couldn't get suggestions this time.",
+	"ai.upgradeForMore": "Get {count}/day with Pro",
+	"ai.translated": "Translated from {language}",
+	"ai.showOriginal": "Show original",
+	"ai.showTranslation": "Show translation",
+	"ai.language.en": "English",
+	"ai.language.pt-BR": "Portuguese",
+
+	// Content language and on-device completion (Annex C §1.7–1.8).
+	"content.languageFollow": "Show my habits in the app language",
+	"content.languageHint":
+		"Template text always follows; your own text follows when AI translation is on.",
+	"complete.typingToggle": "Suggestions while typing",
+	"complete.typingHint":
+		"Completes words from templates and your own habits. Works offline; nothing leaves your device.",
+	"complete.available": "Suggestion: {text}. Press Tab to accept.",
+	"complete.use": "Use “{text}”",
+	"complete.listLabel": "Suggestions",
 } as const;

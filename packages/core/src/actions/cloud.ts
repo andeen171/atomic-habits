@@ -9,7 +9,7 @@ import {
 import type { SyncMeta } from "../persist-layout";
 import type { CommitChanges, StoreInternals } from "../store";
 import { CLOCK_SKEW_MS, parsePendingKey } from "../sync";
-import type { TranslationJob } from "../translate";
+import { type TranslationJob, isTranslatableField } from "../translate";
 
 /**
  * Cloud store actions (spec §3.1, Annex C §3.2), merged into `AtomicActions`.
@@ -38,8 +38,9 @@ export interface CloudActions {
 	 * Merges AI translations into the deterministic translation documents
 	 * (`translationId(collection, id, locale)`), one per target document and
 	 * locale, stamped and pending. Fields whose text and `src` are unchanged
-	 * are not rewritten. Writes for other collections (the journal, D19),
-	 * empty texts and malformed hashes are ignored. Origin `"derived"`.
+	 * are not rewritten. Writes for other collections (the journal, D19) or
+	 * fields (`TRANSLATABLE_FIELDS`), empty texts and malformed hashes are
+	 * ignored. Origin `"derived"`.
 	 * Returns the number of documents written. A no-op while the state is
 	 * `partial` (the stored translations it merges into may be missing).
 	 */
@@ -109,6 +110,7 @@ export function createCloudActions(internals: StoreInternals): CloudActions {
 				const text = typeof write.text === "string" ? write.text.trim() : "";
 				if (!text || typeof write.src !== "string" || write.src.length !== 8) continue;
 				if (typeof write.id !== "string" || typeof write.field !== "string") continue;
+				if (!isTranslatableField(write.collection, write.field)) continue;
 				if (typeof write.locale !== "string" || write.locale.length < 2) continue;
 				const docId = translationId(write.collection, write.id, write.locale);
 				let group = groups.get(docId);

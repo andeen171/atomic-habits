@@ -53,9 +53,17 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 			id: "stats",
 			items: [
 				stat("onTime", t.t("tracker.wake.onTimeRate"), t.percent(rate), rate, {
-					hint: t.t("tracker.stat.daysOf", { count: t.number(onTime), total: t.number(mornings.length) }),
+					hint: t.t("tracker.stat.daysOf", {
+						count: t.number(onTime),
+						total: t.number(mornings.length),
+					}),
 				}),
-				stat("average", t.t("tracker.wake.average"), formatClock(Math.round(mean)), Math.round(mean)),
+				stat(
+					"average",
+					t.t("tracker.wake.average"),
+					formatClock(Math.round(mean)),
+					Math.round(mean),
+				),
 				stat("earliest", t.t("tracker.wake.earliest"), formatClock(earliest), earliest),
 				stat(
 					"consistency",
@@ -125,9 +133,7 @@ export const wakeDef: TrackerDef<Config> = {
 		return line(
 			t.t("tracker.wake.upAt", { time: formatClock(minutesOf(entry)) }),
 			[
-				late > 0
-					? t.t("tracker.lateBy", { minutes: t.number(late) })
-					: t.t("tracker.onTime"),
+				late > 0 ? t.t("tracker.lateBy", { minutes: t.number(late) }) : t.t("tracker.onTime"),
 				str(entry.data.note),
 			]
 				.filter(Boolean)

@@ -73,6 +73,8 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
 	const logs: CapturedLine[] = [];
 	const server = createServer(config, {
 		log: (level, line) => logs.push({ level, line }),
+		// Maintenance passes run by hand (`server.maintenance.runOnce()`).
+		jobs: false,
 		...options.deps,
 	});
 	await server.start();

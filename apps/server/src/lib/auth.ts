@@ -1,3 +1,4 @@
+import { type StripeOptions, stripe } from "@better-auth/stripe";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { isAPIError } from "better-auth/api";
@@ -9,6 +10,7 @@ import type { PurgeUser } from "../account/purge";
 import type { Config } from "../config";
 import type { Database } from "../db";
 import { account, session, user, verification } from "../db/schema/auth";
+import { subscription } from "../db/schema/billing";
 import { resetEmail, verificationEmail } from "../email/templates";
 import type { EmailService } from "./email";
 import type { GoogleVerifier } from "./google";
@@ -57,12 +59,17 @@ const ALWAYS_DISABLED = [
 	"/get-access-token",
 	"/refresh-token",
 	"/account-info",
+	"/verify-password",
 	"/callback/:id",
 	"/delete-user/callback",
 	"/forget-password",
 ] as const;
 
-/** Verification and reset need email to mean anything (D30). */
+/**
+ * Verification and reset need email to mean anything (D30). Better Auth's own
+ * reset landing (`GET /reset-password/:token`) is never used: reset emails
+ * link to the server page `/account/reset-password`.
+ */
 const EMAIL_PATHS = [
 	"/verify-email",
 	"/send-verification-email",
@@ -70,13 +77,52 @@ const EMAIL_PATHS = [
 	"/reset-password",
 ] as const;
 
+const NEVER_WITH_PARAMS = ["/reset-password/:token"] as const;
+
+/**
+ * The Stripe plugin's HTTP routes (spec §4.2). Clients go through tRPC
+ * (`billing.checkout`, `billing.portal`), which reaches the plugin through
+ * `auth.api`; `app.ts` answers `GET /subscription/success` itself (a
+ * redirect to `/billing/return`). Only `/stripe/webhook` stays reachable.
+ */
+export const SUBSCRIPTION_PATHS = [
+	"/subscription/upgrade",
+	"/subscription/cancel",
+	"/subscription/restore",
+	"/subscription/list",
+	"/subscription/billing-portal",
+	"/subscription/success",
+] as const;
+
 /** The disabled-path matrix for a configuration (spec §4.2; tested per feature). */
 export function disabledAuthPaths(config: Pick<Config, "email" | "google">): string[] {
 	return [
 		...ALWAYS_DISABLED,
+		...NEVER_WITH_PARAMS,
+		...SUBSCRIPTION_PATHS,
 		...(config.email ? [] : EMAIL_PATHS),
 		...(config.google ? [] : ["/sign-in/social"]),
 	];
+}
+
+/**
+ * Whether a path below `/api/auth` is disabled. Better Auth compares
+ * `disabledPaths` with the concrete path only, so `/callback/:id` or
+ * `/reset-password/:token` would still route; this matches `:param`
+ * segments too and runs before Better Auth sees the request.
+ */
+export function isDisabledAuthPath(disabled: readonly string[], path: string): boolean {
+	const segments = path
+		.replace(/\/{2,}/g, "/")
+		.replace(/\/+$/, "")
+		.split("/");
+	return disabled.some((pattern) => {
+		const parts = pattern.split("/");
+		return (
+			parts.length === segments.length &&
+			parts.every((part, i) => (part.startsWith(":") ? Boolean(segments[i]) : part === segments[i]))
+		);
+	});
 }
 
 /** Better Auth rate limits per IP (spec §4.2, Annex C §6.3); on in production. */
@@ -97,6 +143,8 @@ export interface AuthDeps {
 	google: GoogleVerifier | null;
 	/** The account erasure run before the user row is deleted (`account/purge.ts`). */
 	purge: PurgeUser;
+	/** `@better-auth/stripe` options when billing is on (`billing/stripe.ts`); null otherwise. */
+	stripe: StripeOptions | null;
 }
 
 /**
@@ -117,7 +165,7 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 		secret: config.authSecret,
 		database: drizzleAdapter(db, {
 			provider: "sqlite",
-			schema: { user, session, account, verification },
+			schema: { user, session, account, verification, subscription },
 		}),
 		emailAndPassword: {
 			enabled: true,
@@ -207,8 +255,9 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 			// 10 minutes: password-less (Google) users re-authenticate first (D55).
 			freshAge: 10 * MINUTE,
 		},
-		// Clients authenticate with `Authorization: Bearer <token>` only.
-		plugins: [bearer()],
+		// Clients authenticate with `Authorization: Bearer <token>` only. The
+		// Stripe plugin (billing on) keeps `subscription` current from webhooks.
+		plugins: [bearer(), ...(deps.stripe ? [stripe(deps.stripe)] : [])],
 		disabledPaths: disabledAuthPaths(config),
 		trustedOrigins: [...new Set([...config.corsOrigins, ...config.appWebOrigins])],
 		rateLimit: {

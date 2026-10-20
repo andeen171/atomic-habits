@@ -2,10 +2,12 @@ import { useT } from "@/lib/messages";
 import type { Identity } from "@atomic/core";
 import { useActions } from "@atomic/core/react";
 import { type FormEvent, useState } from "react";
+import { AiSuggest } from "../ai/ai-suggest";
 import { ColorPicker, EmojiPicker } from "../editor/editor-fields";
 import { Button } from "../ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "../ui/dialog";
-import { Field, Input } from "../ui/field";
+import { Field } from "../ui/field";
+import { SmartInput } from "../ui/smart-input";
 
 interface IdentityDialogProps {
 	open: boolean;
@@ -46,12 +48,19 @@ function IdentityForm({ identity, onDone }: { identity: Identity; onDone(): void
 					{(props) => (
 						<div className="flex items-center gap-2.5">
 							<EmojiPicker value={emoji} color={color} onChange={setEmoji} />
-							<Input
+							<SmartInput
 								{...props}
+								field="identity.statement"
 								value={statement}
 								maxLength={120}
 								placeholder={t("identity.placeholder")}
 								onChange={(event) => setStatement(event.target.value)}
+							/>
+							<AiSuggest
+								kind="identity.statement"
+								label={t("form.identity")}
+								input={() => ({ goal: statement.trim() })}
+								onPick={setStatement}
 							/>
 						</div>
 					)}

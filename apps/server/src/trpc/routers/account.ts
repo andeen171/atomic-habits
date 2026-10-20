@@ -50,13 +50,11 @@ export const accountRouter = router({
 	),
 
 	/** `POST /trpc/account.revokeSession {id}`: sign one device out. */
-	revokeSession: protectedProcedure
-		.input(z.object({ id: z.string().min(1).max(200) }))
-		.mutation(
-			async ({ ctx, input }): Promise<RevokeResult> => ({
-				revoked: await revokeSession(ctx.services.db, ctx.user.id, input.id),
-			}),
-		),
+	revokeSession: protectedProcedure.input(z.object({ id: z.string().min(1).max(200) })).mutation(
+		async ({ ctx, input }): Promise<RevokeResult> => ({
+			revoked: await revokeSession(ctx.services.db, ctx.user.id, input.id),
+		}),
+	),
 
 	/** `POST /trpc/account.revokeOtherSessions`: every device but this one. */
 	revokeOtherSessions: protectedProcedure.mutation(

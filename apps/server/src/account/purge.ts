@@ -1,8 +1,8 @@
 import { APIError } from "better-auth/api";
 import { eq } from "drizzle-orm";
 import type { EntitlementService } from "../billing/entitlements";
-import { type StripeApi, isStripeMissing } from "../billing/stripe-client";
-import type { BlobStorage } from "../blobs/storage";
+import type { BillingProvider } from "../billing/provider";
+import type { BlobService } from "../blobs/service";
 import type { Database } from "../db";
 import { subscription, user, verification } from "../db/schema";
 import { type Logger, safeTag } from "../lib/log";
@@ -15,11 +15,13 @@ import { type Logger, safeTag } from "../lib/log";
  * `session`, `account`).
  *
  * Order:
- * 1. cancel every live Stripe subscription immediately; a failure aborts the
- *    whole deletion with 502 (`account.errors.deleteBilling`): a paying user
- *    must never lose the account while Stripe keeps charging;
- * 2. delete the Stripe customer (best effort; Stripe keeps invoices by law);
- * 3. delete every photo object (a failure aborts with 503: rows without
+ * 1. cancel every live subscription immediately (through the billing
+ *    provider); a failure aborts the whole deletion with 502
+ *    (`account.errors.deleteBilling`): a paying user must never lose the
+ *    account while Stripe keeps charging;
+ * 2. delete the provider's customer (best effort; Stripe keeps invoices by law);
+ * 3. delete every photo object, under the user's blob lock, after which the
+ *    account takes no more uploads (a failure aborts with 503: rows without
  *    objects can be retried, objects without rows would be orphaned forever);
  * 4. delete the subscription rows (no foreign key) and stray reset tokens.
  *
@@ -33,9 +35,9 @@ const ENDED = new Set(["canceled", "incomplete_expired"]);
 export interface PurgeDeps {
 	db: Database;
 	/** Null when billing is off. */
-	stripe: StripeApi | null;
+	billing: BillingProvider | null;
 	/** Null when photo backup is off. */
-	storage: BlobStorage | null;
+	blobs: BlobService | null;
 	entitlements: EntitlementService;
 	log: Logger;
 }
@@ -43,7 +45,7 @@ export interface PurgeDeps {
 export type PurgeUser = (userId: string) => Promise<void>;
 
 export function createPurge(deps: PurgeDeps): PurgeUser {
-	const { db, stripe, storage, log } = deps;
+	const { db, billing, blobs, log } = deps;
 	const step = (name: string, outcome: string, cause?: unknown) =>
 		(outcome === "failed" ? log.warn : log.info)({
 			msg: "purge",
@@ -58,16 +60,16 @@ export function createPurge(deps: PurgeDeps): PurgeUser {
 			.from(subscription)
 			.where(eq(subscription.referenceId, userId));
 		const live = subscriptions.filter((s) => s.stripeId && !ENDED.has(s.status ?? ""));
-		if (live.length && !stripe) {
+		if (live.length && !billing) {
 			// Billing was switched off since: nothing can cancel them from here.
 			step("billing.cancel", "skipped");
 		}
-		if (stripe) {
+		if (billing) {
 			for (const { stripeId } of live) {
 				try {
-					await stripe.subscriptions.cancel(stripeId as string);
+					// Already gone at the provider counts as done.
+					await billing.cancelImmediately(stripeId as string);
 				} catch (error) {
-					if (isStripeMissing(error)) continue;
 					step("billing.cancel", "failed", error);
 					throw new APIError("BAD_GATEWAY", {
 						message: "Couldn't cancel the subscription; nothing was deleted",
@@ -81,16 +83,16 @@ export function createPurge(deps: PurgeDeps): PurgeUser {
 				.where(eq(user.id, userId));
 			if (row?.customer) {
 				try {
-					await stripe.customers.del(row.customer);
+					await billing.deleteCustomer(row.customer);
 				} catch (error) {
-					if (!isStripeMissing(error)) step("billing.customer", "failed", error);
+					step("billing.customer", "failed", error);
 				}
 			}
 		}
 
-		if (storage) {
+		if (blobs) {
 			try {
-				await storage.deleteUser(userId);
+				await blobs.purgeUser(userId);
 			} catch (error) {
 				step("blobs", "failed", error);
 				throw new APIError("SERVICE_UNAVAILABLE", {

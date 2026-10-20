@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { redactAuthMessage } from "../src/lib/auth";
 import { createLogger, safeTag } from "../src/lib/log";
+import { EMAIL_ENV, GOOGLE_ENV, createFakeGoogle, createFakeNet } from "./fakes";
 import {
 	BASE_URL,
 	type CapturedLine,
@@ -206,6 +207,77 @@ describe("no user content anywhere in the output", () => {
 		const auth = logs.map((l) => JSON.parse(l.line)).filter((l) => l.msg === "auth");
 		for (const line of auth)
 			expect(Object.keys(line).sort()).toEqual(["detail", "lvl", "msg", "t"]);
+	});
+});
+
+describe("account flows print no content (milestone B)", () => {
+	test("email, Google, reset, sessions, deletion and export", async () => {
+		const google = await createFakeGoogle();
+		const net = createFakeNet(google);
+		const { app, logs, server } = await createTestServer({
+			env: { ...EMAIL_ENV, ...GOOGLE_ENV, LOG_FORMAT: "json" },
+			deps: { fetch: net.fetch },
+		});
+		const email = `${CANARY}@example.com`;
+		const device = { "X-Atomic-Device": `Atomic ${CANARY}` };
+		const up = await postJson(
+			app,
+			"/api/auth/sign-up/email",
+			{ name: CANARY, email, password: `${CANARY}-pw` },
+			device,
+		);
+		const { token } = (await up.json()) as { token: string };
+		await postJson(app, "/api/auth/request-password-reset", { email });
+		await postJson(app, "/api/auth/request-password-reset", { email: `x-${CANARY}@example.com` });
+		await server.services.email?.idle();
+		const resetLink = net.outbox.at(-1)?.text.match(/https?:\/\/\S+/)?.[0] ?? "";
+		const resetToken = new URL(resetLink).searchParams.get("token") ?? "";
+		expect(resetToken).not.toBe("");
+		await app.request(resetLink);
+		await app.request(`${BASE_URL}/account/reset-password`, {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				token: resetToken,
+				password: `${CANARY}-new`,
+				confirm: `${CANARY}-new`,
+			}).toString(),
+		});
+		// Google: unverified address (link refused), forged token, a takeover.
+		await postJson(app, "/api/auth/sign-in/social", {
+			provider: "google",
+			idToken: { token: await google.idToken({ email, email_verified: false, name: CANARY }) },
+		});
+		await postJson(app, "/api/auth/sign-in/social", {
+			provider: "google",
+			idToken: { token: `${CANARY}.${CANARY}.${CANARY}` },
+		});
+		const owner = await postJson(app, "/api/auth/sign-in/social", {
+			provider: "google",
+			idToken: { token: await google.idToken({ email, name: CANARY }) },
+		});
+		const ownerToken = ((await owner.json()) as { token: string }).token;
+		await app.request(`${BASE_URL}/trpc/account.sessions`, { headers: bearer(ownerToken) });
+		const link = await postJson(app, "/trpc/account.exportLink", {}, bearer(ownerToken));
+		const exportUrl = ((await link.json()) as { result: { data: { url: string } } }).result.data
+			.url;
+		await (await app.request(exportUrl)).arrayBuffer();
+		await app.request(exportUrl);
+		await postJson(app, "/api/auth/delete-user", {}, bearer(ownerToken));
+		await postJson(app, "/api/auth/delete-user", {}, bearer(token));
+
+		const text = JSON.stringify(logs);
+		for (const secret of [
+			resetToken,
+			ownerToken,
+			token,
+			new URL(exportUrl).searchParams.get("t"),
+		]) {
+			expect(text).not.toContain(secret ?? "?");
+		}
+		expectNoCanary(logs);
+		expect(logs.some((l) => l.line.includes("google.link"))).toBe(true);
+		expect(logs.some((l) => l.line.includes('"msg":"email"'))).toBe(true);
 	});
 });
 

@@ -8,6 +8,7 @@ import {
 	lawHeading,
 	progressLabel,
 	slotTitle,
+	strengthLabel,
 	weakestLaw,
 } from "../src/blueprint";
 import { createTranslator, en, ptBR } from "../src/i18n";
@@ -158,5 +159,51 @@ describe("progressLabel", () => {
 		const kept = habit({ target: 10, unit: "pages", tracker: { type: "reading", enabled: false } });
 		expect(progressLabel(kept, 4, enT)).toBe("4/10 pages");
 		expect(progressLabel(kept, 4, ptT)).toBe("4/10 pages");
+	});
+});
+
+describe("strengthLabel (D61)", () => {
+	test("Strength for build habits, Freedom for break habits, with the detail hints", () => {
+		expect(strengthLabel(habit(), enT)).toEqual({ label: "Strength", hint: null });
+		expect(strengthLabel(habit({ kind: "break" }), enT)).toEqual({ label: "Freedom", hint: null });
+		expect(strengthLabel(habit({ kind: "break" }), ptT)).toEqual({
+			label: "Liberdade",
+			hint: null,
+		});
+		expect(strengthLabel(habit(), enT, "detail")).toEqual({
+			label: "Habit strength",
+			hint: "How automatic this habit is becoming, based on recent consistency.",
+		});
+		expect(strengthLabel(habit({ kind: "break" }), ptT, "detail")).toEqual({
+			label: "Liberdade",
+			hint: "O quanto você está se libertando deste hábito, com base nos dias limpos recentes.",
+		});
+	});
+});
+
+describe("board copy (Annex H §7, spec §5.3)", () => {
+	test("column headers read “law · stage” in both languages", () => {
+		const heading = (law: 1 | 2 | 3 | 4, kind: "build" | "break", t: typeof enT) => {
+			const { name, stage } = lawHeading(law, kind, t);
+			return t.t("blueprint.board.lawHeading", { name, stage });
+		};
+		expect(heading(1, "build", enT)).toBe("Make it obvious · Cue");
+		expect(heading(1, "break", ptT)).toBe(`${ptT.t("law.1.inverse")} · ${ptT.t("law.1.stage")}`);
+		expect(heading(4, "build", ptT)).toBe(`${ptT.t("law.4.name")} · ${ptT.t("law.4.stage")}`);
+	});
+
+	test("filled count, add and edit labels use the slot concept", () => {
+		const h = habit({ cueTime: "21:30", twoMinute: "Read one page" });
+		const { filled, total } = blueprintCompleteness(h);
+		expect(enT.t("blueprint.board.filled", { count: filled, total })).toBe("2 of 8 in place");
+		expect(ptT.t("blueprint.board.filled", { count: filled, total })).toBe("2 de 8 definidos");
+		const empty = blueprintSlots(h).find((s) => s.value === null);
+		if (!empty) throw new Error("expected an empty slot");
+		expect(enT.t("blueprint.board.add", { concept: enT.t(empty.concept) })).toBe(
+			"Add: Implementation intention · where",
+		);
+		expect(ptT.t("blueprint.board.editField", { concept: ptT.t("blueprint.concept.why") })).toBe(
+			"Editar: Reformule: “eu posso”",
+		);
 	});
 });

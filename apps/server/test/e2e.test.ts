@@ -1,12 +1,23 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
 	type AtomicStore,
+	type AttachmentMime,
+	type RemoteClient,
 	RemoteError,
 	type SyncController,
+	blobUploadSchema,
+	blobsMissingSchema,
 	createAtomicStore,
+	createMemoryBlobStore,
 	createMemoryStorage,
 	createRemoteClient,
 	createSyncController,
+	entryAttachments,
+	remoteErrorFrom,
+	sha256Hex,
+	storePhoto,
+	toDayKey,
+	uploadableBlobs,
 } from "@atomic/core";
 import { type TestApp, appFetch, createTestServer, setupApp, uniqueEmail } from "./helpers";
 
@@ -266,5 +277,127 @@ describe("sync quota through the core client (spec §4.5)", () => {
 		const email = sync.getState().user?.email ?? "";
 		await otherSync.signIn(SERVER_URL, email, PASSWORD);
 		expect(names(other, "tasks")).toEqual(["four", "one", "three", "two"]);
+	});
+});
+
+/**
+ * What T5's `blobTransport(token)` does over the wire (spec §2.4.5): kept
+ * here so the server's photo routes are checked against the core client's
+ * HTTP layer and error parsing.
+ */
+function testBlobTransport(client: RemoteClient, token: string) {
+	const fail = async (response: Response) => {
+		const text = await response.text();
+		let body: unknown = text;
+		try {
+			body = JSON.parse(text);
+		} catch {
+			// Plain text.
+		}
+		return remoteErrorFrom(response, body);
+	};
+	return {
+		async missing(hashes: string[]): Promise<string[]> {
+			return (await client.http.mutation("blobs.missing", token, blobsMissingSchema, { hashes }))
+				.missing;
+		},
+		async upload(sha: string, bytes: Uint8Array, mime: string) {
+			const response = await client.http.request(`/blobs/${sha}`, {
+				method: "PUT",
+				token,
+				body: bytes as Uint8Array<ArrayBuffer>,
+				headers: { "Content-Type": mime },
+			});
+			if (!response.ok) throw await fail(response);
+			return blobUploadSchema.parse(await response.json());
+		},
+		async download(sha: string): Promise<{ bytes: Uint8Array; mime: AttachmentMime }> {
+			const response = await client.http.request(`/blobs/${sha}`, { method: "GET", token });
+			if (!response.ok) throw await fail(response);
+			return {
+				bytes: new Uint8Array(await response.arrayBuffer()),
+				mime: response.headers.get("content-type") as AttachmentMime,
+			};
+		},
+	};
+}
+
+describe("photo backup through the core client (spec §4.6, D23)", () => {
+	test("a blob is uploaded only after its entry is accepted, then reaches the other device", async () => {
+		const now = sharedClock();
+		const email = uniqueEmail("photos");
+		const phone = device(now);
+		await phone.sync.signUp(SERVER_URL, "Ana", email, PASSWORD);
+
+		const { actions } = phone.store.getState();
+		const habit = actions.createHabit({
+			name: "Progress photo",
+			startDate: toDayKey(Date.now() - 10 * 86_400_000),
+			tracker: { type: "photo", compare: true },
+		} as never);
+		const phoneBlobs = createMemoryBlobStore();
+		const full = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode("full")]);
+		const thumb = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode("thumb")]);
+		const image = (bytes: Uint8Array, w: number) => ({
+			source: { bytes },
+			mime: "image/jpeg",
+			w,
+			h: w,
+			bytes: bytes.length,
+		});
+		const ref = await storePhoto(phoneBlobs, { full: image(full, 1600), thumb: image(thumb, 320) });
+		if (!ref) throw new Error("storePhoto refused the test photo");
+		const entry = actions.addTrackerEntry({
+			habitId: habit.id,
+			date: toDayKey(now()),
+			type: "photo",
+			data: { photos: [ref] },
+		});
+		if (!entry) throw new Error("the photo entry was refused");
+
+		// Not accepted by the server yet: nothing to upload.
+		const state = () => phone.store.getState();
+		expect(state().sync.pending[`trackerEntries/${entry.id}`]).toBe(true);
+		expect(uploadableBlobs(state().data, state().sync.pending).size).toBe(0);
+
+		await phone.sync.syncNow();
+		expect(Object.keys(state().sync.pending)).toHaveLength(0);
+		const uploadable = [...uploadableBlobs(state().data, state().sync.pending).keys()].sort();
+		expect(uploadable).toEqual([ref.hash, ref.thumb].sort());
+
+		const client = createRemoteClient(SERVER_URL, appFetch(app));
+		const { token } = await client.signIn({ email, password: PASSWORD });
+		const transport = testBlobTransport(client, token);
+		expect((await transport.missing(uploadable)).sort()).toEqual(uploadable);
+		for (const sha of uploadable) {
+			const stored = await phoneBlobs.read(sha);
+			if (!stored || !("bytes" in stored.source)) throw new Error("blob not on the phone");
+			expect(await transport.upload(sha, stored.source.bytes, stored.mime)).toMatchObject({
+				created: true,
+			});
+		}
+		expect(await transport.missing(uploadable)).toEqual([]);
+
+		// Refusals reach the client as RemoteError codes (blob-sync stops or skips on them).
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		const refused = transport.upload(await sha256Hex(png), png, "image/png");
+		await expect(refused).rejects.toBeInstanceOf(RemoteError);
+		await expect(refused).rejects.toMatchObject({ status: 415, code: "UNSUPPORTED_TYPE" });
+
+		// The laptop pulls the entry, then fetches its photos by hash.
+		const laptop = device(now);
+		await laptop.sync.signIn(SERVER_URL, email, PASSWORD);
+		const pulled = laptop.store.getState().data.trackerEntries[entry.id];
+		if (!pulled) throw new Error("the entry didn't reach the laptop");
+		const laptopBlobs = createMemoryBlobStore();
+		for (const pulledRef of entryAttachments(pulled)) {
+			for (const sha of [pulledRef.thumb, pulledRef.hash]) {
+				const { bytes, mime } = await transport.download(sha);
+				expect(await sha256Hex(bytes)).toBe(sha);
+				await laptopBlobs.write(sha, { bytes }, mime);
+			}
+		}
+		expect(laptopBlobs.size()).toBe(2);
+		expect(await laptopBlobs.read(ref.hash)).toMatchObject({ mime: "image/jpeg" });
 	});
 });

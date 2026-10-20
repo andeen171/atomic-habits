@@ -21,48 +21,59 @@ export interface MonthGoalReached {
 	goal: MonthGoal;
 }
 
+type Logs = Record<string, HabitLog>;
+
+/** Log maps around the latest state changes that touched logs (oldest first). */
+const MAX_TRANSITIONS = 16;
+
 /**
  * Calls `onReached` once when a local write takes a build habit's current
  * month from below its goal to at or above it (`before.credited < goal ≤
  * after.credited`). Writes to past months, rest months (goal 0) and writes
- * that don't cross never fire. Returns the unsubscribe function.
+ * that don't cross never fire; going back below the goal and crossing again
+ * is a new crossing (the apps dedupe per `habitId:YYYY-MM`). Returns the
+ * unsubscribe function.
  */
 export function watchMonthGoals(
 	store: AtomicStore,
 	onReached: (event: MonthGoalReached) => void,
 	options: { today?: () => DayKey } = {},
 ): () => void {
-	// The logs as they were before the latest `set()` that changed them: a
-	// commit's `set()` runs right before its commit event.
-	let before: Record<string, HabitLog> = store.getState().data.logs;
+	// A commit's `set()` runs right before its commit event. Another commit
+	// listener may commit again before this one hears the first event (that
+	// nested event then arrives first), so each event is matched with the
+	// change that wrote its logs instead of with "the latest change".
+	const transitions: { before: Logs; after: Logs }[] = [];
 	const unsubscribeState = store.subscribe((state, previous) => {
-		if (state.data.logs !== previous.data.logs) before = previous.data.logs;
+		if (state.data.logs === previous.data.logs) return;
+		transitions.push({ before: previous.data.logs, after: state.data.logs });
+		if (transitions.length > MAX_TRANSITIONS) transitions.shift();
 	});
 	const unsubscribeCommits = store.subscribeCommits(({ origin, changes }) => {
-		if (origin !== "local" || !changes.logs?.length) return;
+		const written = changes.logs;
+		if (origin !== "local" || !written?.length) return;
+		const at = findTransition(transitions, written);
+		const transition = transitions[at];
+		if (!transition) return;
+		transitions.splice(at, 1);
+		const { before, after } = transition;
 		const state = store.getState();
 		const today = options.today?.() ?? toDayKey();
 		const { weekStartsOn } = state.settings;
-		const habitIds = new Set(changes.logs.map((log) => log.habitId));
+		const habitIds = new Set(written.map((log) => log.habitId));
 		for (const habitId of habitIds) {
 			const habit = state.data.habits[habitId];
 			if (!habit || habit.deletedAt || habit.archivedAt || habit.kind !== "build") continue;
 			const month = currentMonthKey(habit, today, weekStartsOn);
 			const span = monthSpan(habit, month, weekStartsOn);
 			if (!span) continue;
-			const touched = changes.logs.some(
+			const touched = written.some(
 				(log) => log.habitId === habitId && log.date >= span.from && log.date <= span.to,
 			);
 			if (!touched) continue;
 			const days = eachDay(span.from, span.to);
 			const was = monthGoal(habit, monthLogs(before, habitId, days), month, today, weekStartsOn);
-			const now = monthGoal(
-				habit,
-				monthLogs(state.data.logs, habitId, days),
-				month,
-				today,
-				weekStartsOn,
-			);
+			const now = monthGoal(habit, monthLogs(after, habitId, days), month, today, weekStartsOn);
 			if (was?.kind !== "build" || now?.kind !== "build" || now.goal <= 0) continue;
 			if (was.credited < now.goal && now.goal <= now.credited) onReached({ habit, goal: now });
 		}
@@ -73,12 +84,20 @@ export function watchMonthGoals(
 	};
 }
 
+/** The newest change whose resulting logs hold exactly the written records; -1 when none. */
+function findTransition(
+	transitions: readonly { before: Logs; after: Logs }[],
+	written: readonly HabitLog[],
+): number {
+	for (let i = transitions.length - 1; i >= 0; i--) {
+		const after = transitions[i]?.after;
+		if (after && written.every((log) => after[log.id] === log)) return i;
+	}
+	return -1;
+}
+
 /** A month-sized `HabitLogs` map built with `logId()` lookups (live logs only). */
-function monthLogs(
-	logs: Record<string, HabitLog>,
-	habitId: string,
-	days: readonly DayKey[],
-): HabitLogs {
+function monthLogs(logs: Logs, habitId: string, days: readonly DayKey[]): HabitLogs {
 	const map = new Map<DayKey, HabitLog>();
 	for (const day of days) {
 		const log = logs[logId(habitId, day)];

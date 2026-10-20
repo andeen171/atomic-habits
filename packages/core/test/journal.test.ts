@@ -520,7 +520,7 @@ describe("drafts and prefills (Annex J §1.4)", () => {
 		expect(contractCommitmentDefault(habit({ name: "Treinar", schedule: weekly }), pt, 1)).toBe(
 			"Vou treinar, 3 vezes por semana.",
 		);
-		const days = { type: "weekdays", days: [4, 1] } as const;
+		const days = { type: "weekdays" as const, days: [4, 1] };
 		expect(contractCommitmentDefault(habit({ name: "Swim", schedule: days }), t, 1)).toBe(
 			"I will swim on these days: Monday and Thursday.",
 		);
@@ -528,7 +528,7 @@ describe("drafts and prefills (Annex J §1.4)", () => {
 			"Vou nadar nestes dias: segunda-feira e quinta-feira.",
 		);
 		// Every weekday reads as "every day".
-		const all = { type: "weekdays", days: [0, 1, 2, 3, 4, 5, 6] } as const;
+		const all = { type: "weekdays" as const, days: [0, 1, 2, 3, 4, 5, 6] };
 		expect(contractCommitmentDefault(habit({ name: "Walk", schedule: all }), t, 1)).toBe(
 			"I will walk, every day.",
 		);

@@ -1,4 +1,4 @@
-import { identityTemplates } from "./content";
+import { type HabitTemplate, identityTemplates } from "./content";
 import { type DayKey, type Weekday, addDays, eachDay, startOfWeek, weekdayOf } from "./dates";
 import { FEATURES } from "./flags";
 import { type Locale, resolveLocale } from "./i18n";
@@ -55,6 +55,8 @@ interface DemoHabitPlan {
 	 * + 1…4, the rest exactly on target), so the demo shows a level-up card.
 	 */
 	overshoot?: boolean;
+	/** A demo-only habit (no template with this key). */
+	custom?: (locale: Locale) => HabitTemplate;
 }
 
 const DAY_MS = 86_400_000;
@@ -104,6 +106,72 @@ const PLANS: DemoHabitPlan[] = [
 	{ template: "expenses", identity: "saver", startOffset: 60, from: 0.55, to: 0.9, forceDone: 2 },
 ];
 
+/** "Do push-ups": a number log (milestone 4B), summed per day. */
+function pushUps(locale: Locale): HabitTemplate {
+	const pt = locale === "pt-BR";
+	const unit = pt ? "flexões" : "push-ups";
+	return {
+		key: "pushUps",
+		name: pt ? "Fazer flexões" : "Do push-ups",
+		emoji: "💪",
+		color: "ember",
+		kind: "build",
+		target: 20,
+		unit,
+		schedule: { type: "daily" },
+		timeOfDay: "morning",
+		cueTime: null,
+		cueLocation: null,
+		stackAfter: pt ? "escovar os dentes" : "brush my teeth",
+		twoMinute: pt ? "Fazer uma flexão" : "Do one push-up",
+		bundle: null,
+		reward: null,
+		environment: null,
+		tracker: { type: "measure", unit, aggregate: "sum", decimals: 0, direction: "up" },
+		requires: "trackerPhaseB",
+	};
+}
+
+/**
+ * Habits of the later tracker milestones, appended while their flags are on
+ * (after every other habit, so the ones above keep their random history and
+ * the demo with the flags off doesn't change).
+ */
+function flaggedPlans(): DemoHabitPlan[] {
+	const plans: DemoHabitPlan[] = [];
+	if (FEATURES.trackerPhaseB) {
+		plans.push(
+			{
+				template: "plan",
+				identity: "organized",
+				startOffset: 28,
+				from: 0.6,
+				to: 0.9,
+				forceDone: 3,
+			},
+			{
+				template: "pushUps",
+				identity: "athlete",
+				startOffset: 40,
+				from: 0.4,
+				to: 0.8,
+				custom: pushUps,
+			},
+		);
+	}
+	if (FEATURES.trackerPhotos) {
+		plans.push({
+			template: "vegetables",
+			identity: "healthy",
+			startOffset: 30,
+			from: 0.5,
+			to: 0.85,
+			forceDone: 2,
+		});
+	}
+	return plans;
+}
+
 /**
  * Sample data for "Explore with sample data" (spec §3.1 `demo.ts`, D39): six
  * identities with habits and history, the saver identity with "Log
@@ -134,6 +202,7 @@ export function buildDemoData({
 
 	const identityIds = new Map<string, string>();
 	const usedIdentities = ["reader", "athlete", "mindful", "healthy", "present", "saver"];
+	if (FEATURES.trackerPhaseB) usedIdentities.push("organized");
 	usedIdentities.forEach((key, order) => {
 		const template = templates.find((t) => t.key === key);
 		if (!template) return;
@@ -153,9 +222,11 @@ export function buildDemoData({
 		identityIds.set(key, id);
 	});
 
-	PLANS.forEach((plan, order) => {
+	[...PLANS, ...flaggedPlans()].forEach((plan, order) => {
 		const identity = templates.find((t) => t.key === plan.identity);
-		const template = identity?.habits.find((h) => h.key === plan.template);
+		const template = plan.custom
+			? plan.custom(resolved)
+			: identity?.habits.find((h) => h.key === plan.template);
 		if (!identity || !template) return;
 		const id = `demo-habit-${plan.template}`;
 		const startDate = addDays(today, -plan.startOffset);
@@ -224,9 +295,10 @@ export function buildDemoData({
 	// With template trackers on, tracker habits get entries and their logs follow
 	// them (`dayCountFor`), so the demo loads without reconcile writes.
 	if (FEATURES.templateTrackers || FEATURES.trackerPhaseB || FEATURES.trackerPhotos) {
-		const tracked = buildDemoTrackerEntries({ data, today, locale: resolved, createdAt });
+		const tracked = buildDemoTrackerEntries({ data, today, locale: resolved, createdAt, now });
 		Object.assign(data.trackerEntries, tracked.trackerEntries);
 		Object.assign(data.logs, tracked.logs);
+		Object.assign(data.tasks, tracked.tasks);
 	}
 
 	const notes =
