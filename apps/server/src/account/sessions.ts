@@ -2,6 +2,7 @@ import type { SessionInfo } from "@atomic/core";
 import { and, desc, eq, gt, ne } from "drizzle-orm";
 import type { Database } from "../db";
 import { session } from "../db/schema";
+import { revokeExportLinks } from "./export";
 
 /**
  * Signed-in devices (spec §4.3, Annex C §0.5): own procedures instead of
@@ -38,16 +39,21 @@ export async function listSessions(
 		.sort((a, b) => Number(b.current) - Number(a.current));
 }
 
-/** Ends one of the user's sessions (that device gets 401 on its next request). */
+/**
+ * Ends one of the user's sessions (that device gets 401 on its next
+ * request). Export links carry no session, so the user's outstanding links
+ * end too: one of them may come from that device.
+ */
 export async function revokeSession(db: Database, userId: string, id: string): Promise<number> {
 	const deleted = await db
 		.delete(session)
 		.where(and(eq(session.userId, userId), eq(session.id, id)))
 		.returning({ id: session.id });
+	if (deleted.length > 0) await revokeExportLinks(db, userId);
 	return deleted.length;
 }
 
-/** "Sign out of all other devices": every session but the current one. */
+/** "Sign out of all other devices": every session but the current one, and every export link. */
 export async function revokeOtherSessions(
 	db: Database,
 	userId: string,
@@ -57,5 +63,6 @@ export async function revokeOtherSessions(
 		.delete(session)
 		.where(and(eq(session.userId, userId), ne(session.id, currentId)))
 		.returning({ id: session.id });
+	await revokeExportLinks(db, userId);
 	return deleted.length;
 }

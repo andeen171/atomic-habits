@@ -478,6 +478,80 @@ describe("checkout and portal (fake Stripe)", () => {
 	});
 });
 
+describe("the Stripe customer id is the server's alone", () => {
+	// Regression: @better-auth/stripe declares user.stripeCustomerId as an
+	// input field, so a client could bind someone else's customer to its own
+	// account, open their portal and delete their customer with its account.
+	test("sign-up and update-user refuse it; the column stays empty", async () => {
+		const stripe = createFakeStripe();
+		const server = await createTestServer({ env: ENV, deps: { stripe } });
+		const email = `cus-${crypto.randomUUID()}@example.com`;
+		const up = await postJson(server.app, "/api/auth/sign-up/email", {
+			name: "Mal",
+			email,
+			password: "correct horse battery",
+			stripeCustomerId: "cus_VICTIM",
+		});
+		expect(up.status).toBe(400);
+		expect(((await up.json()) as { code: string }).code).toBe("FIELD_NOT_ALLOWED");
+		expect(await server.db.select().from(user).where(eq(user.email, email))).toEqual([]);
+
+		const attacker = await signUp(server.app, "Mallory");
+		const update = await postJson(
+			server.app,
+			"/api/auth/update-user",
+			{ name: "Mallory 2", stripeCustomerId: "cus_VICTIM" },
+			bearer(attacker.token),
+		);
+		expect(update.status).toBe(400);
+		const [row] = await server.db.select().from(user).where(eq(user.id, attacker.user.id));
+		expect(row?.stripeCustomerId).toBeNull();
+		expect(row?.name).toBe("Mallory");
+		// A plain rename still works.
+		const rename = await postJson(
+			server.app,
+			"/api/auth/update-user",
+			{ name: "Mallory 2" },
+			bearer(attacker.token),
+		);
+		expect(rename.status).toBe(200);
+	});
+
+	test("another user's customer can't be reached through the portal or the purge", async () => {
+		const stripe = createFakeStripe();
+		const server = await createTestServer({ env: ENV, deps: { stripe } });
+		const victim = await signUp(server.app, "Vic");
+		await trpcData(
+			await call(server, "billing.checkout", victim.token, { interval: "month", client: "web" }),
+		);
+		const { session } = stripe.completeCheckout(sessionOf(stripe, victim).id);
+		await deliverWebhook(server.app, stripe.event("checkout.session.completed", session));
+		expect((await accountOf(server, victim.token)).entitlements.plan).toBe("pro");
+		const victimCustomer = session.customer as string;
+
+		const attacker = await signUp(server.app, "Mallory");
+		const bind = await postJson(
+			server.app,
+			"/api/auth/update-user",
+			{ stripeCustomerId: victimCustomer },
+			bearer(attacker.token),
+		);
+		expect(bind.status).toBe(400);
+		const portal = await call(server, "billing.portal", attacker.token, { client: "web" });
+		expect(portal.status).not.toBe(200);
+		expect(stripe.state.portalSessions.some((p) => p.customer === victimCustomer)).toBe(false);
+		const deleted = await postJson(
+			server.app,
+			"/api/auth/delete-user",
+			{ password: attacker.password },
+			bearer(attacker.token),
+		);
+		expect(deleted.status).toBe(200);
+		expect(stripe.deletedCustomers).not.toContain(victimCustomer);
+		expect((await accountOf(server, victim.token)).entitlements.plan).toBe("pro");
+	});
+});
+
 describe("coming back from checkout (before the webhook)", () => {
 	let server: TestServer;
 	let stripe: FakeStripe;

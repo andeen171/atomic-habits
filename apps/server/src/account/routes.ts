@@ -111,6 +111,14 @@ export function registerAccountRoutes(app: Hono<AppEnv>, services: Services) {
 	}
 
 	app.get("/account/export", async (c) => {
+		// GET routes answer HEAD too: a link checker, a download manager's probe
+		// or `curl -I` would spend the single-use token. Only GET redeems it.
+		if (c.req.method === "HEAD") {
+			return new Response(null, {
+				status: 405,
+				headers: { Allow: "GET", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" },
+			});
+		}
 		const locale = localeOf(c);
 		const userId = await redeemExportToken(services.db, c.req.query("t"), services.now());
 		const archive = userId

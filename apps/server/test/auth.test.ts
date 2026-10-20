@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import type { AccountInfo } from "@atomic/core";
+import type { AccountInfo, ExportLink } from "@atomic/core";
 import { eq } from "drizzle-orm";
 import { session, user } from "../src/db/schema";
 import { disabledAuthPaths, isDisabledAuthPath } from "../src/lib/auth";
@@ -21,6 +21,7 @@ import {
 	postJson,
 	setupApp,
 	signUp,
+	task,
 	trpcData,
 	uniqueEmail,
 } from "./helpers";
@@ -455,6 +456,45 @@ describe("Google sign-in (ID token only, D29)", () => {
 		expect(server.logs.some((l) => l.line.includes("reclaimed"))).toBe(true);
 	});
 
+	test("the reclaim also ends the squatter's export links and AI consent", async () => {
+		const email = uniqueEmail("owner");
+		const squat = await postJson(server.app, "/api/auth/sign-up/email", {
+			name: "Squatter",
+			email,
+			password: "squatter-pass-1",
+		});
+		const squatter = (await squat.json()) as AuthBody;
+		const squatToken = squatter.token ?? "";
+		// The squatter consents to AI "for" the owner (as ai.setConsent stores it)…
+		await server.db
+			.update(user)
+			.set({ aiConsentAt: new Date(), aiTranslate: true })
+			.where(eq(user.id, squatter.user.id));
+		// …and takes a bearer download link, which needs no session.
+		const link = await trpcData<ExportLink>(
+			await postJson(server.app, "/trpc/account.exportLink", {}, bearer(squatToken)),
+		);
+
+		const owner = await googleSignIn(server.app, await google.idToken({ email }));
+		expect(owner.status).toBe(200);
+		const ownerToken = ((await owner.json()) as AuthBody).token ?? "";
+		const synced = await postJson(
+			server.app,
+			"/trpc/sync.push",
+			{ records: [task("owner-secret", Date.now(), { title: "OWNER-PRIVATE" })] },
+			bearer(ownerToken),
+		);
+		expect(synced.status).toBe(200);
+
+		// The old link no longer downloads anything, and the consent is the owner's to give.
+		const download = await server.app.request(link.url);
+		expect(download.status).toBe(410);
+		expect(await download.text()).not.toContain("OWNER-PRIVATE");
+		const info = await accountInfo(server.app, ownerToken);
+		expect(info.ai).toEqual({ consentAt: null, translate: false });
+		expect(info.emailVerified).toBe(true);
+	});
+
 	test("an address Google did not verify never links to an existing account", async () => {
 		const { email, token } = await signUp(server.app, "Una");
 		const response = await googleSignIn(
@@ -536,5 +576,69 @@ describe("account deletion needs re-authentication (D55)", () => {
 
 	test("without a session the guard defers to Better Auth (401)", async () => {
 		expect((await postJson(server.app, "/api/auth/delete-user", {})).status).toBe(401);
+	});
+
+	test("a wrong password never deletes, whatever the body's media type", async () => {
+		// Regression: Better Auth read these bodies as a stream or a form (no
+		// password) and fell back to `freshAge`, deleting on a fresh session.
+		const { token, password, user: owner } = await signUp(server.app, "Ida");
+		const wrong = JSON.stringify({ password: "definitely-not-the-password" });
+		const bodies: [string | null, BodyInit][] = [
+			["x-application/json", wrong],
+			["application/x-www-form-urlencoded,application/json", wrong],
+			["application/vnd.atomic+json", wrong],
+			["text/plain", wrong],
+			["application/x-www-form-urlencoded", "password=definitely-not-the-password"],
+			// No Content-Type at all (raw bytes).
+			[null, new TextEncoder().encode(wrong)],
+		];
+		for (const [type, body] of bodies) {
+			const response = await server.app.request(`${BASE_URL}/api/auth/delete-user`, {
+				method: "POST",
+				headers: { ...(type ? { "Content-Type": type } : {}), ...bearer(token) },
+				body,
+			});
+			expect([400, 415]).toContain(response.status);
+			expect(await userExists(owner.id)).toBe(true);
+		}
+		const json = (body: unknown) =>
+			server.app.request(`${BASE_URL}/api/auth/delete-user`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json; charset=utf-8", ...bearer(token) },
+				body: JSON.stringify(body),
+			});
+		const refused = await json({ password: "definitely-not-the-password" });
+		expect(refused.status).toBe(400);
+		expect(((await refused.json()) as { code: string }).code).toBe("INVALID_PASSWORD");
+		expect(await userExists(owner.id)).toBe(true);
+		expect((await json({ password: "x".repeat(10_000) })).status).toBe(400);
+		expect((await json({ password })).status).toBe(200);
+		expect(await userExists(owner.id)).toBe(false);
+	});
+});
+
+describe("auth bodies are JSON only", () => {
+	test("other media types get 415 before Better Auth reads them", async () => {
+		const email = uniqueEmail("form");
+		const form = await app.request(`${BASE_URL}/api/auth/sign-up/email`, {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({ name: "Form", email, password: "correct horse battery" }),
+		});
+		expect(form.status).toBe(415);
+		expect(((await form.json()) as { code: string }).code).toBe("UNSUPPORTED_MEDIA_TYPE");
+		const text = await app.request(`${BASE_URL}/api/auth/sign-in/email`, {
+			method: "POST",
+			body: JSON.stringify({ email, password: "correct horse battery" }),
+		});
+		expect(text.status).toBe(415);
+		// JSON (with a charset) works; a bodiless POST is untouched.
+		const { token } = await signUp(app, "Json");
+		const signOut = await app.request(`${BASE_URL}/api/auth/sign-out`, {
+			method: "POST",
+			headers: bearer(token),
+		});
+		expect(signOut.status).toBe(200);
+		expect(await status(app, token)).toBe(401);
 	});
 });

@@ -25,7 +25,11 @@ interface Window {
 /** Sweep expired windows once the table grows past this many keys. */
 const SWEEP_AT = 10_000;
 
-export function createRateLimiter(now: () => number = Date.now): RateLimiter {
+export function createRateLimiter(
+	now: () => number = Date.now,
+	/** Told about every refusal (metrics: `atomic_rate_limited_total{scope}`); scopes are fixed names. */
+	onLimited?: (scope: string) => void,
+): RateLimiter {
 	const windows = new Map<string, Window>();
 
 	const sweep = (at: number) => {
@@ -44,7 +48,10 @@ export function createRateLimiter(now: () => number = Date.now): RateLimiter {
 				window = { start: at, count: 0, windowMs };
 				windows.set(id, window);
 			}
-			if (window.count >= max) return { ok: false, retryAt: window.start + windowMs };
+			if (window.count >= max) {
+				onLimited?.(scope);
+				return { ok: false, retryAt: window.start + windowMs };
+			}
 			window.count++;
 			return { ok: true };
 		},

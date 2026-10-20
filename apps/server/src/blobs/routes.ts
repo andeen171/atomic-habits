@@ -95,6 +95,7 @@ export function registerBlobRoutes(app: Hono<AppEnv>, services: Services) {
 			const status = result.code === "ACCOUNT_CLOSED" ? 401 : result.status;
 			return refusal(c, status, result.code, result.message);
 		}
+		services.metrics.blobUploaded(bytes.length);
 		return c.json(
 			{ sha256: sha, size: result.size, mime: result.mime, created: result.created },
 			result.created ? 201 : 200,

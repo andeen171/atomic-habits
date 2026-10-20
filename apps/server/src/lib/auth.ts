@@ -1,10 +1,12 @@
 import { type StripeOptions, stripe } from "@better-auth/stripe";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { isAPIError } from "better-auth/api";
+import { createAuthMiddleware, isAPIError } from "better-auth/api";
 import { bearer } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
-import { createGoogleLinkGuard } from "../account/link-guard";
+import { erasureLogPath, recordErasure } from "../account/erasures";
+import { revokeExportLinks } from "../account/export";
+import { createGoogleLinkGuard, forgetUnprovenGrants } from "../account/link-guard";
 import { PASSWORD_MAX, PASSWORD_MIN } from "../account/pages";
 import type { PurgeUser } from "../account/purge";
 import type { Config } from "../config";
@@ -135,6 +137,23 @@ export const AUTH_RATE_RULES = {
 	"/stripe/webhook": false,
 } as const;
 
+/**
+ * `@better-auth/stripe` declares `user.stripeCustomerId` as an ordinary
+ * input field, so `/sign-up/email` and `/update-user` would store whatever
+ * a client sends, and the server trusts that column: the billing portal,
+ * checkout, webhook matching and the account purge's customer deletion all
+ * use it. Marked `input: false` here (the plugin's `schema` option can only
+ * rename fields), a client that sends it gets 400 `FIELD_NOT_ALLOWED`;
+ * the plugin's own writes go through the adapter and are unaffected.
+ */
+export function stripePlugin(options: StripeOptions) {
+	const plugin = stripe(options);
+	const userSchema = plugin.schema.user;
+	const stripeCustomerId = { ...userSchema.fields.stripeCustomerId, input: false };
+	plugin.schema.user = { ...userSchema, fields: { ...userSchema.fields, stripeCustomerId } };
+	return plugin;
+}
+
 export interface AuthDeps {
 	log: Logger;
 	/** Null when email is off (verification and reset are then disabled). */
@@ -158,6 +177,7 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 	// Links in emails point at this server (BETTER_AUTH_URL is required with email).
 	const base = config.authUrl ?? "";
 	const linkGuard = createGoogleLinkGuard({ db, log });
+	const erasureLog = erasureLogPath(config.databaseUrl);
 
 	return betterAuth({
 		appName: "Atomic",
@@ -187,11 +207,12 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 						});
 					}
 				: undefined,
-			// The reset link reached the mailbox, which proves the address.
+			// Every session ends (above), and so does every export link. The reset
+			// link reached the mailbox, which proves the address: for an account
+			// that was never verified, what was granted before that proof goes too.
 			onPasswordReset: async ({ user: reset }) => {
-				if (!reset.emailVerified) {
-					await db.update(user).set({ emailVerified: true }).where(eq(user.id, reset.id));
-				}
+				await revokeExportLinks(db, reset.id);
+				if (!reset.emailVerified) await forgetUnprovenGrants(db, reset.id);
 			},
 		},
 		emailVerification: email
@@ -234,11 +255,28 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 				create: { before: (data) => linkGuard(data) },
 			},
 		},
+		hooks: {
+			// A changed password ends the account's outstanding export links (D55).
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== "/change-password") return;
+				const returned = ctx.context.returned;
+				if (!returned || isAPIError(returned)) return;
+				const id = (returned as { user?: { id?: unknown } }).user?.id;
+				if (typeof id === "string") await revokeExportLinks(db, id);
+			}),
+		},
 		user: {
 			deleteUser: {
 				enabled: true,
 				// Stripe, photos and subscription rows first; cascades do the rest.
 				beforeDelete: (deleted) => deps.purge(deleted.id),
+				// Once the row is gone: the erasure log, so a restore can't bring it back.
+				afterDelete: async (deleted) => {
+					if (!erasureLog) return;
+					await recordErasure(erasureLog, deleted.id).catch((error) =>
+						log.error({ msg: "erasure.log", outcome: "failed", cause: safeTag(error?.name) }),
+					);
+				},
 			},
 			// Set only through `ai.setConsent`: clients can't write them at sign-up or update-user.
 			additionalFields: {
@@ -257,7 +295,7 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 		},
 		// Clients authenticate with `Authorization: Bearer <token>` only. The
 		// Stripe plugin (billing on) keeps `subscription` current from webhooks.
-		plugins: [bearer(), ...(deps.stripe ? [stripe(deps.stripe)] : [])],
+		plugins: [bearer(), ...(deps.stripe ? [stripePlugin(deps.stripe)] : [])],
 		disabledPaths: disabledAuthPaths(config),
 		trustedOrigins: [...new Set([...config.corsOrigins, ...config.appWebOrigins])],
 		rateLimit: {
@@ -278,18 +316,15 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 			},
 		},
 		onAPIError: {
-			// Replaces Better Auth's own error printing (which can reach the console
-			// directly): server failures only, by status and code.
-			onError: (error) => {
-				if (isAPIError(error)) {
-					const status = typeof error.statusCode === "number" ? error.statusCode : 500;
-					if (status < 500) return;
-					const code = (error.body as { code?: unknown } | undefined)?.code;
-					log.error({ msg: "auth", status, code: safeTag(code) });
-					return;
-				}
-				log.error({ msg: "auth", status: 500, cause: safeTag((error as Error)?.name) });
-			},
+			/*
+			 * Errors that aren't Better Auth's own (a failed query, a hook that
+			 * throws) leave the handler, and `app.onError` logs their name only.
+			 * Otherwise better-call prints them with `console.error`, and a failed
+			 * query's message carries its SQL parameters: session tokens, IPs,
+			 * emails, password hashes. Better Auth's own errors still become
+			 * responses; `app.ts` logs the 5xx ones by status and code.
+			 */
+			throw: true,
 		},
 		advanced: {
 			/*

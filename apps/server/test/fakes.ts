@@ -490,6 +490,8 @@ export interface FakeAi {
 	fallback: (request: FakeAiRequest) => FakeAiReply;
 	/** Most requests in flight at once. */
 	maxInFlight: number;
+	/** `GET /v1/models` (the health ping): its status, and the calls it got. */
+	models: { status: number; pings: number; authorization: string | null };
 	stop(): void;
 }
 
@@ -518,6 +520,7 @@ export function startFakeAi(): FakeAi {
 		replies: [],
 		fallback: () => ({ status: 500, body: "no reply scripted" }),
 		maxInFlight: 0,
+		models: { status: 200, pings: 0, authorization: null },
 		stop: () => server.stop(true),
 	};
 	const server = Bun.serve({
@@ -525,6 +528,13 @@ export function startFakeAi(): FakeAi {
 		port: 0,
 		idleTimeout: 60,
 		async fetch(req) {
+			if (new URL(req.url).pathname === "/v1/models" && req.method === "GET") {
+				fake.models.pings++;
+				fake.models.authorization = req.headers.get("authorization");
+				return fake.models.status === 200
+					? Response.json({ object: "list", data: [{ id: "qwen2.5-1.5b-test", object: "model" }] })
+					: new Response("unavailable", { status: fake.models.status });
+			}
 			if (new URL(req.url).pathname !== "/v1/chat/completions" || req.method !== "POST") {
 				return new Response("not found", { status: 404 });
 			}

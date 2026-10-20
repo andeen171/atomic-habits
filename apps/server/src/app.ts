@@ -14,6 +14,7 @@ import { disabledAuthPaths, isDisabledAuthPath } from "./lib/auth";
 import { safeTag } from "./lib/log";
 import { retryAfterSeconds } from "./lib/rate-limit";
 import { authResponse, bearerOnlyRequest } from "./lib/request";
+import { registerOpsRoutes } from "./ops/routes";
 import type { AppEnv, Services } from "./services";
 import { createContextFactory } from "./trpc/context";
 import { AtomicCause } from "./trpc/init";
@@ -102,6 +103,11 @@ function clientIp(c: Context<AppEnv>, header: string | null): string | undefined
 
 const REQUEST_ID_RE = /^[\w.-]{8,64}$/;
 
+/** Whether a Content-Type is exactly `application/json` (parameters such as charset allowed). */
+export function isJsonMediaType(contentType: string | undefined | null): boolean {
+	return (contentType ?? "").split(";")[0]?.trim().toLowerCase() === "application/json";
+}
+
 /**
  * The route template of a request, never its concrete path: tRPC procedures
  * by name when they exist, otherwise the registered pattern (`/blobs/:sha256`,
@@ -129,7 +135,7 @@ export function routeTemplate(c: Context<AppEnv>): string {
  * under `/api/auth/*`, tRPC under `/trpc/*` and the account pages.
  */
 export function createApp(services: Services) {
-	const { config, log } = services;
+	const { config, log, metrics } = services;
 	const app = new Hono<AppEnv>();
 
 	// Content-free request log: route template, status and duration; never the
@@ -141,14 +147,13 @@ export function createApp(services: Services) {
 		const start = performance.now();
 		await next();
 		c.header("X-Request-Id", id);
-		log.info({
-			msg: "req",
-			id,
-			method: c.req.method,
-			route: routeTemplate(c),
-			status: c.res.status,
-			ms: Math.round(performance.now() - start),
-		});
+		const route = routeTemplate(c);
+		const status = c.res.status;
+		const ms = Math.round(performance.now() - start);
+		log.info({ msg: "req", id, method: c.req.method, route, status, ms });
+		metrics.request(route, status, ms);
+		// Better Auth keeps its own limits; count its refusals with the app's.
+		if (status === 429 && route.startsWith("/api/auth/")) metrics.rateLimited("auth");
 	});
 
 	app.use(
@@ -205,6 +210,21 @@ export function createApp(services: Services) {
 		await next();
 	});
 
+	// Auth bodies are JSON only (415 otherwise; the Stripe webhook keeps its own
+	// type). Better Auth would also read forms, text and raw streams, and accept
+	// any type that merely contains "application/json"; the guards below parse
+	// JSON, so one media type keeps both reading the same body the same way.
+	app.post("/api/auth/*", async (c, next) => {
+		if (c.req.path === "/api/auth/stripe/webhook" || c.req.raw.body === null) return next();
+		if (!isJsonMediaType(c.req.header("content-type"))) {
+			return c.json(
+				{ message: "Content-Type must be application/json", code: "UNSUPPORTED_MEDIA_TYPE" },
+				415,
+			);
+		}
+		await next();
+	});
+
 	// Google sign-in is ID-token only: the redirect flow can't work cookie-less.
 	if (config.google) {
 		app.post("/api/auth/sign-in/social", async (c, next) => {
@@ -224,9 +244,20 @@ export function createApp(services: Services) {
 	app.post("/api/auth/delete-user", deleteUserGuard(services));
 
 	// Better Auth: /api/auth/sign-up/email, /sign-in/email, /get-session, /sign-out…
+	// Errors that aren't Better Auth's own reach `app.onError` (`onAPIError.throw`);
+	// its own server failures are logged here, by status and code only.
 	app.on(["GET", "POST"], "/api/auth/*", async (c) => {
 		const request = await bearerOnlyRequest(c.req.raw, c.get("clientIp"));
-		return authResponse(await services.auth.handler(request));
+		const response = await services.auth.handler(request);
+		if (response.status >= 500) {
+			const code = await response
+				.clone()
+				.json()
+				.then((body) => (body as { code?: unknown } | null)?.code)
+				.catch(() => undefined);
+			log.error({ msg: "auth", status: response.status, code: safeTag(code) });
+		}
+		return authResponse(response);
 	});
 
 	// tRPC over plain HTTP: POST /trpc/sync.push, GET /trpc/sync.pull?input=…, GET /trpc/meta
@@ -265,6 +296,8 @@ export function createApp(services: Services) {
 		}),
 	);
 
+	// GET /healthz and GET /internal/metrics (METRICS_TOKEN).
+	registerOpsRoutes(app, services);
 	// Photo backup: PUT/GET /blobs/:sha256 (501 when BLOB_STORAGE=off).
 	registerBlobRoutes(app, services);
 	// Password reset form, "email confirmed" page and the export download.

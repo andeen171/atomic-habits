@@ -327,6 +327,13 @@ describe("suggest", () => {
 			kind: "quota",
 		});
 		expect(t.cloud.aiCalls).toHaveLength(calls);
+		// An answer already in memory is free: still served while blocked; "Try others" isn't.
+		const cached = await t.ai.suggest("identity.statement", { goal: "um" }, "en");
+		expect(cached.output.items.length).toBeGreaterThan(0);
+		await expect(
+			t.ai.suggest("identity.statement", { goal: "um" }, "en", { fresh: true }),
+		).rejects.toMatchObject({ kind: "quota" });
+		expect(t.cloud.aiCalls).toHaveLength(calls);
 		// After the reset the server is asked again.
 		t.cloud.aiUsed.suggest = 0;
 		await t.clock.advance(10 * 3_600_000);

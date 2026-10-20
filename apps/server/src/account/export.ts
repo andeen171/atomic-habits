@@ -70,6 +70,20 @@ export async function createExportLink(
 	return { url: `${baseUrl}/account/export?t=${token}`, expiresAt };
 }
 
+/**
+ * Ends every outstanding link of the user. A link is a bearer URL that needs
+ * no session, so it dies whenever the user's access is cut back: a device
+ * signed out from Security, a password change or reset, an address
+ * reclaimed by its proven owner.
+ */
+export async function revokeExportLinks(db: Database, userId: string): Promise<number> {
+	const deleted = await db
+		.delete(exportToken)
+		.where(eq(exportToken.userId, userId))
+		.returning({ id: exportToken.id });
+	return deleted.length;
+}
+
 /** Spends a token. The user id when it was valid, unused and unexpired; else null. */
 export async function redeemExportToken(
 	db: Database,

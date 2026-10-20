@@ -619,6 +619,75 @@ describe("account export link (D69)", () => {
 		await exportLink(other.token);
 	});
 
+	test("HEAD never spends the token: link checkers and download probes leave it usable", async () => {
+		const owner = await signUp(server.app, "Hal");
+		now = Date.now();
+		const link = await exportLink(owner.token);
+		const head = await server.app.request(link.url, { method: "HEAD" });
+		expect(head.status).toBe(405);
+		expect(head.headers.get("allow")).toBe("GET");
+		expect(head.headers.get("cache-control")).toBe("no-store");
+		const download = await server.app.request(link.url);
+		expect(download.status).toBe(200);
+		expect(download.headers.get("content-type")).toBe("application/zip");
+		await download.arrayBuffer();
+		expect((await server.app.request(link.url)).status).toBe(410);
+	});
+
+	test("links end when devices are signed out or the password changes (D55)", async () => {
+		const owner = await signUp(server.app, "Rex");
+		now = Date.now();
+		const linkStatus = async (url: string) =>
+			(await server.app.request(url, { method: "GET" })).status;
+
+		// "Sign out of all other devices".
+		const second = await signIn(server, owner);
+		let link = await exportLink(second);
+		expect(
+			await trpcData(await mutate(server, "account.revokeOtherSessions", owner.token)),
+		).toEqual({
+			revoked: 1,
+		});
+		expect(await linkStatus(link.url)).toBe(410);
+
+		// One device signed out from Security.
+		const third = await signIn(server, owner);
+		link = await exportLink(third);
+		const sessions = await get<SessionInfo[]>(server, "account.sessions", owner.token);
+		const other = sessions.find((s) => !s.current)?.id ?? "";
+		expect(
+			await trpcData(await mutate(server, "account.revokeSession", owner.token, { id: other })),
+		).toEqual({ revoked: 1 });
+		expect(await linkStatus(link.url)).toBe(410);
+		// Revoking nothing (another user's id) leaves links alone.
+		link = await exportLink(owner.token);
+		expect(
+			await trpcData(await mutate(server, "account.revokeSession", owner.token, { id: "nope" })),
+		).toEqual({ revoked: 0 });
+
+		// A password change, with or without signing out the other devices.
+		const changed = await postJson(
+			server.app,
+			"/api/auth/change-password",
+			{ currentPassword: owner.password, newPassword: "a whole new password" },
+			bearer(owner.token),
+		);
+		expect(changed.status).toBe(200);
+		expect(await linkStatus(link.url)).toBe(410);
+		// A failed change keeps them.
+		now = Date.now() + 2 * 3_600_000; // past the 3-per-hour link limit
+		const kept = await exportLink(owner.token);
+		const wrong = await postJson(
+			server.app,
+			"/api/auth/change-password",
+			{ currentPassword: "not the password", newPassword: "another new password" },
+			bearer(owner.token),
+		);
+		expect(wrong.status).toBe(400);
+		expect(await linkStatus(kept.url)).toBe(200);
+		now = Date.now();
+	});
+
 	test("a link dies with its account", async () => {
 		const owner = await signUp(server.app, "Ned");
 		now = Date.now();
@@ -679,5 +748,44 @@ describe("zip writer", () => {
 		const archive = readZip(await collect(zip64([], { modified: new Date() })));
 		expect(archive.entries).toEqual([]);
 		expect(archive.zip64End).toBe(true);
+	});
+});
+
+describe("export link base URL (no BETTER_AUTH_URL)", () => {
+	const linkFor = async (server: TestServer, headers: Record<string, string>) => {
+		const owner = await signUp(server.app, "Pat");
+		const response = await server.app.request(`${BASE_URL}/trpc/account.exportLink`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", ...bearer(owner.token), ...headers },
+			body: "{}",
+		});
+		return (await trpcData<ExportLink>(response)).url;
+	};
+
+	test("behind the trusted proxy, the proxy's X-Forwarded-Proto gives https", async () => {
+		const server = await createTestServer({
+			env: { BETTER_AUTH_URL: "", CLIENT_IP_HEADER: "x-forwarded-for" },
+		});
+		expect(server.config.authUrl).toBeNull();
+		const url = await linkFor(server, {
+			Host: "sync.example.com",
+			"X-Forwarded-For": "203.0.113.9",
+			"X-Forwarded-Proto": "https",
+		});
+		expect(url).toStartWith("https://localhost/account/export?t=");
+	});
+
+	test("without a trusted proxy, a client's X-Forwarded-Proto is ignored", async () => {
+		const server = await createTestServer({ env: { BETTER_AUTH_URL: "" } });
+		const url = await linkFor(server, { "X-Forwarded-Proto": "https" });
+		expect(url).toStartWith("http://localhost/account/export?t=");
+	});
+
+	test("BETTER_AUTH_URL wins whatever the headers say", async () => {
+		const server = await createTestServer({
+			env: { BETTER_AUTH_URL: "https://sync.example.com", CLIENT_IP_HEADER: "x-forwarded-for" },
+		});
+		const url = await linkFor(server, { "X-Forwarded-Proto": "http" });
+		expect(url).toStartWith("https://sync.example.com/account/export?t=");
 	});
 });

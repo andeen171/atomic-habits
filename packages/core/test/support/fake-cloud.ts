@@ -406,6 +406,13 @@ export function fakeCloud(options: FakeCloudOptions = {}): FakeCloud {
 
 			// ── tRPC ──
 			if (path.startsWith("/trpc/")) {
+				// Like tRPC's fetch adapter: a POST needs a JSON content type, even without input.
+				if (
+					(init?.method ?? "GET") === "POST" &&
+					!headers.get("content-type")?.startsWith("application/json")
+				) {
+					return trpcError(415, "UNSUPPORTED_MEDIA_TYPE", "Missing content-type header");
+				}
 				if (!user || !session) return trpcError(401, "UNAUTHORIZED", "Authentication required");
 				const procedure = path.slice("/trpc/".length);
 				const input = url.searchParams.get("input");

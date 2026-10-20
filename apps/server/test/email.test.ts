@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import type { AccountInfo } from "@atomic/core";
+import type { AccountInfo, ExportLink } from "@atomic/core";
 import { eq } from "drizzle-orm";
 import { user } from "../src/db/schema";
-import { EMAIL_RECIPIENT_LIMIT, createEmailService } from "../src/lib/email";
+import { EMAIL_RECIPIENT_LIMIT, createEmailService, resetReserve } from "../src/lib/email";
 import { createLogger } from "../src/lib/log";
 import { createRateLimiter } from "../src/lib/rate-limit";
 import { EMAIL_ENV, type FakeNet, createFakeNet, linkIn } from "./fakes";
@@ -262,6 +262,57 @@ describe("password reset", () => {
 		expectContentFree(server.logs, [email, resetToken, "brand new password"]);
 	});
 
+	test("a reset ends export links; on a never-verified account it also clears the AI consent", async () => {
+		const resetTo = async (email: string, password: string) => {
+			await requestReset(email);
+			await server.settled();
+			const message = server.net.outbox.filter((m) => m.to.includes(email)).at(-1);
+			const token = new URL(linkIn(message)).searchParams.get("token") ?? "";
+			const done = await server.app.request(
+				`${BASE_URL}/account/reset-password`,
+				form({ token, lang: "en", password, confirm: password }),
+			);
+			expect(done.status).toBe(200);
+		};
+		const linkOf = async (token: string) =>
+			trpcData<ExportLink>(
+				await postJson(server.app, "/trpc/account.exportLink", {}, bearer(token)),
+			);
+		const consent = (id: string) =>
+			server.db
+				.update(user)
+				.set({ aiConsentAt: new Date(), aiTranslate: true })
+				.where(eq(user.id, id));
+
+		// Never verified: whoever signed up may not be the mailbox's owner.
+		const squat = await signUp(server.app, "Sol");
+		await consent(squat.user.id);
+		const squatLink = await linkOf(squat.token);
+		await resetTo(squat.email, "the owner's password");
+		expect((await server.app.request(squatLink.url)).status).toBe(410);
+		const signIn = await postJson(server.app, "/api/auth/sign-in/email", {
+			email: squat.email,
+			password: "the owner's password",
+		});
+		const ownerToken = ((await signIn.json()) as AuthBody).token ?? "";
+		const info = await accountInfo(server, ownerToken);
+		expect(info).toMatchObject({ emailVerified: true, ai: { consentAt: null, translate: false } });
+
+		// Already verified: the consent stays, the links still end.
+		const verified = await signUp(server.app, "Val");
+		await server.db.update(user).set({ emailVerified: true }).where(eq(user.id, verified.user.id));
+		await consent(verified.user.id);
+		const link = await linkOf(verified.token);
+		await resetTo(verified.email, "a brand new password");
+		expect((await server.app.request(link.url)).status).toBe(410);
+		const again = await postJson(server.app, "/api/auth/sign-in/email", {
+			email: verified.email,
+			password: "a brand new password",
+		});
+		const kept = await accountInfo(server, ((await again.json()) as AuthBody).token ?? "");
+		expect(kept.ai.consentAt).not.toBeNull();
+	});
+
 	test("a forged or malformed token shows the expired-link page", async () => {
 		for (const token of ["", "abc", "x".repeat(24), "<script>"]) {
 			const page = await server.app.request(
@@ -311,6 +362,49 @@ describe("throttles (spec §4.5)", () => {
 		expect(
 			server.logs.some((l) => l.line.includes("email.capped") && l.line.includes("daily")),
 		).toBe(true);
+	});
+
+	test("a third of the daily cap is kept for password resets", async () => {
+		// Regression: junk sign-ups from a few addresses spent the whole cap on
+		// verification emails, and every reset that day was silently dropped.
+		expect(resetReserve(90)).toBe(30);
+		const server = await emailServer({ EMAIL_DAILY_CAP: "6", METRICS_TOKEN: "m".repeat(32) });
+		const people = [];
+		for (const name of ["Ann", "Ben", "Cal", "Dee", "Eve", "Fay"]) {
+			people.push(await signUp(server.app, name));
+		}
+		await server.settled();
+		// 6 sign-ups: 4 verification emails, then only the reset reserve is left.
+		expect(server.net.outbox.map((m) => m.tags[0]?.value)).toEqual([
+			"verify",
+			"verify",
+			"verify",
+			"verify",
+		]);
+		expect(server.logs.filter((l) => l.line.includes('"reason":"reserved"'))).toHaveLength(2);
+		// A resend from the app waits for tomorrow too…
+		const resend = await postJson(server.app, "/api/auth/send-verification-email", {
+			email: people[5]?.email,
+		});
+		expect(resend.status).toBe(200);
+		// …but a real user's reset still goes out, until the cap itself.
+		for (const who of people.slice(0, 3)) {
+			expect(
+				(await postJson(server.app, "/api/auth/request-password-reset", { email: who.email }))
+					.status,
+			).toBe(200);
+		}
+		await server.settled();
+		const sent = server.net.outbox.map((m) => m.tags[0]?.value);
+		expect(sent).toEqual(["verify", "verify", "verify", "verify", "reset", "reset"]);
+		expect(server.logs.some((l) => l.line.includes('"reason":"daily"'))).toBe(true);
+		const metrics = await (
+			await server.app.request(`${BASE_URL}/internal/metrics`, {
+				headers: bearer("m".repeat(32)),
+			})
+		).text();
+		expect(metrics).toContain('atomic_rate_limited_total{scope="email.reserved"} 3');
+		expect(metrics).toContain('atomic_rate_limited_total{scope="email.daily"} 1');
 	});
 
 	test("the daily cap resets at 00:00 UTC", async () => {

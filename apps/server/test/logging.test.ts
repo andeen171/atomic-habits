@@ -171,6 +171,68 @@ describe("error logging", () => {
 	});
 });
 
+describe("database failures inside Better Auth", () => {
+	test("print nothing; the log has the error's name only (no SQL parameters)", async () => {
+		// Regression: better-call printed non-API errors with console.error, and a
+		// failed query's message lists its parameters: the session token, the IP,
+		// the email, the name and the password hash.
+		const { app, logs, server } = await createTestServer({
+			env: { LOG_FORMAT: "json", CLIENT_IP_HEADER: "x-forwarded-for" },
+		});
+		const existing = await signUp(app, "Ok");
+		for (const table of ["account", "session"]) {
+			await server.db.$client.execute(
+				`CREATE TRIGGER fail_${table} BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`,
+			);
+		}
+		logs.length = 0;
+		const ip = { "X-Forwarded-For": "203.0.113.77" };
+		const up = await postJson(
+			app,
+			"/api/auth/sign-up/email",
+			{ name: CANARY, email: `${CANARY}@example.com`, password: `${CANARY}-pw` },
+			ip,
+		);
+		expect(up.status).toBe(500);
+		const signIn = await postJson(
+			app,
+			"/api/auth/sign-in/email",
+			{ email: existing.email, password: existing.password },
+			ip,
+		);
+		expect(signIn.status).toBe(500);
+		for (const response of [up, signIn]) {
+			expect(await response.text()).not.toContain("disk I/O");
+		}
+
+		const everything = `${printed.join("\n")}\n${JSON.stringify(logs)}`;
+		for (const secret of [
+			"params",
+			"SERVER_ERROR",
+			"insert into",
+			existing.email,
+			existing.user.id,
+			"203.0.113.77",
+		]) {
+			expect(everything).not.toContain(secret);
+		}
+		expectNoCanary(logs);
+		expect(printed).toEqual([]);
+		const errors = logs
+			.map((l) => JSON.parse(l.line) as Record<string, unknown>)
+			.filter((l) => l.lvl === "error");
+		expect(errors.length).toBeGreaterThanOrEqual(2);
+		for (const line of errors) {
+			expect(["error", "auth"]).toContain(line.msg as string);
+			expect(
+				Object.keys(line).every((k) =>
+					["t", "lvl", "msg", "name", "id", "status", "code"].includes(k),
+				),
+			).toBe(true);
+		}
+	});
+});
+
 describe("no user content anywhere in the output", () => {
 	test("sync traffic, rejections and auth failures never print their content", async () => {
 		const { app, logs } = await createTestServer({ env: { LOG_FORMAT: "json" } });

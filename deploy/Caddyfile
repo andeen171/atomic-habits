@@ -1,0 +1,79 @@
+# Atomic Cloud: HTTPS in front of the server (compose profile `tls`).
+#
+# DOMAIN comes from .env (e.g. sync.example.com, an A/AAAA record pointing at
+# this machine, DNS only / not proxied). Caddy gets and renews the Let's
+# Encrypt certificate by itself; ports 80 and 443 must be open. With
+# DOMAIN=localhost it serves a certificate from its own local CA (local
+# boot checks).
+#
+# Logs never hold a token, a session or a photo hash (spec §4.5, D55):
+# - every query string is dropped (export links `?t=`, reset links
+#   `?token=`, email confirmation `?token=`, tRPC inputs);
+# - the token in `/api/auth/reset-password/<token>` and the hash in
+#   `/blobs/<sha256>` are cut from the path;
+# - request headers (Authorization, the device label, User-Agent, Referer)
+#   and response headers (`set-auth-token` carries a session token) are
+#   not logged;
+# - client addresses are masked to /24 (IPv4) and /48 (IPv6).
+# The server's own log is content-free; it records route templates only.
+
+{
+	# Errors Caddy logs itself (e.g. the server restarting: "dial tcp …
+	# connection refused") carry the request too: same filter.
+	log default {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "^(/api/auth/reset-password/|/blobs/)[^?]*|[?].*$" "${1}"
+				request>headers delete
+				request>remote_ip ip_mask {
+					ipv4 24
+					ipv6 48
+				}
+				request>client_ip ip_mask {
+					ipv4 24
+					ipv6 48
+				}
+			}
+		}
+	}
+}
+
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "^(/api/auth/reset-password/|/blobs/)[^?]*|[?].*$" "${1}"
+				request>headers delete
+				resp_headers delete
+				request>remote_ip ip_mask {
+					ipv4 24
+					ipv6 48
+				}
+				request>client_ip ip_mask {
+					ipv4 24
+					ipv6 48
+				}
+			}
+		}
+	}
+
+	# No HSTS: clients call https:// URLs anyway, and a local boot check
+	# (DOMAIN=localhost) must not pin localhost to HTTPS in a browser.
+	header -Server
+
+	# Optional: keep metrics off the internet entirely (they already need
+	# METRICS_TOKEN). Uncomment to answer 404 from Caddy.
+	# respond /internal/* 404
+
+	# Caddy replaces X-Forwarded-For with the caller's address (it trusts no
+	# upstream proxy); the server reads the right-most entry
+	# (CLIENT_IP_HEADER=x-forwarded-for). AI calls wait up to the AI
+	# deadline; Caddy has no response timeout by default.
+	reverse_proxy server:3000
+}

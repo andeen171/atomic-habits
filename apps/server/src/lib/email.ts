@@ -8,9 +8,14 @@ import type { RateLimiter } from "./rate-limit";
  * otherwise (verification and reset are then disabled entirely).
  *
  * Throttles: at most 3 messages per recipient per hour and `EMAIL_DAILY_CAP`
- * per UTC day (below Resend's free 100/day). A throttled message is dropped
- * and logged as `email.capped`; the endpoint that asked for it still answers
- * 200, so the response never tells whether an account exists.
+ * per UTC day (below Resend's free 100/day). A third of the daily cap is
+ * kept for password resets: verification emails stop once only that
+ * reserve is left, so a wave of junk sign-ups (5 per hour per IP) can delay
+ * new accounts' verification to the next day, but never lock a user out of
+ * a reset. A throttled message is dropped, logged as `email.capped` and
+ * counted (`atomic_rate_limited_total{scope="email.<reason>"}`); the
+ * endpoint that asked for it still answers 200, so the response never tells
+ * whether an account exists.
  *
  * Logs carry the tag and the status only: never the recipient, the subject,
  * the link or the body.
@@ -45,6 +50,11 @@ export const EMAIL_TIMEOUT_MS = 10_000;
 /** Per recipient per hour (spec §4.5). */
 export const EMAIL_RECIPIENT_LIMIT = { max: 3, windowMs: 60 * 60 * 1000 } as const;
 
+/** The part of `EMAIL_DAILY_CAP` only password resets may use. */
+export function resetReserve(dailyCap: number): number {
+	return Math.floor(dailyCap / 3);
+}
+
 const DAY_MS = 86_400_000;
 
 export interface EmailDeps {
@@ -55,6 +65,11 @@ export interface EmailDeps {
 	limiter: RateLimiter;
 	/** Where `EMAIL_PROVIDER=console` prints (development only). */
 	print?: (line: string) => void;
+	/**
+	 * Called for each message the daily budget refuses (metrics). The
+	 * per-recipient refusals are counted by the rate limiter itself.
+	 */
+	onCapped?: (reason: "daily" | "reserved") => void;
 }
 
 export function createEmailService(deps: EmailDeps): EmailService {
@@ -99,12 +114,18 @@ export function createEmailService(deps: EmailDeps): EmailService {
 		}
 	};
 
+	const capped = (message: EmailMessage, reason: "daily" | "reserved" | "recipient") => {
+		log.warn({ msg: "email.capped", tag: message.tag, reason });
+		if (reason !== "recipient") deps.onCapped?.(reason);
+		return "capped" as const;
+	};
+
 	const send = async (message: EmailMessage): Promise<EmailOutcome> => {
 		const day = Math.floor(now() / DAY_MS);
 		if (daily.day !== day) daily = { day, count: 0 };
-		if (daily.count >= config.dailyCap) {
-			log.warn({ msg: "email.capped", tag: message.tag, reason: "daily" });
-			return "capped";
+		if (daily.count >= config.dailyCap) return capped(message, "daily");
+		if (message.tag !== "reset" && daily.count >= config.dailyCap - resetReserve(config.dailyCap)) {
+			return capped(message, "reserved");
 		}
 		const recipient = limiter.hit(
 			"email.recipient",
@@ -112,10 +133,7 @@ export function createEmailService(deps: EmailDeps): EmailService {
 			EMAIL_RECIPIENT_LIMIT.max,
 			EMAIL_RECIPIENT_LIMIT.windowMs,
 		);
-		if (!recipient.ok) {
-			log.warn({ msg: "email.capped", tag: message.tag, reason: "recipient" });
-			return "capped";
-		}
+		if (!recipient.ok) return capped(message, "recipient");
 		daily.count++;
 		const status = await deliver(message);
 		const ok = typeof status === "number" && status >= 200 && status < 300;

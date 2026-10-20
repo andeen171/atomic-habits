@@ -30,6 +30,12 @@ export interface BillingProvider {
 	 * Resolves to the number of rows refreshed.
 	 */
 	reconcile(userId: string, options?: { force?: boolean }): Promise<number>;
+	/**
+	 * The hourly maintenance's throttled reconciliation: re-reads, from the
+	 * provider, rows that webhooks should have changed by now (at most
+	 * `budget` provider lookups). Resolves to the number of rows refreshed.
+	 */
+	reconcileStale?(options?: { budget?: number }): Promise<number>;
 	/** Current prices for `ServerInfo` (cached by `meta.ts`). */
 	offers(): Promise<Offer[]>;
 	/**

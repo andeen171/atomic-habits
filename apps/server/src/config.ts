@@ -380,6 +380,13 @@ function readAi(r: Reader, email: boolean): AiConfig | null {
 		r.incomplete("AI (AI_HOSTING=hosted)", ["AI_PROVIDER_NAME"]);
 		return null;
 	}
+	if (r.production && hosting === "self-hosted" && !r.has("AI_API_KEY")) {
+		// The compose `ai` profile starts llama.cpp with `--api-key ${AI_API_KEY}`:
+		// an empty key there still makes it require one, and every call fails.
+		r.warnings.push(
+			"AI_API_KEY is empty: a model server started with an API key (the compose `ai` profile's llama.cpp) refuses every call; set the same key for both",
+		);
+	}
 	return {
 		baseUrl,
 		model: r.str("AI_MODEL") ?? "",

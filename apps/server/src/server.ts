@@ -17,7 +17,11 @@ import { createGoogleVerifier } from "./lib/google";
 import { type LogSink, type Logger, createLogger } from "./lib/log";
 import { createRateLimiter } from "./lib/rate-limit";
 import { createMeta } from "./meta";
+import { createUserGauges } from "./ops/gauges";
+import { createHealth } from "./ops/health";
+import { createMetrics } from "./ops/metrics";
 import type { Services } from "./services";
+import { SERVER_VERSION } from "./version";
 
 export interface ServerDeps {
 	/** Outbound HTTP (Resend, AI, Google keys, Stripe): a fake in tests. */
@@ -56,7 +60,8 @@ export function createServer(config: Config, deps: ServerDeps = {}) {
 			? deps.log
 			: createLogger({ format: config.logFormat, sink: deps.log, now });
 	const db = createDb(config);
-	const limiter = createRateLimiter(now);
+	const metrics = createMetrics(SERVER_VERSION);
+	const limiter = createRateLimiter(now, (scope) => metrics.rateLimited(scope));
 	const entitlements = createEntitlements({
 		config,
 		db,
@@ -91,6 +96,7 @@ export function createServer(config: Config, deps: ServerDeps = {}) {
 					db,
 					entitlements,
 					log,
+					metrics,
 					now,
 					// Late-bound: the auth instance is built with this provider's plugin.
 					// Its inferred type drops the conditionally installed plugin's
@@ -106,13 +112,14 @@ export function createServer(config: Config, deps: ServerDeps = {}) {
 				log,
 				limiter,
 				print: deps.printEmail,
+				onCapped: (reason) => metrics.rateLimited(`email.${reason}`),
 			})
 		: null;
 	const google = config.google
 		? createGoogleVerifier({ clientIds: config.google.clientIds, fetch: fetchImpl, now, log })
 		: null;
 	const ai = config.ai
-		? createAiService({ config: config.ai, db, log, now, fetch: fetchImpl })
+		? createAiService({ config: config.ai, db, log, metrics, now, fetch: fetchImpl })
 		: null;
 	const purge = createPurge({ db, billing, blobs, entitlements, log });
 	const auth = createAuth(config, db, {
@@ -141,11 +148,14 @@ export function createServer(config: Config, deps: ServerDeps = {}) {
 		blobs,
 		billing,
 		ai,
+		metrics,
+		gauges: createUserGauges({ config, db, now }),
+		health: createHealth({ config, db, ai, fetch: fetchImpl, now, log }),
 		now,
 		fetch: fetchImpl,
 	};
 	const app = createApp(services);
-	const maintenance = createMaintenance({ blobs, log });
+	const maintenance = createMaintenance({ db, blobs, billing, log, metrics, now });
 	let started: Promise<void> | null = null;
 
 	return {
@@ -153,7 +163,10 @@ export function createServer(config: Config, deps: ServerDeps = {}) {
 		auth,
 		db,
 		services,
-		/** Hourly housekeeping (blob GC); `runOnce()` runs a pass now. */
+		/**
+		 * Hourly housekeeping (blob GC, pruning, Stripe reconciliation);
+		 * `runOnce()` runs a pass now.
+		 */
 		maintenance,
 		/**
 		 * Logs the configuration warnings, applies pending migrations and

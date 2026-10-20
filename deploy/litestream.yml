@@ -1,0 +1,33 @@
+# Continuous database backup (compose profile `backup`): Litestream 0.5
+# streams every change of /data/atomic.db to an S3-compatible bucket
+# (Cloudflare R2 in the recipe) a few seconds after it happens, and keeps
+# daily snapshots for a week, so the database can be restored to any point
+# of the last 7 days (README.md, "Restore").
+#
+# The ${…} values come from .env through docker-compose.yml (Litestream
+# expands environment variables in this file). Use a bucket of its own
+# (e.g. atomic-backups), not the photo bucket, with an R2 API token limited
+# to that bucket ("Object Read & Write").
+#
+# Only for a local SQLite file: with Turso (DATABASE_URL=libsql://…) leave
+# the `backup` profile off and rely on Turso's own point-in-time restore.
+
+snapshot:
+  # A full snapshot each day; changes in between are incremental.
+  interval: 24h
+  # Restore points reach back 7 days.
+  retention: 168h
+
+dbs:
+  - path: /data/atomic.db
+    replica:
+      type: s3
+      endpoint: ${LITESTREAM_ENDPOINT}
+      bucket: ${LITESTREAM_BUCKET}
+      path: ${LITESTREAM_PATH}
+      region: auto
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+      # Upload changes at most every 10 s: well within R2's free 1M writes
+      # a month, and at most 10 s of data at risk if the disk dies.
+      sync-interval: 10s

@@ -12,6 +12,7 @@ import { utcDay } from "../account/usage";
 import type { AiConfig } from "../config";
 import type { Database } from "../db";
 import type { Logger } from "../lib/log";
+import { type Metrics, noopMetrics } from "../ops/metrics";
 import { processSuggestion, processTranslation } from "./output";
 import { type Prompt, RETRY_TEMPERATURE, suggestPrompt, translatePrompt } from "./prompts";
 import { AiError, type AiProvider, createOpenAICompatibleProvider } from "./provider";
@@ -33,8 +34,12 @@ import { Semaphore, SemaphoreError } from "./semaphore";
  *   `AI_TRANSLATE_TIMEOUT_MS`) covers the queue wait and every attempt; the
  *   upstream call is aborted with `AbortSignal.any([deadline, client])`, so
  *   it also stops when the client goes away.
- * - **Refunds:** quota taken for a call that then fails (busy, timeout,
- *   upstream error, unusable answer, client gone) is given back.
+ * - **Refunds:** quota taken for a call that then fails upstream (busy,
+ *   timeout, upstream error, unusable answer) is given back. A client that
+ *   goes away is refunded only while it was still queued: once the model
+ *   has the request, the work is done whether or not anyone reads the
+ *   answer (otherwise hanging up after each call would give unlimited model
+ *   calls on any quota, and drain the server's daily cap for everyone).
  * - **Privacy:** prompts and answers are never logged, cached or stored;
  *   the `ai` log line carries the operation, the kind, the outcome, the
  *   attempt count, timings and the upstream status only.
@@ -62,12 +67,21 @@ export interface AiService {
 	readonly config: AiConfig;
 	suggest(request: AiSuggestRequest, call: CallContext): Promise<SuggestResult>;
 	translate(request: AiTranslateRequest, call: CallContext): Promise<AiTranslateResponse>;
+	/**
+	 * Whether the model server's latest answer refused the credentials (401 or
+	 * 403; cleared by the next answer it accepts). `/healthz` reports `ai`
+	 * down then: llama.cpp serves `/models` without the key, so the health
+	 * ping alone can't see an `AI_API_KEY` mismatch.
+	 */
+	upstreamRejected(): boolean;
 }
 
 export interface AiServiceDeps {
 	config: AiConfig;
 	db: Database;
 	log: Logger;
+	/** `atomic_ai_*` counters (no-op when absent). */
+	metrics?: Metrics;
 	/** The server clock (quota days). Deadlines use real timers. */
 	now: () => number;
 	fetch: typeof fetch;
@@ -89,6 +103,7 @@ interface Job<T> {
 
 export function createAiService(deps: AiServiceDeps): AiService {
 	const { config, db, log, now } = deps;
+	const metrics = deps.metrics ?? noopMetrics;
 	const provider =
 		deps.provider ??
 		createOpenAICompatibleProvider({
@@ -101,6 +116,8 @@ export function createAiService(deps: AiServiceDeps): AiService {
 	const semaphore = new Semaphore(config.maxConcurrency, config.queueMax);
 	/** Model calls admitted today across all users (`AI_GLOBAL_DAILY_REQUESTS`; 0 = no cap). */
 	let global = { day: "", count: 0 };
+	/** The latest upstream answer refused the credentials (401/403). */
+	let rejected = false;
 
 	const takeGlobal = (day: string): boolean => {
 		if (global.day !== day) global = { day, count: 0 };
@@ -130,17 +147,20 @@ export function createAiService(deps: AiServiceDeps): AiService {
 		let globalTaken = false;
 		let release: (() => void) | null = null;
 		const finish = (outcome: string) => {
+			const ms = Math.round(performance.now() - started);
 			const fields = {
 				msg: "ai",
 				op: job.op,
 				kind: job.kind,
 				outcome,
 				attempts,
-				ms: Math.round(performance.now() - started),
+				ms,
 				upstream: upstreamStatus,
 			};
 			if (outcome === "ok") log.info(fields);
 			else log.warn(fields);
+			// Translations are one metric kind whatever the target language.
+			metrics.ai(job.op === "translate" ? "translate" : job.kind, outcome, ms);
 		};
 
 		try {
@@ -177,6 +197,7 @@ export function createAiService(deps: AiServiceDeps): AiService {
 				attempts++;
 				try {
 					const result = await provider.complete({ ...job.prompt, temperature, signal });
+					rejected = false;
 					tokensOut += result.tokensOut;
 					const value = job.process(result.value);
 					finish("ok");
@@ -186,6 +207,9 @@ export function createAiService(deps: AiServiceDeps): AiService {
 					if (deadline.signal.aborted) throw new AiError("timeout");
 					if (!(error instanceof AiError)) throw new AiError("failed");
 					upstreamStatus = error.detail.upstreamStatus ?? upstreamStatus;
+					if (error.detail.upstreamStatus !== undefined) {
+						rejected = error.detail.upstreamStatus === 401 || error.detail.upstreamStatus === 403;
+					}
 					if (error.kind !== "invalid") throw error;
 					if (attempts >= 2 || remaining() < RETRY_MIN_REMAINING_MS) {
 						throw new AiError("failed");
@@ -196,15 +220,17 @@ export function createAiService(deps: AiServiceDeps): AiService {
 		} catch (error) {
 			const failure = error instanceof AiError ? error : new AiError("failed");
 			finish(failure.kind);
-			// Nothing was delivered: give the quota back (and the global slot when
-			// the model was never asked).
-			if (reservation) await refundQuota(db, reservation).catch(() => {});
+			// Nothing was delivered: give the quota back, unless the client hung up
+			// after the model was asked (and the global slot only when it never was).
+			const charged = failure.kind === "aborted" && attempts > 0;
+			if (reservation && !charged) await refundQuota(db, reservation).catch(() => {});
 			if (globalTaken && attempts === 0) giveGlobal(day);
 			throw failure;
 		} finally {
 			clearTimeout(timer);
 			release?.();
 			if (tokensOut > 0) {
+				metrics.aiTokensOut(tokensOut);
 				await recordTokensOut(db, job.call.userId, day, tokensOut).catch(() => {});
 			}
 		}
@@ -212,6 +238,8 @@ export function createAiService(deps: AiServiceDeps): AiService {
 
 	return {
 		config,
+
+		upstreamRejected: () => rejected,
 
 		async suggest(request, call) {
 			const { value, quota } = await run({

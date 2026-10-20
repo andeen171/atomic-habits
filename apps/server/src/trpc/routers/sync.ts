@@ -26,6 +26,7 @@ export const syncRouter = router({
 		.mutation(async ({ ctx, input }) => {
 			const { services, user } = ctx;
 			const { limits } = await services.entitlements.get(user.id);
+			services.metrics.syncPushed(input.records.length);
 			return pushRecords(services.db, user.id, input.records, {
 				now: services.now,
 				syncBytesLimit: limits.syncBytes,

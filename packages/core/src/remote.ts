@@ -373,7 +373,11 @@ export function createRemoteClient(
 		const response = await request(`/trpc/${path}`, {
 			method: "POST",
 			token,
-			...(input === undefined ? {} : { body: JSON.stringify(input) }),
+			// tRPC refuses a POST without a JSON content type (415), even with no
+			// input; like its own client, send the header and no body then.
+			...(input === undefined
+				? { headers: { "Content-Type": "application/json" } }
+				: { body: JSON.stringify(input) }),
 			...(signal ? { signal } : {}),
 		});
 		return parseRemote(schema, await unwrap(response), response.status);

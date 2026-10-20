@@ -1,3 +1,5 @@
+import type { Config } from "../config";
+
 /**
  * Helpers that keep authentication bearer-only: no cookie ever reaches Better
  * Auth or leaves the server, so the only credential is the explicit
@@ -68,7 +70,7 @@ export function bearerOnlyHeaders(headers: Headers, clientIp?: string): Headers 
  * keeps the original headers (cookie included) when `headers` ends up empty.
  */
 export async function bearerOnlyRequest(request: Request, clientIp?: string): Promise<Request> {
-	const hasBody = request.method !== "GET" && request.method !== "HEAD";
+	const hasBody = request.method !== "GET" && request.method !== "HEAD" && request.body !== null;
 	return new Request(request.url, {
 		method: request.method,
 		headers: bearerOnlyHeaders(request.headers, clientIp),
@@ -93,4 +95,26 @@ export function authResponse(response: Response): Response {
 		statusText: response.statusText,
 		headers,
 	});
+}
+
+/**
+ * This server's public root for the links it hands out (export links):
+ * `BETTER_AUTH_URL` when set, else the request's own origin. Behind the
+ * trusted proxy (`CLIENT_IP_HEADER` set; Caddy in the compose recipe) TLS
+ * ends at the proxy and requests arrive over plain http, so the proxy's
+ * `X-Forwarded-Proto` (its right-most entry) gives the scheme: a link must
+ * never carry its token over http. Without a trusted proxy that header
+ * comes from the client and is ignored.
+ */
+export function publicBaseUrl(
+	config: Pick<Config, "authUrl" | "clientIpHeader">,
+	request: Request,
+): string {
+	if (config.authUrl) return config.authUrl;
+	const url = new URL(request.url);
+	if (config.clientIpHeader) {
+		const proto = request.headers.get("x-forwarded-proto")?.split(",").at(-1)?.trim().toLowerCase();
+		if (proto === "https" || proto === "http") url.protocol = `${proto}:`;
+	}
+	return url.origin;
 }

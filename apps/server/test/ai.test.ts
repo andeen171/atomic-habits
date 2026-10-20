@@ -805,7 +805,8 @@ describe("one end-to-end deadline", () => {
 		await waitFor(() => fake.requests[0]?.aborted === true);
 		const usage = (t: string) => account(server.app, t).then((info) => info.usage);
 		expect((await usage(b.token)).aiRequestsToday).toBe(0);
-		expect((await usage(a.token)).aiTranslateCharsToday).toBe(0);
+		// A hung up after the model had its request: charged.
+		expect((await usage(a.token)).aiTranslateCharsToday).toBe(14);
 	});
 
 	test("no retry when less than 8 s would remain", async () => {
@@ -820,7 +821,7 @@ describe("one end-to-end deadline", () => {
 		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(0);
 	});
 
-	test("a client that goes away aborts the upstream call and is refunded", async () => {
+	test("a client that goes away aborts the upstream call and stays charged", async () => {
 		reply({ hang: true });
 		const server = await aiServer();
 		const { token } = await member(server.app);
@@ -841,7 +842,83 @@ describe("one end-to-end deadline", () => {
 		expect(performance.now() - started).toBeLessThan(1000);
 		if (response) expect(response.status).toBe(499);
 		expect(fake.requests[0]?.answered).toBe(false);
-		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(0);
+		// The model had the request: the call counts, as a delivered one would.
+		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(1);
+		expect(server.logs.some((l) => l.line.includes("outcome=aborted"))).toBe(true);
+	});
+
+	test("a client that leaves while still queued is refunded; the model never sees it", async () => {
+		fake.fallback = () => ({ content: CANNED.habit_name, delayMs: 400 });
+		const server = await aiServer({ env: { AI_MAX_CONCURRENCY: "1", AI_QUEUE_MAX: "1" } });
+		const a = await member(server.app);
+		const b = await member(server.app);
+		const first = suggest(server.app, a.token);
+		await waitFor(() => fake.requests.length === 1);
+		const controller = new AbortController();
+		const queued = Promise.resolve(
+			server.app.request(`${BASE_URL}/trpc/ai.suggest`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...bearer(b.token) },
+				body: JSON.stringify(NAME()),
+				signal: controller.signal,
+			}),
+		).catch(() => null);
+		await Bun.sleep(50);
+		controller.abort();
+		await queued;
+		expect((await first).status).toBe(200);
+		await Bun.sleep(50);
+		expect(fake.requests).toHaveLength(1);
+		expect((await account(server.app, b.token)).usage.aiRequestsToday).toBe(0);
+		expect((await account(server.app, a.token)).usage.aiRequestsToday).toBe(1);
+	});
+
+	test("hanging up after each call can't buy model calls past the quota or drain the global cap", async () => {
+		// Regression: every hang-up used to be refunded, so a 2/day account ran
+		// unlimited model calls and spent the server-wide cap for everyone.
+		let clock = Date.UTC(2026, 9, 20, 10, 0, 0);
+		const server = await aiServer({
+			env: {
+				LIMIT_PRO_AI_REQUESTS: "2",
+				LIMIT_FREE_AI_REQUESTS: "2",
+				AI_GLOBAL_DAILY_REQUESTS: "8",
+			},
+			deps: { now: () => clock },
+		});
+		const attacker = await member(server.app);
+		const victim = await member(server.app);
+		let modelCalls = 0;
+		for (let i = 0; i < 4; i++) {
+			clock += 61_000; // past the burst window
+			const before = fake.requests.length;
+			reply({ hang: true });
+			const controller = new AbortController();
+			const pending = Promise.resolve(
+				server.app.request(`${BASE_URL}/trpc/ai.suggest`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json", ...bearer(attacker.token) },
+					body: JSON.stringify(NAME()),
+					signal: controller.signal,
+				}),
+			).catch(() => null);
+			const reached = await Promise.race([
+				waitFor(() => fake.requests.length > before, 1000).then(() => true),
+				pending.then(() => false),
+			]);
+			if (reached) {
+				modelCalls++;
+				controller.abort();
+				await pending;
+				await waitFor(() => fake.requests.at(-1)?.aborted === true);
+			} else {
+				fake.replies.length = 0;
+			}
+		}
+		expect(modelCalls).toBe(2);
+		const refused = await refusal(await suggest(server.app, attacker.token));
+		expect(refused).toMatchObject({ status: 429, reason: "quota" });
+		canned();
+		expect((await suggest(server.app, victim.token)).status).toBe(200);
 	});
 });
 
@@ -959,7 +1036,7 @@ describe("over a real connection (Bun.serve, as in production)", () => {
 		expect((await account(server.app, token)).usage.aiRequestsToday).toBe(1);
 	}, 15_000);
 
-	test("a client that hangs up aborts the model call and is refunded", async () => {
+	test("a client that hangs up aborts the model call; the call stays charged", async () => {
 		reply({ hang: true }, { hang: true });
 		const server = await aiServer();
 		const { token } = await member(server.app);
@@ -975,7 +1052,7 @@ describe("over a real connection (Bun.serve, as in production)", () => {
 			await waitFor(() => fake.requests[0]?.aborted === true);
 			expect(performance.now() - started).toBeLessThan(1000);
 
-			// The same for a translation (characters refunded).
+			// The same for a translation (characters charged).
 			const translation = new AbortController();
 			const items = [{ id: "a", text: "Ler 10 páginas" }];
 			const waiting = post(
@@ -994,7 +1071,7 @@ describe("over a real connection (Bun.serve, as in production)", () => {
 		await usageSettles(
 			server.app,
 			token,
-			(usage) => usage.aiRequestsToday === 0 && usage.aiTranslateCharsToday === 0,
+			(usage) => usage.aiRequestsToday === 1 && usage.aiTranslateCharsToday === 14,
 		);
 	});
 

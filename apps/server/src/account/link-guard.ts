@@ -3,6 +3,30 @@ import type { Database } from "../db";
 import { account, session, user } from "../db/schema";
 import { decodeJwtPayload } from "../lib/google";
 import type { Logger } from "../lib/log";
+import { revokeExportLinks } from "./export";
+
+/**
+ * Proof of the address arrived (a Google-verified ID token, a reset link
+ * that reached the mailbox) for an account whose email was never verified.
+ * Whatever was granted on the account's behalf before that proof is undone:
+ *
+ * - outstanding export links (bearer URLs that need no session, so whoever
+ *   created them could otherwise download the account as it is later);
+ * - the AI consent (D67: consent is the owner's, given after proof).
+ *
+ * Synced data and photos stay. With email off every password account is
+ * unverified, and the likeliest proof is the real owner on a new phone
+ * (Google sign-in, or a reset after a forgotten password), for whom the
+ * server copy is the only backup. Whoever held the account before can no
+ * longer read any of it: sessions, password and links are gone.
+ */
+export async function forgetUnprovenGrants(db: Database, userId: string): Promise<void> {
+	await revokeExportLinks(db, userId);
+	await db
+		.update(user)
+		.set({ emailVerified: true, aiConsentAt: null, aiTranslate: false })
+		.where(eq(user.id, userId));
+}
 
 /**
  * Google link guard (spec §4.5, D29): the pre-registration takeover.
@@ -16,7 +40,8 @@ import type { Logger } from "../lib/log";
  *
  * 1. delete its existing sign-in methods (the password, any earlier link);
  * 2. revoke all of its sessions (the squatter is signed out everywhere);
- * 3. mark the email verified;
+ * 3. revoke its export links, clear the AI consent and mark the email
+ *    verified (`forgetUnprovenGrants`);
  * 4. continue linking: the owner signs in, and Security shows `hasPassword: false`.
  *
  * Linking to an existing account at all requires a Google-verified email
@@ -51,10 +76,10 @@ export function createGoogleLinkGuard(deps: { db: Database; log: Logger }) {
 			.from(user)
 			.where(eq(user.id, userId));
 		if (!owner || owner.verified) return undefined;
-		// The address was never proven: nothing that predates this proof survives.
+		// The address was never proven: no access granted before this proof survives.
 		await db.delete(account).where(eq(account.userId, userId));
 		await db.delete(session).where(eq(session.userId, userId));
-		await db.update(user).set({ emailVerified: true }).where(eq(user.id, userId));
+		await forgetUnprovenGrants(db, userId);
 		log.info({ msg: "google.link", outcome: "reclaimed", removed: existing.length });
 		return undefined;
 	};

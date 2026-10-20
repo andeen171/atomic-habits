@@ -22,9 +22,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 	process.on(signal, () => process.exit(0));
 }
 
-server.services.log.info({ msg: "listening", port: config.port });
+// Started explicitly rather than through a default export, so Bun prints no
+// "Started server" banner: with LOG_FORMAT=json every line on stdout and
+// stderr is one JSON object, ready for a log collector. Bun passes itself as
+// the second argument of `fetch` (client IP, per-request idle windows).
+const listening = Bun.serve({ port: config.port, fetch: server.app.fetch });
 
-export default {
-	port: config.port,
-	fetch: server.app.fetch,
-};
+server.services.log.info({ msg: "listening", port: listening.port });

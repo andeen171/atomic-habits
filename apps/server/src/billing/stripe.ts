@@ -1,12 +1,13 @@
 import type { BillingInterval, BillingUrl, Offer } from "@atomic/core";
 import type { StripeOptions } from "@better-auth/stripe";
 import { isAPIError } from "better-auth/api";
-import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import type { BillingConfig, Config } from "../config";
 import type { Database } from "../db";
 import { subscription } from "../db/schema";
 import { type Logger, safeTag } from "../lib/log";
+import { type Metrics, noopMetrics } from "../ops/metrics";
 import type { EntitlementService } from "./entitlements";
 import {
 	BillingError,
@@ -65,6 +66,8 @@ export interface StripeBillingDeps {
 	db: Database;
 	entitlements: EntitlementService;
 	log: Logger;
+	/** `atomic_billing_webhooks_total{type}` (no-op when absent). */
+	metrics?: Metrics;
 	now: () => number;
 	/** The Better Auth API (late-bound: the auth instance is built with this module's plugin). */
 	endpoints: () => StripeEndpoints;
@@ -77,6 +80,14 @@ export interface StripeBilling extends BillingProvider {
 
 /** Reconcile a user's subscriptions at most this often (Annex C §1.4). */
 export const RECONCILE_EVERY_MS = 60 * 60 * 1000;
+
+/** Users and unfinished checkouts `reconcileStale` asks Stripe about per maintenance pass, at most. */
+export const RECONCILE_STALE_BUDGET = 20;
+
+/** An unfinished checkout row is looked up at Stripe at most this often. */
+export const RECOVER_EVERY_MS = 24 * 60 * 60 * 1000;
+
+const DAY_MS = 86_400_000;
 
 /** Rows that will never change again. */
 const FINAL_STATUSES = ["canceled", "incomplete_expired"];
@@ -192,8 +203,15 @@ function billingError(error: unknown): BillingError {
 
 export function createStripeBilling(deps: StripeBillingDeps): StripeBilling {
 	const { config, billing, stripe, db, entitlements, log, now } = deps;
+	const metrics = deps.metrics ?? noopMetrics;
 	const base = config.authUrl ?? "";
 	const lastReconcile = new Map<string, number>();
+	/** When each unfinished checkout row was last looked up (`reconcileStale`). */
+	const lastRecover = new Map<string, number>();
+	const sells = (sub: Stripe.Subscription) => {
+		const prices = [billing.priceMonthly, billing.priceYearly];
+		return sub.items.data.some((item) => prices.includes(item.price.id));
+	};
 
 	const invalidate = async (data: { subscription?: { referenceId?: string } | null }) => {
 		const userId = data.subscription?.referenceId;
@@ -262,10 +280,11 @@ export function createStripeBilling(deps: StripeBillingDeps): StripeBilling {
 		// Event types are Stripe's names; ids and payloads are never logged.
 		onEvent: async (event) => {
 			log.info({ msg: "billing.webhook", type: safeTag(event.type) });
+			metrics.billingWebhook(event.type);
 		},
 	};
 
-	return {
+	const provider: StripeBilling = {
 		name: "stripe",
 		plugin,
 
@@ -393,6 +412,131 @@ export function createStripeBilling(deps: StripeBillingDeps): StripeBilling {
 		},
 
 		/**
+		 * The maintenance pass's share (spec §4.5 "throttled Stripe
+		 * reconciliation"): at most `budget` Stripe lookups, for rows that
+		 * webhooks should have changed by now.
+		 *
+		 * 1. Paid rows that look stale: active or trialing more than a day
+		 *    past their period (a missed renewal), or past due beyond the grace
+		 *    days (Stripe has recovered or cancelled it by now). Each user goes
+		 *    through `reconcile`, so its hourly throttle applies.
+		 * 2. Unfinished checkouts: an `incomplete` row without a Stripe
+		 *    subscription id, but with a customer. The plugin answers a
+		 *    webhook 200 even when its own database write fails, so a paid
+		 *    checkout can stay `incomplete` if the browser never came back
+		 *    through `/billing/return` either. The customer's subscriptions are
+		 *    searched for one whose metadata names this row and user, for a
+		 *    price this server sells; what Stripe says about it is stored.
+		 *    Abandoned checkouts find nothing; each row is looked up at most
+		 *    once per `RECOVER_EVERY_MS`.
+		 *
+		 * Resolves to the number of rows refreshed. Failures are logged
+		 * (content-free) and retried on a later pass.
+		 */
+		async reconcileStale(options = {}) {
+			const at = now();
+			let budget = options.budget ?? RECONCILE_STALE_BUDGET;
+			let refreshed = 0;
+
+			const graceMs = billing.graceDays * DAY_MS;
+			const stale = await db
+				.selectDistinct({ userId: subscription.referenceId })
+				.from(subscription)
+				.where(
+					and(
+						isNotNull(subscription.stripeSubscriptionId),
+						or(
+							and(
+								eq(subscription.status, "active"),
+								lt(subscription.periodEnd, new Date(at - DAY_MS)),
+							),
+							and(
+								eq(subscription.status, "trialing"),
+								sql`coalesce(${subscription.trialEnd}, ${subscription.periodEnd}) < ${at - DAY_MS}`,
+							),
+							and(
+								eq(subscription.status, "past_due"),
+								lt(subscription.periodStart, new Date(at - graceMs)),
+							),
+						),
+					),
+				)
+				.limit(500);
+			for (const { userId } of stale) {
+				if (budget <= 0) break;
+				const last = lastReconcile.get(userId);
+				if (last !== undefined && at - last < RECONCILE_EVERY_MS) continue;
+				budget--;
+				refreshed += await provider.reconcile(userId);
+			}
+
+			const unfinished = await db
+				.select({
+					id: subscription.id,
+					referenceId: subscription.referenceId,
+					customer: subscription.stripeCustomerId,
+				})
+				.from(subscription)
+				.where(
+					and(
+						or(eq(subscription.status, "incomplete"), isNull(subscription.status)),
+						isNull(subscription.stripeSubscriptionId),
+						isNotNull(subscription.stripeCustomerId),
+					),
+				)
+				.limit(500);
+			if (lastRecover.size >= 10_000) {
+				for (const [key, when] of lastRecover) {
+					if (at - when >= RECOVER_EVERY_MS) lastRecover.delete(key);
+				}
+			}
+			for (const row of unfinished) {
+				if (budget <= 0) break;
+				const last = lastRecover.get(row.id);
+				if (last !== undefined && at - last < RECOVER_EVERY_MS) continue;
+				lastRecover.set(row.id, at);
+				budget--;
+				try {
+					const list = await stripe.subscriptions.list({
+						customer: row.customer as string,
+						status: "all",
+						limit: 20,
+					});
+					const found = list.data.find(
+						(sub) =>
+							sub.metadata?.subscriptionId === row.id &&
+							sub.metadata?.referenceId === row.referenceId &&
+							sells(sub),
+					);
+					if (!found) continue;
+					const updated = await db
+						.update(subscription)
+						.set({
+							...subscriptionFields(found, billing),
+							plan: "pro",
+							stripeSubscriptionId: found.id,
+							stripeCustomerId: idOf(found.customer) ?? undefined,
+						})
+						.where(and(eq(subscription.id, row.id), isNull(subscription.stripeSubscriptionId)))
+						.returning({ id: subscription.id });
+					if (!updated.length) continue;
+					refreshed++;
+					entitlements.invalidate(row.referenceId);
+					log.info({ msg: "billing", op: "recover", outcome: "stored" });
+				} catch (error) {
+					if (isStripeMissing(error)) continue;
+					log.warn({
+						msg: "billing",
+						op: "recover",
+						outcome: "failed",
+						cause: safeTag((error as Error)?.name),
+					});
+				}
+			}
+			return refreshed;
+		},
+
+		/**
 		 * What the plugin's own `/subscription/success` does for cookie
 		 * sessions, for bearer-only clients: the browser's return carries the
 		 * checkout session id, and the row is filled from what Stripe says
@@ -457,4 +601,5 @@ export function createStripeBilling(deps: StripeBillingDeps): StripeBilling {
 			return offers.filter((offer): offer is Offer => offer !== null);
 		},
 	};
+	return provider;
 }

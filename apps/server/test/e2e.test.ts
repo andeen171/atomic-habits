@@ -2,24 +2,44 @@ import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
 	type AtomicStore,
 	type AttachmentMime,
+	type CommitEvent,
 	type RemoteClient,
 	RemoteError,
 	type SyncController,
+	type Task,
 	blobUploadSchema,
 	blobsMissingSchema,
+	buildTaskLogIndex,
+	countLocalEntities,
 	createAtomicStore,
 	createMemoryBlobStore,
 	createMemoryStorage,
 	createRemoteClient,
 	createSyncController,
 	entryAttachments,
+	logId,
 	remoteErrorFrom,
+	runSync,
+	seriesHistory,
+	seriesState,
 	sha256Hex,
 	storePhoto,
+	taskLogId,
 	toDayKey,
 	uploadableBlobs,
 } from "@atomic/core";
-import { type TestApp, appFetch, createTestServer, setupApp, uniqueEmail } from "./helpers";
+import type { SyncTransport, WireSyncRecord } from "@atomic/core/sync";
+import { and, eq } from "drizzle-orm";
+import { session, syncRecord } from "../src/db/schema";
+import {
+	type TestApp,
+	type TestServer,
+	appFetch,
+	createTestServer,
+	setupApp,
+	signUp,
+	uniqueEmail,
+} from "./helpers";
 
 /**
  * Drives the real server through `@atomic/core`'s HTTP client and sync
@@ -399,5 +419,516 @@ describe("photo backup through the core client (spec §4.6, D23)", () => {
 		}
 		expect(laptopBlobs.size()).toBe(2);
 		expect(await laptopBlobs.read(ref.hash)).toMatchObject({ mime: "image/jpeg" });
+	});
+});
+
+/*
+ * Spec §4.6 scenarios against the real server: two (or three) core stores
+ * driven by the core sync engine (`runSync`) and the sync controller, over
+ * the core HTTP client into `app.request`. The setups mirror the core
+ * scenario tests (series-sync, trackers, wire-journal, sync-controller),
+ * which run against an in-memory fake; here the server's own
+ * `validateWireRecord`, quota and last-write-wins path decide.
+ */
+
+const DAY = 86_400_000;
+/** The devices' fixed clocks (local time, like the core scenario tests). */
+const SERIES_NOW = new Date(2026, 9, 14, 10, 0).getTime(); // Wednesday 2026-10-14
+const TRACK_NOW = new Date(2026, 9, 20, 10, 0).getTime();
+
+/**
+ * A server whose clock is at least an hour past every device clock used
+ * below, so no stamp is ever "in the future", and that still moves (rate
+ * limit windows).
+ */
+async function scenarioServer(): Promise<TestServer> {
+	const offset = Math.max(0, TRACK_NOW + 3 * DAY - Date.now());
+	return createTestServer({ deps: { now: () => Date.now() + offset } });
+}
+
+interface Device {
+	clock: { now: number };
+	store: AtomicStore;
+	transport: SyncTransport;
+	/** Every record this device pushed, and every rejection it got back. */
+	pushed: WireSyncRecord[];
+	rejected: { collection: string; id: string; code?: string }[];
+}
+
+/** A signed-in device (pending keys are tracked, D57) with its own session. */
+async function signedIn(server: TestServer, email: string, password: string, now: number) {
+	const client = createRemoteClient(SERVER_URL, appFetch(server.app));
+	const { token } = await client.signIn({ email, password });
+	const base = client.transport(token);
+	const clock = { now };
+	const store = createAtomicStore({
+		storage: createMemoryStorage(),
+		now: () => clock.now,
+		debounceMs: 0,
+		deviceLocales: () => ["en"],
+	});
+	store.getState().actions.setTracking(true);
+	const device: Device = {
+		clock,
+		store,
+		pushed: [],
+		rejected: [],
+		transport: {
+			async push(input) {
+				device.pushed.push(...input.records);
+				const output = await base.push(input);
+				device.rejected.push(...(output.rejected ?? []));
+				return output;
+			},
+			pull: (input) => base.pull(input),
+		},
+	};
+	return device;
+}
+
+/** An account and `count` devices signed in to it. */
+async function devicesOf(server: TestServer, now: number, count: number, step = 60_000) {
+	const owner = await signUp(server.app, "Ana");
+	const devices: Device[] = [];
+	for (let i = 0; i < count; i++) {
+		devices.push(await signedIn(server, owner.email, owner.password, now + i * step));
+	}
+	return { owner, devices };
+}
+
+const act = (d: Device) => d.store.getState().actions;
+const sync = (d: Device) => runSync(d.store, d.transport);
+
+/** Two full rounds on every device: enough for any write to reach everyone. */
+async function converge(...devices: Device[]) {
+	for (let round = 0; round < 2; round++) {
+		for (const d of devices) await sync(d);
+	}
+}
+
+/** The series as a device derives it on its own. */
+function seriesOn(d: Device, taskId: string) {
+	const { data } = d.store.getState();
+	const task = data.tasks[taskId] as Task;
+	const logs = buildTaskLogIndex(data.taskLogs).get(taskId) ?? [];
+	const today = toDayKey(d.clock.now);
+	const habit = task.habitId ? data.habits[task.habitId] : undefined;
+	return {
+		task,
+		state: seriesState(task, logs, today, habit),
+		history: seriesHistory(task, logs, today),
+	};
+}
+
+/** A stored row's document (the JSON column, parsed). */
+// biome-ignore lint/suspicious/noExplicitAny: test assertions read arbitrary document fields
+const docOf = (row: { data: unknown }): any => row.data;
+
+/** The server's rows of one collection for the user (as stored). */
+async function serverRows(
+	server: TestServer,
+	userId: string,
+	collection: (typeof syncRecord.$inferSelect)["collection"],
+) {
+	return server.db
+		.select()
+		.from(syncRecord)
+		.where(and(eq(syncRecord.userId, userId), eq(syncRecord.collection, collection)));
+}
+
+describe("§4.6 scenarios: recurring tasks (D16, D65, Annex T R15)", () => {
+	let server: TestServer;
+
+	beforeAll(async () => {
+		server = await scenarioServer();
+	});
+
+	/** A synced weekly-Monday series (done Oct 5, Oct 12 open) on phone and laptop. */
+	async function weekly() {
+		const { owner, devices } = await devicesOf(server, SERIES_NOW, 2);
+		const [phone, laptop] = devices as [Device, Device];
+		const t = act(phone).createTask({
+			title: "Take out the trash",
+			date: "2026-10-05",
+			repeat: { type: "weeks", every: 1, days: [1] },
+		});
+		act(phone).completeOccurrence(t.id, "2026-10-05");
+		await sync(phone);
+		await sync(laptop);
+		expect(seriesOn(laptop, t.id).state.open).toBe("2026-10-12");
+		return { owner, phone, laptop, t };
+	}
+
+	test("phone and laptop complete the same occurrence offline: one log", async () => {
+		const { owner, phone, laptop, t } = await weekly();
+		act(phone).completeOccurrence(t.id, "2026-10-12");
+		laptop.clock.now += 1_000;
+		act(laptop).completeOccurrence(t.id, "2026-10-12");
+		await converge(phone, laptop);
+
+		const id = taskLogId(t.id, "2026-10-12");
+		const rows = await serverRows(server, owner.user.id, "taskLogs");
+		expect(rows.map((r) => r.id).sort()).toEqual([taskLogId(t.id, "2026-10-05"), id].sort());
+		expect(rows.every((r) => r.deletedAt === null)).toBe(true);
+		for (const d of [phone, laptop]) {
+			expect(d.store.getState().data.taskLogs[id]).toMatchObject({ status: "done" });
+			expect(seriesOn(d, t.id).state).toMatchObject({ open: "2026-10-19", doneCount: 2 });
+			expect(d.rejected).toEqual([]);
+			expect(Object.keys(d.store.getState().sync.pending)).toEqual([]);
+		}
+		expect(phone.store.getState().data.taskLogs).toEqual(laptop.store.getState().data.taskLogs);
+	});
+
+	test("a series edit and a completion converge (R9)", async () => {
+		const { owner, phone, laptop, t } = await weekly();
+		act(phone).updateTask(t.id, { repeat: { type: "weeks", every: 1, days: [2] } as never });
+		act(laptop).completeOccurrence(t.id, "2026-10-12");
+		await converge(phone, laptop);
+		for (const d of [phone, laptop]) {
+			const { task, state, history } = seriesOn(d, t.id);
+			expect(task.repeat).toMatchObject({ type: "weeks", days: [2] });
+			expect(state).toMatchObject({ open: "2026-10-13", overdue: true, doneCount: 2 });
+			expect(history.filter((e) => e.state === "done").map((e) => e.date)).toEqual([
+				"2026-10-12",
+				"2026-10-05",
+			]);
+			expect(d.rejected).toEqual([]);
+		}
+		const [stored] = (await serverRows(server, owner.user.id, "tasks")).filter(
+			(r) => r.id === t.id,
+		);
+		expect(docOf(stored ?? { data: {} }).repeat).toMatchObject({ days: [2] });
+		expect(await serverRows(server, owner.user.id, "taskLogs")).toHaveLength(2);
+	});
+
+	test("after-completion chain: B completes D then D′, A completes D later offline; nothing lost", async () => {
+		const { owner, devices } = await devicesOf(server, SERIES_NOW, 2, 1_000);
+		const [a, b] = devices as [Device, Device];
+		const t = act(a).createTask({
+			title: "Replace the toothbrush",
+			date: "2026-10-01",
+			repeat: { type: "after", every: 1, unit: "weeks" },
+		});
+		await sync(a);
+		await sync(b);
+		// B: D (Oct 1, overdue) today, then D′ (the next open one, Oct 21) early.
+		act(b).completeOccurrence(t.id, "2026-10-01");
+		expect(seriesOn(b, t.id).state.open).toBe("2026-10-21");
+		act(b).completeOccurrence(t.id, "2026-10-21");
+		await sync(b);
+		// A, offline two days later, still sees D open and completes it.
+		a.clock.now = SERIES_NOW + 2 * DAY;
+		expect(seriesOn(a, t.id).state.open).toBe("2026-10-01");
+		act(a).completeOccurrence(t.id, "2026-10-01");
+		await converge(a, b);
+		const today = toDayKey(SERIES_NOW);
+		for (const d of [a, b]) {
+			const { state, history } = seriesOn(d, t.id);
+			expect(state.doneCount).toBe(2);
+			expect(history.map((e) => [e.date, e.state, e.resolvedOn])).toEqual([
+				["2026-10-21", "done", today],
+				["2026-10-01", "done", "2026-10-16"],
+			]);
+			expect(state.open).toBe("2026-10-23");
+			expect(d.rejected).toEqual([]);
+		}
+		expect(a.store.getState().data.taskLogs).toEqual(b.store.getState().data.taskLogs);
+		const rows = await serverRows(server, owner.user.id, "taskLogs");
+		expect(rows.map((r) => r.id).sort()).toEqual(
+			[taskLogId(t.id, "2026-10-01"), taskLogId(t.id, "2026-10-21")].sort(),
+		);
+	});
+
+	test("a v1 client's check-off of a series becomes one occurrence on every device (D65)", async () => {
+		const { owner, devices } = await devicesOf(server, SERIES_NOW, 2);
+		const [phone, laptop] = devices as [Device, Device];
+		const t = act(phone).createTask({
+			title: "Vitamins",
+			date: "2026-10-10",
+			repeat: { type: "days", every: 1 },
+		});
+		await sync(phone);
+		await sync(laptop);
+		// A v1 app (its own session) sees a one-off and checks it off yesterday (Oct 13).
+		const v1 = createRemoteClient(SERVER_URL, appFetch(server.app));
+		const v1Session = await v1.signIn({ email: owner.email, password: owner.password });
+		const task = { ...(phone.store.getState().data.tasks[t.id] as Task) };
+		const checkedOff = { ...task, completedAt: SERIES_NOW - DAY, updatedAt: SERIES_NOW + 5_000 };
+		const pushed = await v1.transport(v1Session.token).push({
+			records: [
+				{
+					collection: "tasks",
+					id: t.id,
+					updatedAt: checkedOff.updatedAt,
+					deletedAt: null,
+					data: checkedOff as unknown as Record<string, unknown>,
+				},
+			],
+		});
+		expect(pushed).toMatchObject({ accepted: 1 });
+		expect(pushed.rejected ?? []).toEqual([]);
+		// Both v2 devices pull it before either pushes its reconciliation.
+		phone.clock.now = SERIES_NOW + 10_000;
+		laptop.clock.now = SERIES_NOW + 70_000;
+		await sync(phone);
+		await sync(laptop);
+		await converge(phone, laptop);
+
+		const id = taskLogId(t.id, "2026-10-13");
+		const logs = await serverRows(server, owner.user.id, "taskLogs");
+		expect(logs.map((r) => r.id)).toEqual([id]);
+		const [storedTask] = await serverRows(server, owner.user.id, "tasks");
+		expect(docOf(storedTask ?? { data: {} }).completedAt).toBeNull();
+		for (const d of [phone, laptop]) {
+			const { task: local, state } = seriesOn(d, t.id);
+			expect(local.completedAt).toBeNull();
+			expect(d.store.getState().data.taskLogs[id]).toMatchObject({
+				status: "done",
+				resolvedOn: "2026-10-13",
+				deletedAt: null,
+			});
+			expect(state).toMatchObject({ status: "active", open: toDayKey(SERIES_NOW), missed: 0 });
+			expect(d.rejected).toEqual([]);
+		}
+		// Converged: another round writes nothing.
+		const before = phone.pushed.length + laptop.pushed.length;
+		await converge(phone, laptop);
+		expect(phone.pushed.length + laptop.pushed.length).toBe(before);
+	});
+});
+
+describe("§4.6 scenarios: journal and trackers", () => {
+	let server: TestServer;
+
+	beforeAll(async () => {
+		server = await scenarioServer();
+	});
+
+	test("journal entries converge: offline edits (newest wins), a deletion and its undo", async () => {
+		const { owner, devices } = await devicesOf(server, TRACK_NOW, 2, 0);
+		const [phone, laptop] = devices as [Device, Device];
+		const clock = (ms: number) => {
+			phone.clock.now += ms;
+			laptop.clock.now = phone.clock.now;
+		};
+		const reader = act(phone).createIdentity({ statement: "I am a reader" });
+		const read = act(phone).createHabit({ name: "Read", identityId: reader.id });
+		const review = act(phone).createJournalEntry({
+			kind: "review",
+			range: { from: "2026-10-12", to: "2026-10-18" },
+			answers: { well: "Read daily" },
+		});
+		const plan = act(phone).createJournalEntry({
+			kind: "recovery",
+			habitId: read.id,
+			date: "2026-10-19",
+			answers: { obstacle: "Worked late", when: "07:00", where: "on the couch" },
+		});
+		const note = act(phone).createJournalEntry({ kind: "note", answers: { text: "Thinking" } });
+		await sync(phone);
+		await sync(laptop);
+		expect(laptop.store.getState().data.journal[plan.id]).toEqual(
+			phone.store.getState().data.journal[plan.id] as never,
+		);
+
+		// Both edit the review offline; the laptop's edit is newer.
+		clock(1_000);
+		act(phone).updateJournalEntry(review.id, {
+			answers: { well: "Read daily", learned: "Phone edit" },
+		});
+		clock(1_000);
+		act(laptop).updateJournalEntry(review.id, {
+			answers: { well: "Read daily", learned: "Laptop edit (newer)" },
+		});
+		// The phone deletes the note.
+		clock(1_000);
+		act(phone).deleteJournalEntry(note.id);
+		await converge(phone, laptop);
+		for (const d of [phone, laptop]) {
+			const journal = d.store.getState().data.journal;
+			expect(journal[review.id]?.answers.learned).toBe("Laptop edit (newer)");
+			expect(journal[note.id]?.deletedAt).toBeNumber();
+			expect(d.rejected).toEqual([]);
+		}
+
+		// The laptop undoes the deletion.
+		clock(1_000);
+		act(laptop).restoreJournalEntry(note.id);
+		await converge(phone, laptop);
+		expect(phone.store.getState().data.journal[note.id]?.deletedAt).toBeNull();
+		expect(phone.store.getState().data.journal).toEqual(laptop.store.getState().data.journal);
+		const rows = await serverRows(server, owner.user.id, "journal");
+		expect(rows.map((r) => r.id).sort()).toEqual([review.id, plan.id, note.id].sort());
+		const stored = rows.find((r) => r.id === review.id);
+		expect(docOf(stored ?? { data: {} }).answers.learned).toBe("Laptop edit (newer)");
+	});
+
+	test("tracker `sum` entries on two devices converge within two rounds, then zero writes", async () => {
+		const { owner, devices } = await devicesOf(server, TRACK_NOW, 2, 500);
+		const [a, b] = devices as [Device, Device];
+		const today = toDayKey(TRACK_NOW);
+		const h = act(a).createHabit({
+			name: "Read",
+			startDate: "2026-09-01",
+			target: 10,
+			tracker: { type: "reading" },
+		});
+		await sync(a);
+		await sync(b);
+		expect(b.store.getState().data.habits[h.id]?.tracker).toMatchObject({ type: "reading" });
+
+		// Offline: each device logs a session on the same day.
+		act(a).addTrackerEntry({ habitId: h.id, date: today, type: "reading", data: { pages: 10 } });
+		b.clock.now += 1_000;
+		act(b).addTrackerEntry({ habitId: h.id, date: today, type: "reading", data: { pages: 6 } });
+		const log = logId(h.id, today);
+		expect(a.store.getState().data.logs[log]?.count).toBe(10);
+		expect(b.store.getState().data.logs[log]?.count).toBe(6);
+
+		for (let round = 0; round < 2; round++) {
+			a.clock.now += 1_000;
+			await sync(a);
+			b.clock.now += 1_000;
+			await sync(b);
+		}
+		const live = (d: Device) =>
+			Object.values(d.store.getState().data.trackerEntries)
+				.filter((e) => !e.deletedAt)
+				.map((e) => e.id)
+				.sort();
+		for (const d of [a, b]) {
+			expect(d.store.getState().data.logs[log]?.count).toBe(16);
+			expect(live(d)).toHaveLength(2);
+			expect(d.rejected).toEqual([]);
+		}
+		expect(live(a)).toEqual(live(b));
+
+		// Settled: further rounds reconcile nothing and push nothing.
+		const derivedLogWrites: CommitEvent[] = [];
+		for (const d of [a, b]) {
+			d.store.subscribeCommits((e) => {
+				if (e.origin === "derived" && e.changes.logs?.length) derivedLogWrites.push(e);
+			});
+		}
+		for (let round = 0; round < 2; round++) {
+			await sync(a);
+			await sync(b);
+		}
+		const settled = a.pushed.length + b.pushed.length;
+		await sync(a);
+		await sync(b);
+		expect(derivedLogWrites).toEqual([]);
+		expect(a.pushed.length + b.pushed.length).toBe(settled);
+		for (const d of [a, b]) expect(Object.keys(d.store.getState().sync.pending)).toEqual([]);
+		const [stored] = (await serverRows(server, owner.user.id, "logs")).filter((r) => r.id === log);
+		expect(docOf(stored ?? { data: {} }).count).toBe(16);
+		expect(await serverRows(server, owner.user.id, "trackerEntries")).toHaveLength(2);
+	});
+});
+
+describe("§4.6 scenarios: the first sign-in merge decision (D37)", () => {
+	let server: TestServer;
+
+	beforeAll(async () => {
+		server = await scenarioServer();
+	});
+
+	const habitNames = (store: AtomicStore) =>
+		Object.values(store.getState().data.habits)
+			.filter((h) => !h.deletedAt)
+			.map((h) => h.name)
+			.sort();
+
+	/** An account whose laptop already synced one habit. */
+	async function seededAccount() {
+		const email = uniqueEmail("ana");
+		const laptop = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+		const laptopSync = createSyncController({
+			store: laptop,
+			sessionStorage: createMemoryStorage(),
+			fetch: appFetch(server.app),
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		controllers.push(laptopSync);
+		laptop.getState().actions.createHabit({ name: "Account habit" });
+		await laptopSync.signUp(SERVER_URL, "Ana", email, PASSWORD);
+		const userId = laptopSync.getState().user?.id ?? "";
+		return { email, userId };
+	}
+
+	/** A phone with its own offline data. */
+	function phone() {
+		const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+		const sync = createSyncController({
+			store,
+			sessionStorage: createMemoryStorage(),
+			fetch: appFetch(server.app),
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		controllers.push(sync);
+		return { store, sync };
+	}
+
+	const habitsOnServer = async (userId: string) =>
+		(await serverRows(server, userId, "habits"))
+			.filter((r) => r.deletedAt === null)
+			.map((r) => docOf(r).name as string)
+			.sort();
+
+	const sessionsOf = async (userId: string) =>
+		(await server.db.select().from(session).where(eq(session.userId, userId))).length;
+
+	test("merge: both sides end up everywhere", async () => {
+		const { email, userId } = await seededAccount();
+		const { store, sync } = phone();
+		store.getState().actions.createHabit({ name: "Local habit" });
+		const local = countLocalEntities(store.getState().data);
+		const seen: number[] = [];
+		const outcome = await sync.signIn(SERVER_URL, email, PASSWORD, {
+			onExistingData: ({ localCount }) => {
+				seen.push(localCount);
+				return "merge";
+			},
+		});
+		expect(outcome).toBe("signed-in");
+		expect(seen).toEqual([local]);
+		expect(habitNames(store)).toEqual(["Account habit", "Local habit"]);
+		expect(await habitsOnServer(userId)).toEqual(["Account habit", "Local habit"]);
+		expect(Object.keys(store.getState().sync.pending)).toEqual([]);
+	});
+
+	test("use the account: local data is dropped without tombstones, settings kept", async () => {
+		const { email, userId } = await seededAccount();
+		const { store, sync } = phone();
+		store.getState().actions.updateSettings({ displayName: "Ana local" });
+		store.getState().actions.createHabit({ name: "Demo habit" });
+		const outcome = await sync.signIn(SERVER_URL, email, PASSWORD, {
+			onExistingData: () => "replace",
+		});
+		expect(outcome).toBe("signed-in");
+		expect(habitNames(store)).toEqual(["Account habit"]);
+		expect(store.getState().settings.displayName).toBe("Ana local");
+		// Nothing of the demo reached the account, not even as a tombstone.
+		const rows = await serverRows(server, userId, "habits");
+		expect(rows.map((r) => docOf(r).name)).toEqual(["Account habit"]);
+	});
+
+	test("cancel: the new session is revoked on the server and the device stays signed out", async () => {
+		const { email, userId } = await seededAccount();
+		const { store, sync } = phone();
+		store.getState().actions.createHabit({ name: "Local habit" });
+		expect(await sessionsOf(userId)).toBe(1);
+		const outcome = await sync.signIn(SERVER_URL, email, PASSWORD, {
+			onExistingData: () => "cancel",
+		});
+		expect(outcome).toBe("canceled");
+		expect(sync.getState()).toMatchObject({ status: "signed-out", user: null, error: null });
+		expect(store.getState().sync).toMatchObject({ tracking: false, pending: {} });
+		expect(habitNames(store)).toEqual(["Local habit"]);
+		// Only the laptop's session is left, and nothing of the phone was sent.
+		expect(await sessionsOf(userId)).toBe(1);
+		expect(await habitsOnServer(userId)).toEqual(["Account habit"]);
 	});
 });

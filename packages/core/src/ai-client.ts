@@ -27,8 +27,8 @@ import { translateBatches } from "./translate";
  * - **Suggestions**: `suggest(kind, input, locale)` posts `ai.suggest`, waits
  *   `features.ai.timeoutMs + 5 s`, parses the output with the shared schema
  *   and caches answers in memory only (an LRU of 50 per account, keyed by
- *   kind, locale and input). Failures are `AiError`s whose `kind` picks the
- *   UI string (`aiErrorKey`).
+ *   kind, locale and input; served even while the quota is used up).
+ *   Failures are `AiError`s whose `kind` picks the UI string (`aiErrorKey`).
  * - **Translation runner** (only with the account's translate switch on and
  *   AI ready): after each completed pull, 3 s after a locale change, and
  *   when translation is turned on, it sends up to 3 batches of
@@ -399,11 +399,14 @@ export function createAiClient({
 				throw new AiError("consent");
 		}
 		if (!available) throw new AiError(feature === "suggest" ? "disabled" : "consent");
+	};
+
+	/** Refuses while a quota answer holds (until `resetsAt`), without calling the server. */
+	const refuseWhileBlocked = (feature: "suggest" | "translate") => {
 		const until = blockedUntil[feature];
-		if (until !== null) {
-			if (timers.now() < until) throw new AiError("quota", until);
-			block(feature, null);
-		}
+		if (until === null) return;
+		if (timers.now() < until) throw new AiError("quota", until);
+		block(feature, null);
 	};
 
 	async function suggest<K extends AiSuggestKind>(
@@ -416,11 +419,12 @@ export function createAiClient({
 		const key = `${kind}\n${targetLocale}\n${stableJson(input)}`;
 		const cached = opts.fresh ? undefined : cache.get(key);
 		if (cached) {
-			// LRU: most recently used last.
+			// LRU: most recently used last. Free, so served even while the quota is used up.
 			cache.delete(key);
 			cache.set(key, cached);
 			return { output: cached.output as AiSuggestOutput<K>, quota: cached.quota };
 		}
+		refuseWhileBlocked("suggest");
 		const forOwner = owner;
 		const answer = await call(
 			"suggest",

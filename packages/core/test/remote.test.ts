@@ -248,6 +248,10 @@ describe("remote account", () => {
 		expect(await client.getUser(other.token)).toBeNull();
 		await clientFor(cloud).signIn({ email: "ana@example.com", password: "secret123" });
 		expect(await account.revokeOtherSessions(token)).toEqual({ revoked: 1 });
+		// A mutation without input still says JSON (tRPC answers 415 otherwise), with no body.
+		const call = cloud.requests.find((r) => r.path === "/trpc/account.revokeOtherSessions");
+		expect(call?.headers.get("content-type")).toBe("application/json");
+		expect(call?.body).toBeUndefined();
 	});
 
 	test("change password with sign-out of other devices swaps the token", async () => {

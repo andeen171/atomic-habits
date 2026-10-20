@@ -1,7 +1,7 @@
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
 import type { AuthSession } from "../lib/auth";
-import { bearerOnlyHeaders } from "../lib/request";
+import { bearerOnlyHeaders, publicBaseUrl } from "../lib/request";
 import type { AppEnv, Services } from "../services";
 
 /**
@@ -19,7 +19,7 @@ export function createContextFactory(services: Services) {
 			clientIp: c.get("clientIp") ?? "unknown",
 			requestId: c.get("requestId"),
 			/** This server's public root for links (`BETTER_AUTH_URL`, else the request's origin). */
-			baseUrl: services.config.authUrl ?? new URL(c.req.url).origin,
+			baseUrl: publicBaseUrl(services.config, c.req.raw),
 			headers,
 			/** Aborts when the client goes away. */
 			signal: c.req.raw.signal,

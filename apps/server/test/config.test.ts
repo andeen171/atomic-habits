@@ -96,6 +96,17 @@ describe("zero optional variables", () => {
 	});
 });
 
+describe("AI_API_KEY", () => {
+	test("production warns when a self-hosted model gets no key (the compose llm requires one)", () => {
+		const warned = loadConfig(prod(FEATURES.ai));
+		expect(warned.ai).not.toBeNull();
+		expect(warned.warnings.join("\n")).toContain("AI_API_KEY is empty");
+		expect(loadConfig(prod({ ...FEATURES.ai, AI_API_KEY: "k" })).warnings).toEqual([]);
+		// Development: no warning; hosted providers are refused or warned elsewhere.
+		expect(loadConfig(dev(FEATURES.ai)).warnings.join("\n")).not.toContain("AI_API_KEY");
+	});
+});
+
 describe("features toggle independently", () => {
 	const names = ["email", "google", "billing", "ai", "android"] as const;
 	for (const name of names) {

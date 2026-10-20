@@ -11,6 +11,9 @@ import type { GoogleVerifier } from "./lib/google";
 import type { Logger } from "./lib/log";
 import type { RateLimiter } from "./lib/rate-limit";
 import type { MetaService } from "./meta";
+import type { UserGauges } from "./ops/gauges";
+import type { Health } from "./ops/health";
+import type { Metrics } from "./ops/metrics";
 
 /**
  * Everything a request handler may use, built once per server by
@@ -37,6 +40,12 @@ export interface Services {
 	billing: BillingProvider | null;
 	/** The AI pipeline; null when AI isn't configured (`AI_FEATURES` gates each part). */
 	ai: AiService | null;
+	/** Content-free counters and histograms (`GET /internal/metrics`). */
+	metrics: Metrics;
+	/** `atomic_users` / `atomic_pro_users`, cached 5 minutes. */
+	gauges: UserGauges;
+	/** `GET /healthz`: database and model server state. */
+	health: Health;
 	now: () => number;
 	/** Outbound HTTP (email, AI, Stripe); a fake in tests. */
 	fetch: typeof fetch;
