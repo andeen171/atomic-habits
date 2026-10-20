@@ -2,11 +2,13 @@ import { type DayKey, type Weekday, addDays, diffDays, eachDay, weekdayOf } from
 import {
 	type DayScore,
 	type DayState,
+	type HabitStats,
 	type LogIndex,
 	type StreakInfo,
 	type WeekProgress,
 	dayScore,
 	dayState,
+	dayVotes,
 	habitStats,
 	isActiveOn,
 	isDueOn,
@@ -15,6 +17,7 @@ import {
 	progressOf,
 	sortHabits,
 	streakOf,
+	targetOn,
 	weekProgress,
 } from "./habits";
 import type { Habit, HabitLog, Identity, TimeOfDay } from "./model";
@@ -25,6 +28,8 @@ export interface AgendaItem {
 	count: number;
 	/** 0–1 toward the daily target. */
 	progress: number;
+	/** Reps above the day's target (build habits; break habits: 0). Drawn as the ring's "+N". */
+	extra: number;
 	state: DayState;
 	done: boolean;
 	streak: StreakInfo;
@@ -75,13 +80,15 @@ export function buildAgenda(
 		const count = log?.count ?? 0;
 		const identity = habit.identityId ? identities[habit.identityId] : undefined;
 		const streak = streakOf(habit, logs, day <= today ? day : today, weekStartsOn);
+		const target = targetOn(habit, day);
 		const item: AgendaItem = {
 			habit,
 			log,
 			count,
 			progress: progressOf(habit, log),
+			extra: habit.kind === "build" ? Math.max(0, count - target) : 0,
 			state: dayState(habit, day, log, today),
-			done: habit.kind === "build" ? count >= habit.target : count === 0,
+			done: habit.kind === "build" ? count >= target : count === 0,
 			streak,
 			week: weekProgress(habit, logs, day, weekStartsOn),
 			identity: identity && !identity.deletedAt ? identity : undefined,
@@ -94,7 +101,7 @@ export function buildAgenda(
 			continue;
 		}
 		if (!isScheduledOn(habit, day)) continue;
-		votes += Math.min(count, habit.target);
+		votes += dayVotes(habit, day, count);
 		if (habit.schedule.type === "weekly" && !isDueOn(habit, logs, day, weekStartsOn)) {
 			doneForWeek.push(item);
 			continue;
@@ -150,7 +157,7 @@ export function identityStats(
 				if (habit.kind === "build") {
 					for (const log of logs.values()) {
 						if (log.date >= weekAgo && log.date <= today && isActiveOn(habit, log.date)) {
-							recentVotes += Math.min(log.count, habit.target);
+							recentVotes += dayVotes(habit, log.date, log.count);
 						}
 					}
 				} else {
@@ -243,4 +250,53 @@ export function insightsSummary(
 		journeyDays: firstStart ? Math.max(0, diffDays(today, firstStart)) : 0,
 		series,
 	};
+}
+
+export interface RankedHabit {
+	habit: Habit;
+	stats: HabitStats;
+}
+
+const byName = (a: Habit, b: Habit) => a.name.localeCompare(b.name) || a.createdAt - b.createdAt;
+
+/**
+ * Strongest habits (item 10): live, non-archived **build** habits by strength,
+ * then current streak, then name. Break habits show in `breakingFreeHabits`.
+ */
+export function strongestHabits(
+	habits: readonly Habit[],
+	stats: ReadonlyMap<string, HabitStats>,
+	limit = 5,
+): RankedHabit[] {
+	const ranked: RankedHabit[] = [];
+	for (const habit of habits) {
+		if (habit.deletedAt || habit.archivedAt || habit.kind !== "build") continue;
+		const s = stats.get(habit.id);
+		if (s) ranked.push({ habit, stats: s });
+	}
+	return ranked
+		.sort(
+			(a, b) =>
+				b.stats.strength - a.stats.strength ||
+				b.stats.streak.current - a.stats.streak.current ||
+				byName(a.habit, b.habit),
+		)
+		.slice(0, Math.max(0, limit));
+}
+
+/** "Breaking free": live, non-archived break habits by current clean streak, then name. */
+export function breakingFreeHabits(
+	habits: readonly Habit[],
+	stats: ReadonlyMap<string, HabitStats>,
+	limit = 3,
+): RankedHabit[] {
+	const ranked: RankedHabit[] = [];
+	for (const habit of habits) {
+		if (habit.deletedAt || habit.archivedAt || habit.kind !== "break") continue;
+		const s = stats.get(habit.id);
+		if (s) ranked.push({ habit, stats: s });
+	}
+	return ranked
+		.sort((a, b) => b.stats.streak.current - a.stats.streak.current || byName(a.habit, b.habit))
+		.slice(0, Math.max(0, limit));
 }

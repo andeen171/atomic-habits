@@ -1,7 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PullInput, PullOutput, SyncRecord } from "@atomic/core/sync";
+import type {
+	PullInput,
+	PullOutput,
+	RejectCode,
+	SyncRecord,
+	WireSyncRecord,
+} from "@atomic/core/sync";
 
 /**
  * Tests drive the real Hono app against a throwaway SQLite file. The
@@ -117,14 +123,15 @@ export async function trpcData<T>(response: Response): Promise<T> {
 export interface PushData {
 	accepted: number;
 	cursor: number;
-	rejected: { collection: string; id: string; reason: string }[];
-	conflicts: SyncRecord[];
+	rejected: { collection: string; id: string; reason: string; code?: RejectCode }[];
+	conflicts: WireSyncRecord[];
+	serverTime?: number;
 }
 
 export async function pushOk(
 	app: TestApp,
 	token: string,
-	records: SyncRecord[],
+	records: WireSyncRecord[],
 ): Promise<PushData> {
 	return trpcData<PushData>(await push(app, token, records));
 }

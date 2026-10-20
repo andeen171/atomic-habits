@@ -2,14 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { RemoteError, createRemoteClient, normalizeServerUrl } from "../src/remote";
 import { createMemoryStorage } from "../src/storage";
 import { createAtomicStore } from "../src/store";
-import type { SyncRecord } from "../src/sync";
+import type { WireSyncRecord as SyncRecord } from "../src/sync";
 import { createSyncController } from "../src/sync-controller";
 
 /**
  * Fake HTTP server speaking the same wire format as apps/server:
  * Better Auth (bearer) + tRPC over plain HTTP.
  */
-function fakeHttpServer() {
+function fakeHttpServer(options: { clockOffsetMs?: number } = {}) {
+	const serverTime = () =>
+		options.clockOffsetMs === undefined ? {} : { serverTime: Date.now() + options.clockOffsetMs };
 	const users = new Map<string, { id: string; email: string; name: string; password: string }>();
 	const tokens = new Map<string, string>(); // token → userId
 	const docs = new Map<string, SyncRecord & { seq: number; userId: string }>();
@@ -86,7 +88,7 @@ function fakeHttpServer() {
 					docs.set(key, { ...record, seq: ++seq, userId });
 					accepted++;
 				}
-				return json(200, { result: { data: { accepted, cursor: seq } } });
+				return json(200, { result: { data: { accepted, cursor: seq, ...serverTime() } } });
 			}
 			if (url.pathname === "/trpc/sync.pull") {
 				const { cursor } = JSON.parse(url.searchParams.get("input") ?? "{}");
@@ -99,6 +101,7 @@ function fakeHttpServer() {
 							records: rows.map(({ seq: _s, userId: _u, ...r }) => r),
 							cursor: rows.length ? rows[rows.length - 1]?.seq : cursor,
 							hasMore: false,
+							...serverTime(),
 						},
 					},
 				});
@@ -210,9 +213,12 @@ describe("sync controller", () => {
 		});
 		await sync.signUp("http://localhost:3000", "Ana", "ana@example.com", "secret123");
 		server.tokens.clear();
+		store.getState().actions.createTask({ title: "Unsent" });
 		await sync.syncNow();
 		expect(sync.getState().status).toBe("signed-out");
 		expect(sync.getState().error).toBe("auth");
+		// Lost authentication stops tracking (D57); signing in again re-sends everything.
+		expect(store.getState().sync).toMatchObject({ tracking: false, pending: {} });
 		sync.stop();
 	});
 
@@ -234,5 +240,139 @@ describe("sync controller", () => {
 		expect(sync.getState().error).toBe("network");
 		expect(sync.getState().user).not.toBeNull();
 		sync.stop();
+	});
+});
+
+describe("sync controller v2 (spec §2.7, D57)", () => {
+	const URL = "http://localhost:3000";
+
+	test("sign-in starts tracking and sends everything; sign-out stops tracking and forgets pending", async () => {
+		const server = fakeHttpServer();
+		const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+		const { actions } = store.getState();
+		const offline = actions.createHabit({ name: "Made offline" });
+		expect(store.getState().sync).toMatchObject({ tracking: false, pending: {} });
+
+		const sync = createSyncController({
+			store,
+			sessionStorage: createMemoryStorage(),
+			fetch: server.fetch,
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		await sync.signUp(URL, "Ana", "ana@example.com", "secret123");
+		expect(store.getState().sync.tracking).toBe(true);
+		expect(server.docs.has(`u1/habits/${offline.id}`)).toBe(true);
+		const task = actions.createTask({ title: "Online" });
+		expect(store.getState().sync.pending).toEqual({ [`tasks/${task.id}`]: true });
+
+		await sync.signOut();
+		expect(store.getState().sync).toMatchObject({
+			tracking: false,
+			pending: {},
+			cursor: 0,
+			lastSyncedAt: null,
+		});
+		actions.updateTask(task.id, { title: "Signed out" });
+		expect(store.getState().sync.pending).toEqual({});
+
+		// Signing in again (same account) marks everything pending once more.
+		await sync.signIn(URL, "ana@example.com", "secret123");
+		expect(store.getState().sync).toMatchObject({ tracking: true, pending: {} });
+		expect(server.docs.get(`u1/tasks/${task.id}`)?.data.title).toBe("Signed out");
+		sync.stop();
+	});
+
+	test("a saved session from a build that didn't track pending keys starts tracking on start", async () => {
+		const server = fakeHttpServer();
+		const session = await createRemoteClient(URL, server.fetch).signUp({
+			name: "Ana",
+			email: "ana@example.com",
+			password: "secret123",
+		});
+		const sessionStorage = createMemoryStorage({
+			"atomic-sync-session": JSON.stringify({ serverUrl: URL, ...session }),
+		});
+		const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+		const habit = store.getState().actions.createHabit({ name: "Untracked" });
+		const sync = createSyncController({
+			store,
+			sessionStorage,
+			fetch: server.fetch,
+			intervalMs: 0,
+		});
+		await sync.start();
+		expect(store.getState().sync.tracking).toBe(true);
+		expect(server.docs.has(`u1/habits/${habit.id}`)).toBe(true);
+		sync.stop();
+	});
+
+	test("with Sync journal off, journal entries stay pending on this device", async () => {
+		const server = fakeHttpServer();
+		const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+		const sync = createSyncController({
+			store,
+			sessionStorage: createMemoryStorage(),
+			fetch: server.fetch,
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		await sync.signUp(URL, "Ana", "ana@example.com", "secret123");
+		store.getState().actions.updateSettings({ syncJournal: false });
+		store.setState((s) => ({
+			data: {
+				...s.data,
+				journal: {
+					j1: {
+						id: "j1",
+						createdAt: 1,
+						updatedAt: 1,
+						deletedAt: null,
+						kind: "note",
+						date: "2026-10-15",
+						identityId: null,
+						habitId: null,
+						answers: { text: "Private" },
+						rating: null,
+						difficulty: null,
+						range: null,
+						contract: null,
+						pinned: false,
+					},
+				},
+			},
+			sync: { ...s.sync, pending: { "journal/j1": true } },
+		}));
+		const result = await sync.syncNow();
+		expect(result?.localOnly).toBe(1);
+		expect(result?.heldBack).toBe(0);
+		expect(server.docs.has("u1/journal/j1")).toBe(false);
+		expect(store.getState().sync.pending).toEqual({ "journal/j1": true });
+
+		store.getState().actions.updateSettings({ syncJournal: true });
+		await sync.syncNow();
+		expect(server.docs.has("u1/journal/j1")).toBe(true);
+		sync.stop();
+	});
+
+	test("the server clock is adopted when the skew exceeds 2 minutes", async () => {
+		for (const [offset, expected] of [
+			[60 * 60_000, true],
+			[30_000, false],
+		] as const) {
+			const server = fakeHttpServer({ clockOffsetMs: offset });
+			const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0 });
+			const sync = createSyncController({
+				store,
+				sessionStorage: createMemoryStorage(),
+				fetch: server.fetch,
+				intervalMs: 0,
+			});
+			await sync.signUp(URL, "Ana", "ana@example.com", "secret123");
+			const applied = store.getState().sync.clockOffsetMs;
+			if (expected) expect(Math.abs(applied - offset)).toBeLessThan(5_000);
+			else expect(applied).toBe(0);
+			sync.stop();
+		}
 	});
 });

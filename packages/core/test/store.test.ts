@@ -1,18 +1,33 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { buildAgenda, identityStats, insightsSummary } from "../src/agenda";
 import { addDays, toDayKey } from "../src/dates";
 import { buildLogIndex, logsFor, streakOf } from "../src/habits";
-import { collectionSchemas, logId } from "../src/model";
+import {
+	type AtomicData,
+	COLLECTIONS,
+	type Collection,
+	EXPORT_FORMAT,
+	EXPORT_VERSION,
+	V1_COLLECTIONS,
+	collectionSchemas,
+	exportFileSchema,
+	logId,
+} from "../src/model";
 import { createMemoryStorage } from "../src/storage";
 import { createAtomicStore } from "../src/store";
-import type { PullOutput, PushInput, SyncRecord, SyncTransport } from "../src/sync";
+import type { PullOutput, PushInput, SyncTransport, WireSyncRecord } from "../src/sync";
 import { runSync } from "../src/sync-engine";
+import { maximalDocuments } from "./support/v2-documents";
 
 const NOW = new Date(2026, 9, 17, 10, 0).getTime();
 const TODAY = toDayKey(NOW);
 
+/** A signed-in device: pending keys are recorded only while tracking (D57). */
 function makeStore(storage = createMemoryStorage(), now = () => NOW) {
-	return createAtomicStore({ storage, now, debounceMs: 0 });
+	const store = createAtomicStore({ storage, now, debounceMs: 0 });
+	store.getState().actions.setTracking(true);
+	return store;
 }
 
 describe("store", () => {
@@ -176,7 +191,7 @@ describe("store", () => {
 
 /** In-memory server implementing the protocol (mirrors apps/server). */
 function fakeServer() {
-	const docs = new Map<string, SyncRecord & { seq: number }>();
+	const docs = new Map<string, WireSyncRecord & { seq: number }>();
 	let seq = 0;
 	const transport: SyncTransport = {
 		async push({ records }: PushInput) {
@@ -251,6 +266,7 @@ describe("sync engine", () => {
 			now: () => ++tick,
 			debounceMs: 0,
 		});
+		store2.getState().actions.setTracking(true);
 		const h2 = store2.getState().actions.createHabit({ name: "Read" });
 		await runSync(store2, {
 			push: async (input) => {
@@ -272,7 +288,243 @@ describe("sync engine", () => {
 			.actions.applyRemote([
 				{ collection: "habits", id: "x", updatedAt: 1, deletedAt: null, data: { name: "" } },
 			]);
-		expect(changed).toBe(0);
+		expect(changed.applied).toBe(0);
 		expect(addDays(TODAY, 0)).toBe(TODAY);
+	});
+});
+
+// ── Export file v2 (spec §2.8, D6, D53) ──
+
+/**
+ * The v1 build's envelope, frozen here: `version: z.literal(1)` and typed
+ * arrays of the five v1 collections. A v1 client parses backups with it.
+ */
+const v1ExportFileSchema = z.object({
+	format: z.literal(EXPORT_FORMAT),
+	version: z.literal(1),
+	exportedAt: z.number(),
+	data: z.object({
+		habits: z.array(collectionSchemas.habits).default([]),
+		logs: z.array(collectionSchemas.logs).default([]),
+		tasks: z.array(collectionSchemas.tasks).default([]),
+		identities: z.array(collectionSchemas.identities).default([]),
+		scorecard: z.array(collectionSchemas.scorecard).default([]),
+	}),
+});
+
+/** A backup written by a v1 build. */
+const v1Backup = () => ({
+	format: EXPORT_FORMAT,
+	version: 1,
+	exportedAt: NOW,
+	settings: { displayName: "Ana", theme: "dark" },
+	data: {
+		habits: [
+			{
+				id: "h-legacy",
+				name: "Read",
+				emoji: "✨",
+				identityId: "i1",
+				startDate: "2026-01-01",
+				createdAt: NOW - 10,
+				updatedAt: NOW - 10,
+			},
+		],
+		logs: [
+			{
+				id: "h-legacy:2026-10-16",
+				habitId: "h-legacy",
+				date: "2026-10-16",
+				count: 1,
+				createdAt: NOW - 5,
+				updatedAt: NOW - 5,
+			},
+		],
+		tasks: [],
+		identities: [
+			{
+				id: "i1",
+				statement: "I am a reader",
+				emoji: "📚",
+				createdAt: NOW - 20,
+				updatedAt: NOW - 20,
+			},
+		],
+		scorecard: [],
+	},
+});
+
+/** A store holding every maximal v2 document (as if pulled). */
+function fullStore() {
+	const store = makeStore();
+	const docs = maximalDocuments();
+	store.getState().actions.applyRemote(
+		COLLECTIONS.flatMap((collection) =>
+			docs[collection].map((doc) => ({
+				collection,
+				id: doc.id as string,
+				updatedAt: doc.updatedAt as number,
+				deletedAt: (doc.deletedAt as number | null) ?? null,
+				data: doc,
+			})),
+		),
+		{ reconcile: false },
+	);
+	return store;
+}
+
+const live = (data: AtomicData, collection: Collection) =>
+	Object.values(data[collection] as Record<string, { id: string; deletedAt: number | null }>)
+		.filter((r) => !r.deletedAt)
+		.map((r) => r.id)
+		.sort();
+
+describe("export file v2", () => {
+	test("exportData writes version 2 with every collection, and the file round-trips exactly", () => {
+		const a = fullStore();
+		const file = JSON.parse(JSON.stringify(a.getState().actions.exportData()));
+		expect(file.version).toBe(EXPORT_VERSION);
+		expect(EXPORT_VERSION).toBe(2);
+		expect(Object.keys(file.data).sort()).toEqual([...COLLECTIONS].sort());
+		for (const collection of COLLECTIONS) {
+			expect(file.data[collection].length).toBe(Object.keys(a.getState().data[collection]).length);
+		}
+		const b = makeStore();
+		const result = b.getState().actions.importData(file);
+		const total = COLLECTIONS.reduce((n, c) => n + file.data[c].length, 0);
+		expect(result).toEqual({ ok: true, imported: total, skipped: 0 });
+		expect(b.getState().data).toEqual(a.getState().data);
+		// Replace into a fresh store: same documents, re-stamped as fresh writes.
+		const c = makeStore();
+		expect(c.getState().actions.importData(file, "replace")).toEqual({
+			ok: true,
+			imported: total,
+			skipped: 0,
+		});
+		for (const collection of COLLECTIONS) {
+			expect(live(c.getState().data, collection)).toEqual(live(a.getState().data, collection));
+		}
+	});
+
+	test("a v1 backup imports: records are upgraded and auto icons derived", () => {
+		const store = makeStore();
+		const result = store.getState().actions.importData(v1Backup());
+		expect(result).toEqual({ ok: true, imported: 3, skipped: 0 });
+		const habit = store.getState().data.habits["h-legacy"];
+		expect(habit).toMatchObject({ emojiAuto: true, emoji: "📚", goalHistory: [], tracker: null });
+		expect(store.getState().data.logs["h-legacy:2026-10-16"]?.count).toBe(1);
+		expect(store.getState().settings).toMatchObject({
+			displayName: "Ana",
+			theme: "dark",
+			onboarded: true,
+		});
+	});
+
+	test("replace-importing a v1 backup replaces only the v1 collections", () => {
+		const store = fullStore();
+		const before = store.getState().data;
+		const file = v1Backup();
+		// A (malformed) v1 file can't reach the v2 collections either.
+		(file.data as Record<string, unknown>).journal = [];
+		const result = store.getState().actions.importData(file, "replace");
+		expect(result.ok).toBe(true);
+		const after = store.getState().data;
+		for (const collection of ["taskLogs", "journal", "trackerEntries", "translations"] as const) {
+			expect(after[collection]).toBe(before[collection]);
+		}
+		expect(live(after, "habits")).toEqual(["h-legacy"]);
+		expect(live(after, "tasks")).toEqual([]);
+		expect(live(after, "identities")).toEqual(["i1"]);
+		// What the backup lacks is tombstoned, so other devices follow.
+		for (const id of Object.keys(before.tasks)) {
+			expect(after.tasks[id]?.deletedAt).toBe(NOW);
+			expect(store.getState().sync.pending[`tasks/${id}`]).toBe(true);
+		}
+	});
+
+	test("replace-importing a v2 backup replaces every collection", () => {
+		const store = fullStore();
+		const file = {
+			format: EXPORT_FORMAT,
+			version: 2,
+			exportedAt: NOW,
+			data: { journal: [maximalDocuments().journal[1]] },
+		};
+		expect(store.getState().actions.importData(file, "replace")).toEqual({
+			ok: true,
+			imported: 1,
+			skipped: 0,
+		});
+		const { data } = store.getState();
+		expect(live(data, "journal")).toEqual(["journal-future-kind"]);
+		expect(data.journal["journal-1"]?.deletedAt).toBe(NOW);
+		for (const collection of V1_COLLECTIONS) expect(live(data, collection)).toEqual([]);
+		expect(live(data, "trackerEntries")).toEqual([]);
+	});
+
+	test("records are validated one by one: invalid ones are skipped and counted, unknown fields kept", () => {
+		const store = makeStore();
+		const file = {
+			format: EXPORT_FORMAT,
+			version: 2,
+			exportedAt: NOW,
+			data: {
+				tasks: [
+					{ id: "ok", title: "Fine", createdAt: 1, updatedAt: 1, futureField: { nested: [1] } },
+					{ id: "bad", title: "", createdAt: 1, updatedAt: 1 },
+					"not a record",
+					null,
+					{ id: "dup", title: "Old", createdAt: 1, updatedAt: 1 },
+					{ id: "dup", title: "New", createdAt: 1, updatedAt: 2 },
+				],
+				journal: [{ id: "j", kind: "evidence", date: "2026-02-30", createdAt: 1, updatedAt: 1 }],
+			},
+		};
+		expect(store.getState().actions.importData(file)).toEqual({
+			ok: true,
+			imported: 2,
+			skipped: 4,
+		});
+		const { tasks } = store.getState().data;
+		expect((tasks.ok as Record<string, unknown>).futureField).toEqual({ nested: [1] });
+		expect(tasks.ok).toMatchObject({ priority: 0, repeat: null, lang: null });
+		expect(tasks.dup?.title).toBe("New");
+		expect(tasks.bad).toBeUndefined();
+		// The envelope is still checked as a whole.
+		expect(store.getState().actions.importData({ ...file, version: 3 })).toEqual({
+			ok: false,
+			imported: 0,
+			skipped: 0,
+			error: "invalid-file",
+		});
+		expect(store.getState().actions.importData({ ...file, data: { tasks: {} } }).ok).toBe(false);
+	});
+
+	test("merge imports mark pending only while tracking (D57)", () => {
+		const offline = createAtomicStore({
+			storage: createMemoryStorage(),
+			now: () => NOW,
+			debounceMs: 0,
+		});
+		offline.getState().actions.importData(v1Backup());
+		expect(offline.getState().sync.pending).toEqual({});
+		const online = makeStore();
+		online.getState().actions.importData(v1Backup());
+		expect(Object.keys(online.getState().sync.pending).sort()).toEqual([
+			"habits/h-legacy",
+			"identities/i1",
+			"logs/h-legacy:2026-10-16",
+		]);
+	});
+
+	test("a v1 client can't import a v2 backup; v1 backups satisfy both schemas", () => {
+		const v2File = JSON.parse(JSON.stringify(fullStore().getState().actions.exportData()));
+		expect(v1ExportFileSchema.safeParse(v2File).success).toBe(false);
+		// Even an otherwise v1-compatible file is refused once it says version 2.
+		const minimal = { format: EXPORT_FORMAT, version: 2, exportedAt: NOW, data: {} };
+		expect(v1ExportFileSchema.safeParse(minimal).success).toBe(false);
+		expect(exportFileSchema.safeParse(minimal).success).toBe(true);
+		expect(v1ExportFileSchema.safeParse(v1Backup()).success).toBe(true);
+		expect(exportFileSchema.safeParse(v1Backup()).success).toBe(true);
 	});
 });

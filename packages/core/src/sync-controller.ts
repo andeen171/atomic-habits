@@ -1,3 +1,4 @@
+import { localOnlyCollections } from "./actions/journal";
 import { RemoteError, type RemoteUser, createRemoteClient, normalizeServerUrl } from "./remote";
 import type { KeyValueStorage } from "./storage";
 import type { AtomicStore } from "./store";
@@ -110,15 +111,49 @@ export function createSyncController({
 		await currentRound(store)?.catch(() => undefined);
 	};
 
+	/** Signed in: record pending keys from now on, and push everything once (D57). */
+	const startTracking = () => {
+		store.getState().actions.setTracking(true);
+		markAllPending(store);
+	};
+
+	/** Signed out (or the session was lost): stop recording pending keys and forget them (D57). */
+	const stopTracking = () => {
+		const { actions } = store.getState();
+		actions.setTracking(false);
+		actions.setSyncMeta({ cursor: 0, lastSyncedAt: null });
+	};
+
+	/**
+	 * The server clock from the round (spec §2.7): `stamp()` uses the offset
+	 * when it exceeds 2 min, and records refused as `future-timestamp` are
+	 * re-stamped on the corrected clock (the store change schedules the next
+	 * push).
+	 */
+	const adoptClock = (result: SyncResult) => {
+		const { actions } = store.getState();
+		if (result.clockOffsetMs !== undefined) actions.setClockOffset(result.clockOffsetMs);
+		if (result.futureRejected.length) {
+			actions.restampFuture(
+				result.futureRejected,
+				Date.now() + store.getState().sync.clockOffsetMs,
+			);
+		}
+	};
+
 	const syncNow = async (): Promise<SyncResult | null> => {
 		if (!session) return null;
 		const current = session;
 		setState({ status: "syncing", error: null });
 		try {
 			const client = createRemoteClient(current.serverUrl, fetchImpl);
-			const result = await runSync(store, client.transport(current.token));
+			const result = await runSync(store, client.transport(current.token), {
+				// The "Sync journal" switch (D19): entries written here stay here.
+				localOnly: localOnlyCollections(store.getState().settings),
+			});
 			// The user switched or left the account meanwhile: this result is stale.
 			if (session !== current) return null;
+			adoptClock(result);
 			setState({ status: "idle", error: null, lastSyncedAt: store.getState().sync.lastSyncedAt });
 			return result;
 		} catch (error) {
@@ -126,6 +161,7 @@ export function createSyncController({
 			const code = classify(error);
 			if (code === "auth") {
 				await saveSession(null);
+				stopTracking();
 				setState({ status: "signed-out", user: null, error: "auth" });
 			} else {
 				setState({ status: "error", error: code });
@@ -174,13 +210,12 @@ export function createSyncController({
 		try {
 			const result = await run(client);
 			await whenHydrated(store);
-			const previous = store.getState().settings.serverUrl;
-			const sameAccount = session?.user.id === result.user.id && previous === url;
 			// Let a round for the previous session finish before resetting sync state.
 			await settle();
 			await saveSession({ serverUrl: url, token: result.token, user: result.user });
 			store.getState().actions.updateSettings({ serverUrl: url });
-			if (!sameAccount) markAllPending(store);
+			// Sign-in always marks everything pending (D57); LWW makes re-sending harmless.
+			startTracking();
 			setState({ user: result.user, serverUrl: url });
 			watch();
 			await syncNow();
@@ -200,6 +235,9 @@ export function createSyncController({
 			const saved = await loadSession();
 			if (!saved) return;
 			session = saved;
+			await whenHydrated(store);
+			// A session saved by a build that didn't track pending keys (D57).
+			if (!store.getState().sync.tracking) startTracking();
 			setState({ status: "idle", user: saved.user, serverUrl: saved.serverUrl });
 			watch();
 			await syncNow();
@@ -218,7 +256,7 @@ export function createSyncController({
 			await settle();
 			if (current) await createRemoteClient(current.serverUrl, fetchImpl).signOut(current.token);
 			await whenHydrated(store);
-			markAllPending(store);
+			stopTracking();
 			setState({ status: "signed-out", user: null, error: null, lastSyncedAt: null });
 		},
 		syncNow,

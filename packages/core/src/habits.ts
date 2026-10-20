@@ -10,7 +10,8 @@ import {
 	toDayKey,
 	weekdayOf,
 } from "./dates";
-import type { Habit, HabitLog } from "./model";
+import type { Habit, HabitLog, Schedule } from "./model";
+import { trackerVotesPerDay } from "./trackers/meta";
 
 /**
  * Habit science: schedules, day states, streaks ("never miss twice"),
@@ -63,25 +64,96 @@ export function isActiveOn(habit: Habit, day: DayKey): boolean {
 	return true;
 }
 
+/** Whether a schedule asks for work on this weekday (weekdays: listed days; others: any day). */
+export function scheduledBy(schedule: Schedule, day: DayKey): boolean {
+	if (schedule.type === "weekdays") return schedule.days.includes(weekdayOf(day));
+	return true;
+}
+
 /** Whether the habit expects work on this weekday (weekly habits: any day). */
 export function isScheduledOn(habit: Habit, day: DayKey): boolean {
 	if (!isActiveOn(habit, day)) return false;
-	const { schedule } = habit;
-	if (schedule.type === "weekdays") return schedule.days.includes(weekdayOf(day));
-	return true;
+	return scheduledBy(habit.schedule, day);
+}
+
+/** The schedule with weekday lists sorted and de-duplicated (unknown keys kept). */
+export function normalizeSchedule(s: Schedule): Schedule {
+	if (s.type !== "weekdays") return s;
+	const days = [...new Set(s.days)].sort((a, b) => a - b);
+	return { ...s, days };
+}
+
+/** Canonical form of a schedule's meaning (type, days or times); ignores unknown keys. */
+function scheduleKey(s: Schedule): string {
+	if (s.type === "weekdays") {
+		return `weekdays:${[...new Set(s.days)].sort((a, b) => a - b).join(",")}`;
+	}
+	if (s.type === "weekly") return `weekly:${s.times}`;
+	return s.type;
+}
+
+/** Same target and same schedule (weekday order ignored). */
+export function sameGoal(
+	a: { target: number; schedule: Schedule },
+	b: { target: number; schedule: Schedule },
+): boolean {
+	return a.target === b.target && scheduleKey(a.schedule) === scheduleKey(b.schedule);
+}
+
+/**
+ * The goal in effect on `day` (Annex H §2.1): the `goalHistory` entry with the
+ * smallest `until` after the day, else the current goal. History entries are
+ * appended by the store when the target or schedule changes, so past days keep
+ * the goal they were logged against.
+ */
+export function goalOn(
+	habit: Pick<Habit, "target" | "schedule" | "goalHistory">,
+	day: DayKey,
+): { target: number; schedule: Schedule } {
+	const history = habit.goalHistory;
+	if (history?.length) {
+		let best: { until: DayKey; target: number; schedule: Schedule } | null = null;
+		for (const entry of history) {
+			if (entry.until > day && (best === null || entry.until < best.until)) best = entry;
+		}
+		if (best) return { target: best.target, schedule: best.schedule };
+	}
+	return { target: habit.target, schedule: habit.schedule };
+}
+
+/** The daily target in effect on `day` (fast path when there is no history). */
+export function targetOn(
+	habit: Pick<Habit, "target" | "schedule" | "goalHistory">,
+	day: DayKey,
+): number {
+	if (!habit.goalHistory?.length) return habit.target;
+	return goalOn(habit, day).target;
+}
+
+/**
+ * Identity votes for one day: none without reps; one for trackers that vote
+ * per day (sum measures, Annex K §1.6); otherwise the reps, capped at that
+ * day's target (D42).
+ */
+export function dayVotes(habit: Habit, date: DayKey, count: number): number {
+	if (count <= 0) return 0;
+	if (trackerVotesPerDay(habit, date)) return 1;
+	return Math.min(count, targetOn(habit, date));
 }
 
 export function countOf(log: HabitLog | undefined): number {
 	return log ? log.count : 0;
 }
 
+/** Done for the day: reps reached that day's target (`targetOn(log.date)`). */
 export function isDone(habit: Habit, log: HabitLog | undefined): boolean {
-	return habit.kind === "build" && countOf(log) >= habit.target;
+	return habit.kind === "build" && !!log && log.count >= targetOn(habit, log.date);
 }
 
 export function progressOf(habit: Habit, log: HabitLog | undefined): number {
 	if (habit.kind === "break") return countOf(log) > 0 ? 0 : 1;
-	return Math.min(1, countOf(log) / habit.target);
+	if (!log) return 0;
+	return Math.min(1, log.count / targetOn(habit, log.date));
 }
 
 export type DayState =
@@ -107,7 +179,7 @@ export function dayState(
 	if (habit.kind === "break") return countOf(log) > 0 ? "slipped" : "clean";
 	if (log?.skipped) return "skipped";
 	const count = countOf(log);
-	if (count >= habit.target) return "done";
+	if (count >= targetOn(habit, day)) return "done";
 	if (habit.schedule.type === "weekly") {
 		if (count > 0) return "partial";
 		return day === today ? "pending" : "rest";
@@ -133,7 +205,7 @@ function dailyPeriods(habit: Habit, logs: HabitLogs, today: DayKey): Period[] {
 		if (!isScheduledOn(habit, day)) continue;
 		const log = logs.get(day);
 		let outcome: Outcome;
-		if (countOf(log) >= habit.target) outcome = "done";
+		if (countOf(log) >= targetOn(habit, day)) outcome = "done";
 		else if (log?.skipped) outcome = "neutral";
 		else if (day === today) outcome = "pending";
 		else outcome = "missed";
@@ -155,7 +227,7 @@ function weekDoneCount(
 		const day = addDays(weekStart, i);
 		if (day > until) break;
 		if (day === excludeDay || !isActiveOn(habit, day)) continue;
-		if (countOf(logs.get(day)) >= habit.target) done++;
+		if (countOf(logs.get(day)) >= targetOn(habit, day)) done++;
 	}
 	return done;
 }
@@ -374,7 +446,7 @@ export function votesOf(habit: Habit, logs: HabitLogs, today: DayKey): number {
 	let votes = 0;
 	for (const log of logs.values()) {
 		if (log.date < habit.startDate || log.date > end) continue;
-		votes += Math.min(log.count, habit.target);
+		votes += dayVotes(habit, log.date, log.count);
 	}
 	return votes;
 }
@@ -406,7 +478,7 @@ export function weekProgress(
 		const d = addDays(weekStart, i);
 		if (!isScheduledOn(habit, d)) continue;
 		required++;
-		if (countOf(logs.get(d)) >= habit.target) done++;
+		if (countOf(logs.get(d)) >= targetOn(habit, d)) done++;
 	}
 	return { done, required };
 }
@@ -491,7 +563,11 @@ export function habitStats(
 	if (habit.kind === "build") {
 		const end = lastActiveDay(habit, today);
 		for (const log of logs.values()) {
-			if (log.count >= habit.target && log.date >= habit.startDate && log.date <= end) {
+			if (
+				log.count >= targetOn(habit, log.date) &&
+				log.date >= habit.startDate &&
+				log.date <= end
+			) {
 				totalDays++;
 				if (!lastDone || log.date > lastDone) lastDone = log.date;
 			}
@@ -527,7 +603,7 @@ export function liveHabits(habits: Record<string, Habit>): Habit[] {
 	return Object.values(habits).filter((h) => !h.deletedAt && !h.archivedAt);
 }
 
-/** "1% better every day": 1.01^n and 0.99^n for the compounding chart. */
-export function compounding(days: number): { better: number; worse: number } {
-	return { better: 1.01 ** days, worse: 0.99 ** days };
+/** "1% better every day": 1.01^n, staying the same (1×) and 0.99^n for the compounding chart. */
+export function compounding(days: number): { better: number; same: 1; worse: number } {
+	return { better: 1.01 ** days, same: 1, worse: 0.99 ** days };
 }

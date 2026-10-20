@@ -1,3 +1,11 @@
+import { cloudEn } from "./v2/cloud.en";
+import { habitsEn } from "./v2/habits.en";
+import { journalEn } from "./v2/journal.en";
+import { serverEn } from "./v2/server.en";
+import { sharedEn } from "./v2/shared.en";
+import { tasksEn } from "./v2/tasks.en";
+import { trackersEn } from "./v2/trackers.en";
+
 /**
  * English source strings. Keys are flat and dot-namespaced; `{name}` marks an
  * interpolation; keys ending in `.one` / `.other` are plural pairs used via
@@ -249,7 +257,7 @@ export const en = {
 	"form.step.whatBreak": "What do you want to stop?",
 	"form.step.identity": "Who do you want to become?",
 	"form.step.identityHint":
-		"The goal is not to read a book, it's to become a reader. Link this habit to an identity.",
+		"The goal is not to read a book, it's to become a reader. Start with who you want to become — the habit takes that identity's icon.",
 	"form.step.obvious": "Make it obvious",
 	"form.step.obviousHint": "Decide when and where. Vague plans fail; specific ones happen.",
 	"form.step.invisible": "Make it invisible",
@@ -377,7 +385,7 @@ export const en = {
 	"insights.activeHabits": "Active habits",
 	"insights.compoundTitle": "1% better every day",
 	"insights.compoundBody":
-		"You've been building your system for {days}. Improving 1% a day compounds to {better}× — slipping 1% shrinks to {worse}×.",
+		"You've been building your system for {days}. Improving 1% a day compounds to {better}×. Staying the same keeps you at 1×. Slipping 1% a day shrinks you to {worse}×.",
 	"insights.compoundBetter": "1% better",
 	"insights.compoundWorse": "1% worse",
 	"insights.yearTitle": "Your year in habits",
@@ -438,11 +446,11 @@ export const en = {
 	"settings.demo": "Load sample data",
 	"settings.demoHint": "Replace your data with a realistic example.",
 	"settings.demoConfirm":
-		"This replaces all your current habits, tasks and history with sample data.",
+		"This replaces all your current habits, tasks, journal and history with sample data.",
 	"settings.reset": "Reset all data",
 	"settings.resetHint": "Delete everything on this device.",
 	"settings.resetConfirm":
-		"This deletes all habits, history, tasks and settings on this device. Export a backup first if you want to keep them.",
+		"This deletes all habits, history, tasks, journal and settings on this device. Export a backup first if you want to keep them.",
 	"settings.about": "About",
 	"settings.version": "Version {version}",
 	"settings.shortcuts": "Keyboard shortcuts",
@@ -528,6 +536,15 @@ export const en = {
 	"error.reload": "Reload",
 	"notFound.title": "Page not found",
 	"notFound.body": "This page wandered off. Let's get you back to today.",
+
+	// v2 per-area catalogs (spec §7). Never define one of their keys above.
+	...sharedEn,
+	...habitsEn,
+	...tasksEn,
+	...journalEn,
+	...trackersEn,
+	...cloudEn,
+	...serverEn,
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -181,5 +181,10 @@ export function previewHabit(draft: HabitDraft, fallbackName: string, today: Day
 		reward: orNull(input.reward),
 		environment: orNull(input.environment),
 		why: orNull(input.why),
+		emojiAuto: false,
+		goalHistory: [],
+		levelUp: null,
+		tracker: null,
+		lang: null,
 	};
 }

@@ -1,119 +1,23 @@
-import {
-	type ReactNode,
-	createContext,
-	createElement,
-	useContext,
-	useEffect,
-	useMemo,
-	useState,
-	useSyncExternalStore,
-} from "react";
-import { useStore } from "zustand";
+import { useMemo, useSyncExternalStore } from "react";
 import { type DayAgenda, type IdentityStats, buildAgenda, identityStats } from "./agenda";
-import { type DayKey, toDayKey } from "./dates";
-import {
-	type HabitLogs,
-	type HabitStats,
-	type LogIndex,
-	buildLogIndex,
-	habitStats,
-	logsFor,
-	sortHabits,
-} from "./habits";
-import { type Locale, type Translator, createTranslator, resolveLocale } from "./i18n";
-import type { Habit, Identity, ScorecardItem, Settings, Task } from "./model";
-import type { AtomicActions, AtomicState, AtomicStore } from "./store";
+import type { DayKey } from "./dates";
+import { type HabitLogs, type HabitStats, habitStats, logsFor, sortHabits } from "./habits";
+import type { Habit, Identity, ScorecardItem, Task } from "./model";
+import { useAtomic, useLogIndex, useToday } from "./react-context";
 import type { SyncController, SyncControllerState } from "./sync-controller";
 import { liveTasks, sortTasks } from "./tasks";
 
 /**
- * React bindings. Selectors passed to `useAtomic` must return stable
- * references (raw slices of state); derive arrays with the hooks below,
- * which memoise on those slices.
+ * React bindings (`@atomic/core/react`). The provider and base hooks live in
+ * `react-context.ts`; per-area hooks in `react-*.ts` and `trackers/react.ts`.
+ * All of them are exported here, and only here (spec §3, D52).
+ *
+ * Selectors passed to `useAtomic` must return stable references (raw slices
+ * of state); derive arrays with the hooks below, which memoise on those
+ * slices. Indexes come from `indexes.ts`, shared by every hook.
  */
 
-type ExtraMessages = Partial<Record<Locale, Record<string, string>>>;
-
-interface AtomicContextValue {
-	store: AtomicStore;
-	deviceLocales: readonly string[];
-	messages?: ExtraMessages;
-}
-
-const AtomicContext = createContext<AtomicContextValue | null>(null);
-
-export interface AtomicProviderProps {
-	store: AtomicStore;
-	/** Device language tags, e.g. navigator.languages or expo-localization. */
-	deviceLocales?: readonly string[];
-	/** App-specific strings merged over the shared catalog. */
-	messages?: ExtraMessages;
-	children?: ReactNode;
-}
-
-export function AtomicProvider({ store, deviceLocales, messages, children }: AtomicProviderProps) {
-	const value = useMemo(
-		() => ({ store, deviceLocales: deviceLocales ?? [], messages }),
-		[store, deviceLocales, messages],
-	);
-	return createElement(AtomicContext.Provider, { value }, children);
-}
-
-function useAtomicContext(): AtomicContextValue {
-	const ctx = useContext(AtomicContext);
-	if (!ctx) throw new Error("Atomic hooks must be used inside <AtomicProvider>");
-	return ctx;
-}
-
-export function useAtomicStore(): AtomicStore {
-	return useAtomicContext().store;
-}
-
-export function useAtomic<T>(selector: (state: AtomicState) => T): T {
-	return useStore(useAtomicStore(), selector);
-}
-
-export function useActions(): AtomicActions {
-	return useAtomic((s) => s.actions);
-}
-
-export function useSettings(): Settings {
-	return useAtomic((s) => s.settings);
-}
-
-export function useHydrated(): boolean {
-	return useAtomic((s) => s.hydrated);
-}
-
-/** Current local day; rolls over at midnight and after the device wakes. */
-export function useToday(): DayKey {
-	const [today, setToday] = useState(() => toDayKey());
-	useEffect(() => {
-		const id = setInterval(() => {
-			const next = toDayKey();
-			setToday((prev) => (prev === next ? prev : next));
-		}, 30_000);
-		return () => clearInterval(id);
-	}, []);
-	return today;
-}
-
-export function useLocale(): Locale {
-	const { deviceLocales } = useAtomicContext();
-	const setting = useAtomic((s) => s.settings.locale);
-	return resolveLocale(setting, deviceLocales);
-}
-
-export function useI18n(): Translator {
-	const locale = useLocale();
-	const { messages } = useAtomicContext();
-	return useMemo(() => createTranslator(locale, messages?.[locale]), [locale, messages]);
-}
-
-export function useLogIndex(): LogIndex {
-	const logs = useAtomic((s) => s.data.logs);
-	return useMemo(() => buildLogIndex(logs), [logs]);
-}
+export * from "./react-context";
 
 export function useHabitLogs(habitId: string): HabitLogs {
 	const index = useLogIndex();
@@ -237,3 +141,10 @@ export function useIdentityStats(): IdentityStats[] {
 export function useSyncState(controller: SyncController): SyncControllerState {
 	return useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
 }
+
+// Per-area hook modules (spec §3, D52): exported here only, never from `index.ts`.
+export * from "./react-cloud";
+export * from "./react-journal";
+export * from "./react-month";
+export * from "./react-tasks";
+export * from "./trackers/react";
