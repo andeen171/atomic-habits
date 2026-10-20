@@ -1,8 +1,15 @@
+import { TranslatedText } from "@/components/ai/translated-text";
 import { BlueprintCard } from "@/components/habit/blueprint-card";
 import { HabitRingButton } from "@/components/habit/habit-ring";
 import { HeatLegend, Heatmap } from "@/components/habit/heatmap";
 import { MonthCalendar } from "@/components/habit/month-calendar";
+import { SetupTasksCard } from "@/components/habit/setup-tasks-card";
+import { HabitJournalSection } from "@/components/journal/habit-journal-section";
 import { Page } from "@/components/layout/page";
+import { TrackerEntriesList } from "@/components/trackers/tracker-entries-list";
+import { TrackerLogControl } from "@/components/trackers/tracker-log-control";
+import { TrackerOverflowItems } from "@/components/trackers/tracker-menu-items";
+import { TrackerPanel } from "@/components/trackers/tracker-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Tag } from "@/components/ui/chip";
@@ -24,6 +31,7 @@ import {
 	heatColor,
 	intensityOf,
 	isActiveOn,
+	isTrackerActive,
 	progressLabel,
 	scheduleLabel,
 } from "@atomic/core";
@@ -34,6 +42,7 @@ import {
 	useHabitLogs,
 	useHabitStats,
 	useIdentity,
+	useLevelUpSuggestion,
 	useToday,
 } from "@atomic/core/react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -63,6 +72,9 @@ function HabitDetailScreen() {
 	const habit = useHabit(habitId);
 	const stats = useHabitStats(habit);
 	const identity = useIdentity(habit?.identityId);
+	// The level-up card [T1] shows when this is non-null; the journal section
+	// then holds back its "strong" check-in prompt (D9).
+	const levelUp = useLevelUpSuggestion(habit);
 
 	if (!habit || !stats) {
 		return (
@@ -90,21 +102,30 @@ function HabitDetailScreen() {
 				{t("nav.habits")}
 			</Link>
 			<DetailHero habit={habit} identity={identity} />
-			<StatsGrid habit={habit} stats={stats} />
-			<HistorySection habit={habit} />
-			<div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-				<Card className="p-5">
-					<h2 className="mb-1 font-semibold text-h3 text-ink">{t("detail.calendar")}</h2>
-					<p className="mb-4 text-ink-muted text-small">{t("detail.calendarHint")}</p>
-					<CalendarSection habit={habit} />
-				</Card>
+			{/* Section order (spec §5.3, D36). */}
+			<div className="mt-6 flex flex-col gap-6">
+				<TrackerPanel habit={habit} />
+				{/* LevelUpCard variant="card" [T1] */}
+				{/* The blueprint (BlueprintBoard [T1], with SetupTaskAction [T2] in its slots). */}
 				<Card className="p-5">
 					<h2 className="mb-1 font-semibold text-h3 text-ink">{t("detail.blueprint")}</h2>
 					<p className="mb-5 text-ink-muted text-small">{t("detail.blueprintHint")}</p>
 					<BlueprintCard habit={habit} identityStatement={identity?.statement} />
 				</Card>
+				<TrackerEntriesList habit={habit} limit={5} />
+				<SetupTasksCard habit={habit} />
+				{/* lg:grid-cols-[6fr_5fr]: MonthGoalCard [T1] | StatsGrid */}
+				<StatsGrid habit={habit} stats={stats} />
+				<HistorySection habit={habit} />
+				<div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+					<Card className="p-5">
+						<h2 className="mb-1 font-semibold text-h3 text-ink">{t("detail.calendar")}</h2>
+						<p className="mb-4 text-ink-muted text-small">{t("detail.calendarHint")}</p>
+						<CalendarSection habit={habit} />
+					</Card>
+					<HabitJournalSection habit={habit} levelUpVisible={levelUp !== null} />
+				</div>
 			</div>
-			<NotesSection habit={habit} />
 		</Page>
 	);
 }
@@ -129,7 +150,13 @@ function DetailHero({ habit, identity }: { habit: Habit; identity: Identity | un
 						<HabitOverflow habit={habit} className="md:hidden" />
 					</div>
 					<div className="min-w-0 flex-1">
-						<h1 className="font-display text-ink text-title md:text-hero">{habit.name}</h1>
+						<TranslatedText
+							collection="habits"
+							entity={habit}
+							field="name"
+							as="h1"
+							className="font-display text-ink text-title md:text-hero"
+						/>
 						<p className="mt-1 text-ink-muted text-small">
 							{identity ? (
 								<>
@@ -164,7 +191,11 @@ function DetailHero({ habit, identity }: { habit: Habit; identity: Identity | un
 						</div>
 					</div>
 				</div>
-				{habit.archivedAt ? null : <LogControl habit={habit} />}
+				{habit.archivedAt ? null : isTrackerActive(habit) ? (
+					<TrackerLogControl habit={habit} />
+				) : (
+					<LogControl habit={habit} />
+				)}
 				<HabitOverflow habit={habit} className="hidden self-start md:inline-flex" />
 			</div>
 		</Card>
@@ -297,6 +328,7 @@ function HabitOverflow({ habit, className }: { habit: Habit; className?: string 
 					<MenuItem icon={habit.archivedAt ? <ArchiveRestore /> : <Archive />} onSelect={archive}>
 						{habit.archivedAt ? t("common.unarchive") : t("common.archive")}
 					</MenuItem>
+					<TrackerOverflowItems habit={habit} />
 					<MenuSeparator />
 					<MenuItem icon={<Trash />} destructive onSelect={() => setConfirmDelete(true)}>
 						{t("common.delete")}
@@ -321,7 +353,7 @@ function StatsGrid({ habit, stats }: { habit: Habit; stats: HabitStats }) {
 	const isBreak = habit.kind === "break";
 	const unitKey = stats.streak.unit === "weeks" ? "common.weeks" : "common.days";
 	return (
-		<section className="mt-6">
+		<section>
 			<div className="grid grid-cols-2 gap-3 md:grid-cols-3">
 				<StatTile label={t("detail.currentStreak")} value={t.tp(unitKey, stats.streak.current)} />
 				<StatTile label={t("detail.bestStreak")} value={t.tp(unitKey, stats.streak.best)} />
@@ -382,7 +414,7 @@ function HistorySection({ habit }: { habit: Habit }) {
 	const label = useMemo(() => `${t("detail.history")} — ${habit.name}`, [t, habit.name]);
 
 	return (
-		<Card className="mt-6">
+		<Card>
 			<CardHeader
 				title={t("detail.history")}
 				action={<HeatLegend color={color} className="hidden sm:flex" />}
@@ -405,39 +437,4 @@ function HistorySection({ habit }: { habit: Habit }) {
 function CalendarSection({ habit }: { habit: Habit }) {
 	const logs = useHabitLogs(habit.id);
 	return <MonthCalendar habit={habit} logs={logs} />;
-}
-
-function NotesSection({ habit }: { habit: Habit }) {
-	const { t } = useT();
-	const logs = useHabitLogs(habit.id);
-	const notes = useMemo(
-		() =>
-			[...logs.values()]
-				.filter((log) => log.note)
-				.sort((a, b) => b.date.localeCompare(a.date))
-				.slice(0, 20),
-		[logs],
-	);
-	return (
-		<Card className="mt-6 p-5">
-			<h2 className="mb-3 font-semibold text-h3 text-ink">{t("detail.notes")}</h2>
-			{notes.length ? (
-				<ol className="flex flex-col divide-y divide-line">
-					{notes.map((log) => (
-						<li
-							key={log.id}
-							className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:gap-6"
-						>
-							<span className="w-24 shrink-0 text-ink-subtle text-small">
-								{t.formatDayShort(log.date)}
-							</span>
-							<p className="text-ink">{log.note}</p>
-						</li>
-					))}
-				</ol>
-			) : (
-				<p className="text-ink-subtle text-small">{t("detail.noNotes")}</p>
-			)}
-		</Card>
-	);
 }

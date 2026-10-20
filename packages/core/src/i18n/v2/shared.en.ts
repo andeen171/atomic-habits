@@ -27,6 +27,13 @@ export const sharedEn = {
 
 	"app.newVersion": "A new version is ready",
 	"app.reload": "Reload",
+	// Placeholder screens of the Phase 1B scaffold (native journal, timer, writing pad).
+	"app.comingSoon": "Coming soon",
+	"app.comingSoonBody": "This part of Atomic is still being built.",
+
+	// The artifact build's own cloud copy refused a write (spec §2.10; F, Phase 1B web scaffold).
+	// Listed under cloud.* in spec §7, defined here so T5's catalog must not add it again.
+	"sync.cloudPaused": "Cloud saving paused — export a backup to keep your latest changes.",
 
 	// List formatting (`formatList`): two items, then the last of three or more.
 	"list.and.pair": "{first} and {second}",

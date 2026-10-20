@@ -1,3 +1,4 @@
+import { watchTrackerDays } from "@atomic/core";
 import { AtomicProvider } from "@atomic/core/react";
 import {
 	RouterProvider,
@@ -36,9 +37,12 @@ declare module "@tanstack/react-router" {
 
 const deviceLocales = typeof navigator !== "undefined" ? [...navigator.languages] : [];
 
-void syncController.start();
-registerServiceWorker();
+// The artifact build has no server sync (spec §2.10): its own cloud copy instead.
 if (isArtifactBuild) void connectArtifactCloud(store);
+else void syncController.start();
+// Day change: recent tracker days follow their entries again (spec §3.1).
+watchTrackerDays(store);
+registerServiceWorker();
 
 const root = document.getElementById("app");
 if (!root) throw new Error("Missing #app root element");

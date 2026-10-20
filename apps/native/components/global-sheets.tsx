@@ -1,11 +1,13 @@
 import { HabitActionsSheet } from "@/components/habit/habit-actions-sheet";
-import { ChevronRight, ListChecks, type LucideIcon, Orbit } from "@/components/icons";
+import { ChevronRight, ListChecks, type LucideIcon, NotebookPen, Orbit } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { DateChips, PriorityPicker } from "@/components/tasks/task-fields";
+import { DayEntriesSheet } from "@/components/trackers/day-entries-sheet";
+import { EntryComposerSheet } from "@/components/trackers/entry-composer-sheet";
 import { Button } from "@/components/ui/button";
 import { PressableScale } from "@/components/ui/pressable-scale";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
@@ -16,13 +18,15 @@ import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { type TextInput, View } from "react-native";
 
-/** Sheets that can open from anywhere (tab bar ⊕, long-press, quick add). */
+/** Sheets that can open from anywhere (tab bar ⊕, long-press, quick add, tracker logging). */
 export function GlobalSheets() {
 	return (
 		<>
 			<CreateSheet />
 			<TaskComposerSheet />
 			<HabitActionsSheet />
+			<EntryComposerSheet />
+			<DayEntriesSheet />
 		</>
 	);
 }
@@ -30,7 +34,8 @@ export function GlobalSheets() {
 function CreateSheet() {
 	const t = useT();
 	const open = useUI((s) => s.createOpen);
-	const { colors } = useTheme();
+	const { colors, habit: toneOf } = useTheme();
+	const journalTone = toneOf("violet");
 	return (
 		<Sheet open={open} onClose={ui.closeCreate} title={t.t("common.create")} testID="create-sheet">
 			<View style={{ gap: 12 }}>
@@ -56,6 +61,19 @@ function CreateSheet() {
 					onPress={() => {
 						ui.closeCreate();
 						setTimeout(() => ui.openComposer(toDayKey()), 160);
+					}}
+				/>
+				<CreateOption
+					icon={NotebookPen}
+					tint={journalTone.text}
+					tintBg={journalTone.soft}
+					title={t.t("create.journalEntry")}
+					hint={t.t("create.journalHint")}
+					testID="create-journal"
+					onPress={() => {
+						ui.closeCreate();
+						// No kind: the editor starts with the kind picker.
+						router.push("/journal/editor");
 					}}
 				/>
 			</View>
@@ -118,11 +136,11 @@ function TaskComposerSheet() {
 
 	useEffect(() => {
 		if (composer.open) {
-			setTitle("");
-			setDate(composer.date);
+			setTitle(composer.prefill?.title ?? "");
+			setDate(composer.prefill?.date ?? composer.date);
 			setPriority(0);
 		}
-	}, [composer.open, composer.date]);
+	}, [composer.open, composer.date, composer.prefill]);
 
 	const add = () => {
 		const value = title.trim();
@@ -149,7 +167,8 @@ function TaskComposerSheet() {
 			}
 		>
 			<View style={{ gap: 16, paddingBottom: 4 }}>
-				<TextField
+				<SmartTextField
+					field="task.title"
 					ref={input}
 					value={title}
 					onChangeText={setTitle}

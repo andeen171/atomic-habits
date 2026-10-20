@@ -1,5 +1,6 @@
 import { Check, Clock, Minus, Plus, ShieldOff, Sprout, X } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
+import { TrackerBadge } from "@/components/trackers/tracker-badge";
 import { Button } from "@/components/ui/button";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { SegmentedControl } from "@/components/ui/segmented-control";
@@ -264,6 +265,7 @@ export function TemplatePicker({
 								{template.twoMinute}
 							</Text>
 						) : null}
+						<TrackerBadge template={template} />
 					</PressableScale>
 				);
 			})}

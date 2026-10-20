@@ -1,3 +1,4 @@
+import { CloudBanners } from "@/components/account/cloud-banners";
 import { Celebration } from "@/components/celebration";
 import { GlobalSheets } from "@/components/global-sheets";
 import { Logo } from "@/components/logo";
@@ -5,8 +6,9 @@ import { PortalProvider } from "@/components/sheet/portal";
 import { ToastHost } from "@/components/toast-host";
 import { useAppLifecycle } from "@/lib/lifecycle";
 import { appMessages } from "@/lib/messages";
-import { store } from "@/lib/store";
+import { deviceLocales as readDeviceLocales, store } from "@/lib/store";
 import { ThemeProvider, useTheme } from "@/lib/theme";
+import { useMonthCelebration } from "@/lib/use-month-celebration";
 import { AtomicProvider, useAtomic, useHydrated } from "@atomic/core/react";
 import { Geist_400Regular } from "@expo-google-fonts/geist/400Regular";
 import { Geist_400Regular_Italic } from "@expo-google-fonts/geist/400Regular_Italic";
@@ -16,7 +18,6 @@ import { Geist_700Bold } from "@expo-google-fonts/geist/700Bold";
 import { InstrumentSerif_400Regular } from "@expo-google-fonts/instrument-serif/400Regular";
 import { InstrumentSerif_400Regular_Italic } from "@expo-google-fonts/instrument-serif/400Regular_Italic";
 import { useFonts } from "expo-font";
-import { getLocales } from "expo-localization";
 import { NavigationBar } from "expo-navigation-bar";
 import {
 	DarkTheme,
@@ -46,7 +47,8 @@ export default function RootLayout() {
 		InstrumentSerif_400Regular,
 		InstrumentSerif_400Regular_Italic,
 	});
-	const deviceLocales = useMemo(() => getLocales().map((locale) => locale.languageTag), []);
+	// The same tags the store resolves the "system" locale with.
+	const deviceLocales = useMemo(readDeviceLocales, []);
 	return (
 		<GestureHandlerRootView style={styles.root}>
 			<SafeAreaProvider>
@@ -105,6 +107,7 @@ function AppShell({ fontsReady }: { fontsReady: boolean }) {
 		<NavigationThemeProvider value={navigationTheme}>
 			<PortalProvider overlay={<ToastHost />}>
 				<AppNavigator />
+				<CloudBanners />
 				<GlobalSheets />
 				<Celebration />
 			</PortalProvider>
@@ -118,6 +121,7 @@ function AppNavigator() {
 	const { colors } = useTheme();
 	const onboarded = useAtomic((s) => s.settings.onboarded);
 	useAppLifecycle();
+	useMonthCelebration();
 	return (
 		<Stack
 			screenOptions={{
@@ -142,6 +146,11 @@ function AppNavigator() {
 				<Stack.Screen name="insights" />
 				<Stack.Screen name="scorecard" />
 				<Stack.Screen name="settings" />
+				<Stack.Screen name="journal/index" />
+				<Stack.Screen name="journal/editor" options={{ animation: "slide_from_bottom" }} />
+				<Stack.Screen name="habit/timer" options={{ animation: "slide_from_bottom" }} />
+				<Stack.Screen name="habit/write" />
+				<Stack.Screen name="account" />
 			</Stack.Protected>
 			<Stack.Protected guard={!onboarded}>
 				<Stack.Screen name="onboarding" options={{ animation: "fade" }} />

@@ -1,12 +1,13 @@
 import { focusHeading } from "@/lib/focus";
 import { useT } from "@/lib/messages";
-import type { HabitTemplate } from "@atomic/core";
+import { type HabitTemplate, resolveSetupDrafts } from "@atomic/core";
 import { useActions, useIdentities, useToday } from "@atomic/core/react";
 import { useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlueprintCard } from "../habit/blueprint-card";
+import { TrackerReviewLine } from "../trackers/tracker-review-line";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { SegmentedControl } from "../ui/segmented";
@@ -20,6 +21,7 @@ import {
 	TemplateList,
 } from "./editor-steps";
 import { HabitPreview } from "./habit-preview";
+import { SetupTasksReview } from "./setup-tasks-review";
 
 type EditorMode = "guided" | "quick";
 const STEPS = ["what", "identity", "obvious", "easy", "satisfying", "review"] as const;
@@ -105,13 +107,21 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 		const statement = draft.newIdentity?.trim();
 		if (statement) identityId = actions.createIdentity({ statement, color: draft.color }).id;
 		const input = draftToInput(draft, identityId);
+		let savedId: string;
 		if (habitId) {
 			actions.updateHabit(habitId, input);
-			void navigate({ to: "/habits/$habitId", params: { habitId }, replace: true });
+			savedId = habitId;
 		} else {
-			const habit = actions.createHabit(input);
-			void navigate({ to: "/habits/$habitId", params: { habitId: habit.id }, replace: true });
+			savedId = actions.createHabit(input).id;
 		}
+		// Setup tasks drafted with the habit (Annex T §4.4).
+		const setup = resolveSetupDrafts(
+			draft.setupTasks,
+			{ environment: draft.environment, twoMinute: draft.twoMinute, reward: draft.reward },
+			draft.kind,
+		);
+		if (setup.length) actions.createSetupTasks(savedId, setup);
+		void navigate({ to: "/habits/$habitId", params: { habitId: savedId }, replace: true });
 	};
 
 	const pickTemplate = (template: HabitTemplate) => {
@@ -149,12 +159,16 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 			</>
 		),
 		identity: <IdentityFields draft={draft} update={update} />,
-		obvious: <ObviousFields draft={draft} update={update} />,
-		easy: <EasyFields draft={draft} update={update} />,
-		satisfying: <SatisfyingFields draft={draft} update={update} />,
+		obvious: <ObviousFields draft={draft} update={update} habitId={habitId} />,
+		easy: <EasyFields draft={draft} update={update} habitId={habitId} />,
+		satisfying: <SatisfyingFields draft={draft} update={update} habitId={habitId} />,
 		review: (
-			<div className="rounded-xl border border-line bg-surface p-5 shadow-card md:p-6">
-				<BlueprintCard habit={preview} identityStatement={identityStatement} editable={false} />
+			<div className="flex flex-col gap-6">
+				<div className="rounded-xl border border-line bg-surface p-5 shadow-card md:p-6">
+					<BlueprintCard habit={preview} identityStatement={identityStatement} editable={false} />
+					<TrackerReviewLine draft={draft} />
+				</div>
+				<SetupTasksReview draft={draft} update={update} habitId={habitId} />
 			</div>
 		),
 	};
@@ -243,7 +257,7 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 							draft={draft}
 							update={update}
 							nameError={nameError}
-							editing={editing}
+							habitId={habitId}
 							onPickTemplate={pickTemplate}
 						/>
 					)}
@@ -306,12 +320,14 @@ interface QuickFormProps {
 	draft: HabitDraft;
 	update(patch: Partial<HabitDraft>): void;
 	nameError: boolean;
-	editing: boolean;
+	/** Present when editing an existing habit. */
+	habitId?: string;
 	onPickTemplate(template: HabitTemplate): void;
 }
 
-function QuickForm({ draft, update, nameError, editing, onPickTemplate }: QuickFormProps) {
+function QuickForm({ draft, update, nameError, habitId, onPickTemplate }: QuickFormProps) {
 	const { t } = useT();
+	const editing = habitId !== undefined;
 	const isBreak = draft.kind === "break";
 	return (
 		<div className="flex flex-col gap-8">
@@ -330,19 +346,20 @@ function QuickForm({ draft, update, nameError, editing, onPickTemplate }: QuickF
 			<QuickSection title={t("form.advanced")} hint={t("form.advancedHint")}>
 				<div className="flex flex-col gap-8">
 					<LawBlock law="1" title={t(isBreak ? "form.step.invisible" : "form.step.obvious")}>
-						<ObviousFields draft={draft} update={update} />
+						<ObviousFields draft={draft} update={update} habitId={habitId} />
 					</LawBlock>
 					<LawBlock law="3" title={t(isBreak ? "form.step.difficult" : "form.step.easy")}>
-						<EasyFields draft={draft} update={update} />
+						<EasyFields draft={draft} update={update} habitId={habitId} />
 					</LawBlock>
 					<LawBlock
 						law="2 · 4"
 						title={t(isBreak ? "form.step.unsatisfying" : "form.step.satisfying")}
 					>
-						<SatisfyingFields draft={draft} update={update} />
+						<SatisfyingFields draft={draft} update={update} habitId={habitId} />
 					</LawBlock>
 				</div>
 			</QuickSection>
+			<SetupTasksReview draft={draft} update={update} habitId={habitId} />
 			{editing ? null : <TemplateList draft={draft} onPick={onPickTemplate} />}
 		</div>
 	);

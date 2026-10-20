@@ -5,6 +5,8 @@ import { type HabitTemplate, habitTemplates, identityTemplates } from "@atomic/c
 import { useIdentities, useLocale } from "@atomic/core/react";
 import { Check, Plus } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
+import { TrackerBadge } from "../trackers/tracker-badge";
+import { TrackerField } from "../trackers/tracker-picker";
 import { Field, Input } from "../ui/field";
 import type { HabitDraft } from "./draft";
 import {
@@ -19,10 +21,14 @@ import {
 	Stepper,
 	TimeOfDayField,
 } from "./editor-fields";
+import { SetupTaskAdder } from "./setup-task-adder";
+import { SetupTaskToggle } from "./setup-task-toggle";
 
 export interface StepProps {
 	draft: HabitDraft;
 	update: DraftUpdate;
+	/** The habit being edited (edit mode); setup-task toggles show its linked tasks. */
+	habitId?: string;
 }
 
 export function BasicsFields({
@@ -153,6 +159,7 @@ function TemplateButton({
 						{template.twoMinute}
 					</span>
 				) : null}
+				<TrackerBadge template={template} className="mt-1" />
 			</span>
 		</button>
 	);
@@ -278,7 +285,8 @@ function OptionCard({
 	);
 }
 
-export function ObviousFields({ draft, update }: StepProps) {
+/** Law 1. Build: when, where, stacking and the environment (D13). Break: the trigger and making it invisible. */
+export function ObviousFields({ draft, update, habitId }: StepProps) {
 	const { t } = useT();
 	if (draft.kind === "break") {
 		return (
@@ -290,13 +298,17 @@ export function ObviousFields({ draft, update }: StepProps) {
 					placeholder={t("form.triggerPlaceholder")}
 					maxLength={120}
 				/>
-				<DraftTextField
-					label={t("form.invisible")}
-					value={draft.environment}
-					onChange={(environment) => update({ environment })}
-					placeholder={t("form.invisiblePlaceholder")}
-					maxLength={280}
-				/>
+				<div className="flex flex-col gap-2">
+					<DraftTextField
+						label={t("form.invisible")}
+						value={draft.environment}
+						onChange={(environment) => update({ environment })}
+						placeholder={t("form.invisiblePlaceholder")}
+						maxLength={280}
+					/>
+					<SetupTaskToggle field="environment" draft={draft} update={update} habitId={habitId} />
+				</div>
+				<SetupTaskAdder law={1} draft={draft} update={update} />
 			</div>
 		);
 	}
@@ -322,20 +334,40 @@ export function ObviousFields({ draft, update }: StepProps) {
 				onChange={(stackAfter) => update({ stackAfter })}
 				placeholder={t("form.stackAfterPlaceholder")}
 			/>
+			<div className="flex flex-col gap-2">
+				<DraftTextField
+					label={t("form.environment")}
+					value={draft.environment}
+					onChange={(environment) => update({ environment })}
+					placeholder={t("form.environmentPlaceholder")}
+					maxLength={280}
+				/>
+				<SetupTaskToggle field="environment" draft={draft} update={update} habitId={habitId} />
+			</div>
+			<SetupTaskAdder law={1} draft={draft} update={update} />
 		</div>
 	);
 }
 
-export function EasyFields({ draft, update }: StepProps) {
+/** Law 3. Build: the two-minute version, how it is logged and the daily goal. Break: adding friction. */
+export function EasyFields({ draft, update, habitId }: StepProps) {
 	const { t } = useT();
 	if (draft.kind === "break") {
 		return (
-			<DraftTextField
-				label={t("form.difficult")}
-				value={draft.twoMinute}
-				onChange={(twoMinute) => update({ twoMinute })}
-				placeholder={t("form.difficultPlaceholder")}
-			/>
+			<div className="flex flex-col gap-5">
+				<div className="flex flex-col gap-2">
+					<DraftTextField
+						label={t("form.difficult")}
+						value={draft.twoMinute}
+						onChange={(twoMinute) => update({ twoMinute })}
+						placeholder={t("form.difficultPlaceholder")}
+					/>
+					<SetupTaskToggle field="twoMinute" draft={draft} update={update} habitId={habitId} />
+				</div>
+				{/* Break habits: the slip tracker only. */}
+				<TrackerField draft={draft} update={update} />
+				<SetupTaskAdder law={3} draft={draft} update={update} />
+			</div>
 		);
 	}
 	return (
@@ -346,6 +378,7 @@ export function EasyFields({ draft, update }: StepProps) {
 				onChange={(twoMinute) => update({ twoMinute })}
 				placeholder={t("form.twoMinutePlaceholder")}
 			/>
+			<TrackerField draft={draft} update={update} />
 			<div className="flex flex-col gap-2">
 				<span className="font-medium text-ink text-small">{t("form.target")}</span>
 				<p className="-mt-1 text-ink-subtle text-small">{t("form.targetHint")}</p>
@@ -368,11 +401,13 @@ export function EasyFields({ draft, update }: StepProps) {
 					/>
 				</div>
 			</div>
+			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</div>
 	);
 }
 
-export function SatisfyingFields({ draft, update }: StepProps) {
+/** Laws 2 and 4. Build: bundling, reward and the reason. Break: unattractive and unsatisfying. */
+export function SatisfyingFields({ draft, update, habitId }: StepProps) {
 	const { t } = useT();
 	if (draft.kind === "break") {
 		return (
@@ -383,12 +418,17 @@ export function SatisfyingFields({ draft, update }: StepProps) {
 					onChange={(bundle) => update({ bundle })}
 					placeholder={t("form.unattractivePlaceholder")}
 				/>
-				<DraftTextField
-					label={t("form.unsatisfying")}
-					value={draft.reward}
-					onChange={(reward) => update({ reward })}
-					placeholder={t("form.unsatisfyingPlaceholder")}
-				/>
+				<div className="flex flex-col gap-2">
+					<DraftTextField
+						label={t("form.unsatisfying")}
+						value={draft.reward}
+						onChange={(reward) => update({ reward })}
+						placeholder={t("form.unsatisfyingPlaceholder")}
+					/>
+					<SetupTaskToggle field="reward" draft={draft} update={update} habitId={habitId} />
+				</div>
+				<SetupTaskAdder law={2} draft={draft} update={update} />
+				<SetupTaskAdder law={4} draft={draft} update={update} />
 			</div>
 		);
 	}
@@ -415,13 +455,8 @@ export function SatisfyingFields({ draft, update }: StepProps) {
 				placeholder={t("form.whyPlaceholder")}
 				maxLength={280}
 			/>
-			<DraftTextField
-				label={t("form.environment")}
-				value={draft.environment}
-				onChange={(environment) => update({ environment })}
-				placeholder={t("form.environmentPlaceholder")}
-				maxLength={280}
-			/>
+			<SetupTaskAdder law={2} draft={draft} update={update} />
+			<SetupTaskAdder law={4} draft={draft} update={update} />
 		</div>
 	);
 }

@@ -1,7 +1,7 @@
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { useHabitLogger, useResetDay } from "@/lib/use-habit-logger";
-import { type DayKey, type Habit, getLog } from "@atomic/core";
+import { type DayKey, type Habit, getLog, isTrackerDay } from "@atomic/core";
 import { useActions, useAtomic, useToday } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -17,6 +17,7 @@ import {
 	Undo2,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { TrackerMenuItems } from "../trackers/tracker-menu-items";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 
@@ -32,7 +33,9 @@ interface HabitActionsMenuProps {
 /**
  * Row actions: ±1, skip / reset, slip, note, edit, details. Skipping clears a
  * day's count, so it's only offered on a day with no progress; a day with
- * progress offers "Reset day" in its place.
+ * progress offers "Reset day" in its place. On a tracker day the count is
+ * written by entries: the tracker's items replace ±1, skip, reset and slip
+ * (Annex K §1.3).
  */
 export function HabitActionsMenu({
 	habit,
@@ -52,6 +55,7 @@ export function HabitActionsMenu({
 	const count = log?.count ?? 0;
 	const isBreak = habit.kind === "break";
 	const resetDay = useResetDay();
+	const trackerDay = isTrackerDay(habit, day);
 
 	return (
 		<Menu open={open} onOpenChange={onOpenChange} modal={false}>
@@ -68,7 +72,8 @@ export function HabitActionsMenu({
 				)}
 			</MenuTrigger>
 			<MenuContent onClick={(event) => event.stopPropagation()}>
-				{!isBreak && habit.target > 1 ? (
+				{trackerDay ? <TrackerMenuItems habit={habit} day={day} /> : null}
+				{!trackerDay && !isBreak && habit.target > 1 ? (
 					<>
 						<MenuItem icon={<Plus />} onSelect={() => actions.increment(habit.id, day, 1)}>
 							{t("habit.increment")}
@@ -83,7 +88,7 @@ export function HabitActionsMenu({
 						<MenuSeparator />
 					</>
 				) : null}
-				{isBreak ? (
+				{trackerDay ? null : isBreak ? (
 					<MenuItem icon={count > 0 ? <Undo2 /> : <ShieldAlert />} onSelect={() => tap(habit, day)}>
 						{count > 0 ? t("habit.undoSlip") : t("habit.logSlip")}
 					</MenuItem>

@@ -8,7 +8,7 @@ import {
 	createRemoteClient,
 	createSyncController,
 } from "@atomic/core";
-import { type TestApp, appFetch, setupApp, uniqueEmail } from "./helpers";
+import { type TestApp, appFetch, createTestServer, setupApp, uniqueEmail } from "./helpers";
 
 /**
  * Drives the real server through `@atomic/core`'s HTTP client and sync
@@ -218,5 +218,53 @@ describe("sync controller: phone + laptop", () => {
 		await createRemoteClient(SERVER_URL, appFetch(app)).signOut(saved.token);
 		await restarted.syncNow();
 		expect(restarted.getState()).toMatchObject({ status: "signed-out", error: "auth" });
+	});
+});
+
+describe("sync quota through the core client (spec §4.5)", () => {
+	test("records refused for quota stay pending and sync once there is room", async () => {
+		const quota = await createTestServer();
+		// The entitlement service reads the plan limits on every push.
+		const limits = quota.config.plans.limits.pro;
+		limits.syncBytes = 3_000;
+		const now = sharedClock();
+		const store = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0, now });
+		const sync = createSyncController({
+			store,
+			sessionStorage: createMemoryStorage(),
+			fetch: appFetch(quota.app),
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		controllers.push(sync);
+		const ids = ["one", "two", "three", "four"].map(
+			(title) => store.getState().actions.createTask({ title, notes: "n".repeat(900) }).id,
+		);
+		await sync.signUp(SERVER_URL, "Ana", uniqueEmail(), PASSWORD);
+
+		const pending = Object.keys(store.getState().sync.pending);
+		expect(pending.length).toBeGreaterThan(0);
+		expect(pending.length).toBeLessThan(ids.length);
+		expect(store.getState().sync.rejected.map((r) => r.code)).toContain("quota");
+		// Not an error: the device keeps working and the changes wait.
+		expect(sync.getState()).toMatchObject({ status: "idle", error: null });
+
+		limits.syncBytes = 1_000_000;
+		const result = await sync.syncNow();
+		expect(result?.quotaRejected).toBe(0);
+		expect(Object.keys(store.getState().sync.pending)).toHaveLength(0);
+
+		const other = createAtomicStore({ storage: createMemoryStorage(), debounceMs: 0, now });
+		const otherSync = createSyncController({
+			store: other,
+			sessionStorage: createMemoryStorage(),
+			fetch: appFetch(quota.app),
+			intervalMs: 0,
+			debounceMs: 60_000,
+		});
+		controllers.push(otherSync);
+		const email = sync.getState().user?.email ?? "";
+		await otherSync.signIn(SERVER_URL, email, PASSWORD);
+		expect(names(other, "tasks")).toEqual(["four", "one", "three", "two"]);
 	});
 });

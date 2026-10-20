@@ -8,43 +8,81 @@ import type {
 	SyncRecord,
 	WireSyncRecord,
 } from "@atomic/core/sync";
+import type { App } from "../src/app";
+import { type Config, type Env, loadConfig } from "../src/config";
+import type { LogLevel } from "../src/lib/log";
+import { type Server, type ServerDeps, createServer } from "../src/server";
 
 /**
- * Tests drive the real Hono app against a throwaway SQLite file. The
- * environment is configured before the app is first imported (the database
- * client is created at import time), so the app is loaded dynamically.
+ * Every suite builds its own server (spec §4.2): a throwaway SQLite file,
+ * its own config from a test environment (never `process.env`), and a log
+ * sink that captures lines instead of printing them.
  */
 
-const MARKER = "ATOMIC_SERVER_TEST_DB_DIR";
+const dirs: string[] = [];
+process.on("exit", () => {
+	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
 
-function configureTestEnv(): void {
-	if (process.env[MARKER]) return;
+export const TEST_SECRET = "test-secret-7d3f9a1c5e8b2d4f6a0c9e1b3d5f7a9c";
+
+/** A scratch directory removed when the test process exits. */
+export function scratchDir(): string {
 	const dir = mkdtempSync(join(tmpdir(), "atomic-server-test-"));
-	process.env[MARKER] = dir;
-	// Override anything Bun may have loaded from a developer's .env file.
-	process.env.DATABASE_URL = `file:${join(dir, "test.db")}`;
-	process.env.BETTER_AUTH_SECRET = "test-secret-7d3f9a1c5e8b2d4f6a0c9e1b3d5f7a9c";
-	for (const key of [
-		"DATABASE_AUTH_TOKEN",
-		"BETTER_AUTH_URL",
-		"CORS_ORIGINS",
-		"CLIENT_IP_HEADER",
-	]) {
-		delete process.env[key];
-	}
-	process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
+	dirs.push(dir);
+	return dir;
 }
 
-export type TestApp = typeof import("../src/app")["app"];
+/** The environment of a test server; `extra` adds or overrides variables. */
+export function testEnv(dir: string, extra: Env = {}): Env {
+	return {
+		NODE_ENV: "test",
+		DATABASE_URL: `file:${join(dir, "test.db")}`,
+		BETTER_AUTH_SECRET: TEST_SECRET,
+		BETTER_AUTH_URL: BASE_URL,
+		BLOB_DIR: join(dir, "blobs"),
+		...extra,
+	};
+}
 
-export async function setupApp(): Promise<TestApp> {
-	configureTestEnv();
-	const [{ app }, { runMigrations }] = await Promise.all([
-		import("../src/app"),
-		import("../src/db/migrate"),
-	]);
-	await runMigrations();
-	return app;
+export interface TestServerOptions {
+	/** Extra environment variables for `loadConfig`. */
+	env?: Env;
+	/** Fields replaced after loading (limits, forceRateLimit…). */
+	config?: Partial<Config>;
+	deps?: ServerDeps;
+}
+
+export interface CapturedLine {
+	level: LogLevel;
+	line: string;
+}
+
+export interface TestServer {
+	app: TestApp;
+	server: Server;
+	db: Server["db"];
+	/** Every log line the server wrote. */
+	logs: CapturedLine[];
+	config: Config;
+}
+
+export async function createTestServer(options: TestServerOptions = {}): Promise<TestServer> {
+	const dir = scratchDir();
+	const config = { ...loadConfig(testEnv(dir, options.env)), ...options.config };
+	const logs: CapturedLine[] = [];
+	const server = createServer(config, {
+		log: (level, line) => logs.push({ level, line }),
+		...options.deps,
+	});
+	await server.start();
+	return { app: server.app, server, db: server.db, logs, config };
+}
+
+export type TestApp = App;
+
+export async function setupApp(options?: TestServerOptions): Promise<TestApp> {
+	return (await createTestServer(options)).app;
 }
 
 export const BASE_URL = "http://localhost";

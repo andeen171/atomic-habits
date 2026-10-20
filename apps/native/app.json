@@ -56,6 +56,15 @@
 					"color": "#EE5A2F"
 				}
 			],
+			[
+				"expo-image-picker",
+				{
+					"photosPermission": "Atomic opens your photos only when you add one to a tracker entry. They stay on this device unless you turn on photo backup.",
+					"cameraPermission": "Atomic uses the camera only when you take a photo for a tracker entry, such as a progress photo or a meal.",
+					"microphonePermission": false
+				}
+			],
+			"@react-native-google-signin/google-signin",
 			"expo-system-ui"
 		],
 		"experiments": {

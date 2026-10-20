@@ -1,9 +1,11 @@
 import { type DayKey, addDays, toDayKey } from "../dates";
+import type { Translator } from "../i18n";
 
 /**
  * Tracker formatting helpers that need no catalog (spec §3.1; Annex K §3.6).
  * Hermes-safe: no `String.normalize`, no `\p{}` regexes, no `Intl`.
- * `formatDuration` lives in `i18n/index.ts`; T4 adds `formatDistance` here.
+ * `formatDuration` lives in `i18n/index.ts`; `formatDistance` and the
+ * distance conversions are T4's.
  *
  * Runtime imports: `dates.ts` only.
  */
@@ -94,4 +96,28 @@ export function countWords(text: string | null | undefined): number {
 	let count = 0;
 	for (const token of text.split(/\s+/)) if (token && hasWordChar(token)) count++;
 	return count;
+}
+
+export type DistanceUnit = "km" | "mi";
+
+/** Metres in one display unit. */
+export const METRES_PER_UNIT: Readonly<Record<DistanceUnit, number>> = { km: 1000, mi: 1609.344 };
+
+/** Metres (as stored) in a display unit, unrounded. */
+export function metresTo(metres: number, unit: DistanceUnit): number {
+	return (Number.isFinite(metres) ? metres : 0) / METRES_PER_UNIT[unit];
+}
+
+/** A distance typed in a display unit as whole metres (how workouts store it). */
+export function metresFrom(value: number, unit: DistanceUnit): number {
+	return Math.round((Number.isFinite(value) ? value : 0) * METRES_PER_UNIT[unit]);
+}
+
+/**
+ * Stored metres in km or mi with one decimal (Annex K §1.10): "5,2 km" in
+ * pt-BR, "3.2 mi" in en. The unit symbols are the same in both languages.
+ */
+export function formatDistance(metres: number, unit: DistanceUnit, t: Translator): string {
+	const value = Math.max(0, metresTo(metres, unit));
+	return `${t.number(Math.round(value * 10) / 10, 1)}\u00a0${unit}`;
 }

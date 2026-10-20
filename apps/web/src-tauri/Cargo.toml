@@ -15,11 +15,16 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.2.0", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.5.0", features = [] }
+# Keep `tauri` on the same minor as the `@tauri-apps/api` npm package (pulled in
+# by `@tauri-apps/plugin-opener`), and each plugin on its npm package's minor:
+# the Tauri CLI refuses mismatched pairs.
+tauri = { version = "2.12", features = [] }
 tauri-plugin-log = "2.0.0-rc"
+# Opens checkout, billing and account-export links in the default browser (`lib/open-external.ts`).
+tauri-plugin-opener = "2.7"

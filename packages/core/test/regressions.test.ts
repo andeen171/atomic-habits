@@ -14,7 +14,6 @@ import { type KeyValueStorage, createMemoryStorage, createPersistStorage } from 
 import { createAtomicStore } from "../src/store";
 import type { PullInput, PushInput, SyncTransport, WireSyncRecord } from "../src/sync";
 import { runSync } from "../src/sync-engine";
-import { tasksForDay } from "../src/tasks";
 
 const NOW = new Date(2026, 9, 17, 10, 0).getTime();
 const TODAY = toDayKey(NOW);
@@ -343,27 +342,6 @@ describe("habit stats edge cases", () => {
 		const agenda = buildAgenda([h], {}, buildLogIndex({}), addDays(TODAY, -1), TODAY);
 		expect(agenda.votes).toBe(1);
 		expect(logsFor(buildLogIndex({}), h.id).size).toBe(0);
-	});
-});
-
-describe("tasks", () => {
-	test("an overdue task checked off today stays on Today", () => {
-		const base = { createdAt: 0, updatedAt: 0 };
-		const overdueDone = taskSchema.parse({
-			...base,
-			id: "a",
-			title: "Dentist",
-			date: addDays(TODAY, -1),
-			completedAt: NOW,
-		});
-		const overdueOld = taskSchema.parse({
-			...base,
-			id: "b",
-			title: "Old",
-			date: addDays(TODAY, -3),
-			completedAt: NOW - 2 * 86_400_000,
-		});
-		expect(tasksForDay([overdueDone, overdueOld], TODAY, TODAY).map((t) => t.id)).toEqual(["a"]);
 	});
 });
 

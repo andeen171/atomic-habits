@@ -1,3 +1,4 @@
+import { AccountRow } from "@/components/account/account-row";
 import {
 	ChartColumn,
 	ClipboardList,
@@ -5,6 +6,7 @@ import {
 	CloudAlert,
 	Fingerprint,
 	Flame,
+	NotebookPen,
 	Settings,
 } from "@/components/icons";
 import { Card } from "@/components/ui/card";
@@ -56,6 +58,8 @@ export default function YouScreen() {
 				title={t.t("nav.you")}
 				subtitle={t.x("you.subtitle")}
 			/>
+
+			<AccountRow style={styles.block} />
 
 			<Card padding={20} style={styles.hero}>
 				<View style={styles.heroMain}>
@@ -163,6 +167,16 @@ export default function YouScreen() {
 					chevron
 					onPress={() => router.push("/identity")}
 					testID="link-identity"
+				/>
+				<ListSeparator />
+				<ListRow
+					icon={NotebookPen}
+					iconColor={toneOf("violet").text}
+					iconBg={toneOf("violet").soft}
+					title={t.t("nav.journal")}
+					chevron
+					onPress={() => router.push("/journal")}
+					testID="link-journal"
 				/>
 				<ListSeparator />
 				<ListRow

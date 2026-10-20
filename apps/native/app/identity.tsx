@@ -1,6 +1,8 @@
+import { AiSuggestButton } from "@/components/ai/ai-suggest-button";
 import { ColorPicker, EmojiPicker, Field } from "@/components/editor/fields";
 import { EmptyState } from "@/components/empty-state";
 import { Ellipsis, Pencil, Plus, Trash2 } from "@/components/icons";
+import { PrincipleQuote } from "@/components/principles/principle-quote";
 import { ActionList } from "@/components/sheet/action-list";
 import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { Sheet } from "@/components/sheet/sheet";
@@ -10,8 +12,8 @@ import { Chip } from "@/components/ui/chip";
 import { IconButton } from "@/components/ui/icon-button";
 import { Screen, ScreenTitle } from "@/components/ui/screen";
 import { SectionLabel } from "@/components/ui/section-label";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
@@ -51,6 +53,7 @@ export default function IdentityScreen() {
 	return (
 		<Screen back title={t.t("identity.title")} keyboard testID="identity-screen">
 			<ScreenTitle title={t.t("identity.title")} subtitle={t.t("identity.subtitle")} />
+			<PrincipleQuote id="identity" variant="card" />
 			<Card tone="accent" padding={20} style={styles.quote}>
 				<Text variant="display" italic>
 					{`“${t.t("identity.quote")}”`}
@@ -72,7 +75,8 @@ export default function IdentityScreen() {
 
 			<SectionLabel>{t.t("identity.add")}</SectionLabel>
 			<Card padding={16} style={styles.addCard}>
-				<TextField
+				<SmartTextField
+					field="identity.statement"
 					value={statement}
 					onChangeText={setStatement}
 					placeholder={t.t("identity.placeholder")}
@@ -81,6 +85,14 @@ export default function IdentityScreen() {
 					maxLength={120}
 					accessibilityLabel={t.t("identity.add")}
 					testID="identity-input"
+					right={
+						<AiSuggestButton
+							kind="identity.statement"
+							label={t.t("identity.add")}
+							input={() => ({ goal: statement.trim() })}
+							onPick={setStatement}
+						/>
+					}
 				/>
 				<Button
 					label={t.t("identity.add")}
@@ -331,7 +343,8 @@ function EditIdentitySheet({
 		>
 			{value ? (
 				<View style={{ gap: 18 }}>
-					<TextField
+					<SmartTextField
+						field="identity.statement"
 						value={value.statement}
 						onChangeText={(statement) => setDraft({ ...value, statement })}
 						placeholder={t.t("identity.placeholder")}

@@ -10,6 +10,7 @@ import {
 	addMonths,
 	dayState,
 	isSameMonth,
+	isTrackerDay,
 	monthGrid,
 	orderedWeekdays,
 	parseDayKey,
@@ -27,6 +28,7 @@ import {
 	Undo2,
 } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
+import { DayEntriesPopover } from "../trackers/day-entries-popover";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -117,6 +119,16 @@ export function MonthCalendar({ habit, logs }: MonthCalendarProps) {
 					);
 					const number = parseDayKey(day).getDate();
 
+					// A tracker day's count comes from its entries: the cell lists them (Annex K §1.3).
+					if (!disabled && isTrackerDay(habit, day)) {
+						return (
+							<DayEntriesPopover key={day} habit={habit} day={day}>
+								<button type="button" aria-label={label} className={cellClass}>
+									{number}
+								</button>
+							</DayEntriesPopover>
+						);
+					}
 					if (counted && !disabled) {
 						return (
 							<CountDayPopover

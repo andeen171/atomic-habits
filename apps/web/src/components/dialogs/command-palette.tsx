@@ -6,7 +6,7 @@ import { useActions, useHabits } from "@atomic/core/react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useNavigate } from "@tanstack/react-router";
 import { Command } from "cmdk";
-import { Keyboard, ListPlus, Moon, Plus, Search, Sun } from "lucide-react";
+import { Keyboard, ListPlus, Moon, NotebookPen, Plus, Search, Sun } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { NAV, type NavKey } from "../layout/nav-items";
 import { Kbd } from "../ui/kbd";
@@ -16,6 +16,7 @@ const GO_TO: NavKey[] = [
 	"habits",
 	"tasks",
 	"identity",
+	"journal",
 	"insights",
 	"scorecard",
 	"settings",
@@ -84,6 +85,14 @@ export function CommandPalette() {
 				icon: <ListPlus />,
 				shortcut: "N",
 				run: () => openTaskDialog({ mode: "create", date: null }),
+			},
+			{
+				id: "action:new-journal-entry",
+				group: "actions",
+				label: t("shortcuts.newEntry"),
+				icon: <NotebookPen />,
+				shortcut: "J",
+				run: () => void navigate({ to: "/journal/new" }),
 			},
 			{
 				id: "action:theme",

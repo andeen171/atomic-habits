@@ -13,7 +13,9 @@ export function BottomTabs() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const setCreateOpen = useUI((s) => s.setCreateSheetOpen);
 	const youActive =
-		pathname === "/you" || YOU_ITEMS.some((key) => pathname.startsWith(NAV[key].to));
+		pathname === "/you" ||
+		pathname.startsWith(NAV.account.to) ||
+		YOU_ITEMS.some((key) => pathname.startsWith(NAV[key].to));
 
 	return (
 		<nav

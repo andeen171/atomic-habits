@@ -7,11 +7,12 @@ import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { type AppTranslator, useT } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
-import { showToast } from "@/lib/ui-store";
+import { showToast, ui } from "@/lib/ui-store";
 import {
 	type DayKey,
 	type Habit,
 	dayState,
+	isTrackerDay,
 	logsFor,
 	progressLabel,
 	startOfMonth,
@@ -36,6 +37,12 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 	const savedCount = editingLog?.count ?? 0;
 
 	const onDay = (day: DayKey) => {
+		// Tracker days follow their entries (Annex K §1.3): show them instead of editing the count.
+		if (isTrackerDay(habit, day)) {
+			haptics.selection();
+			ui.openDayEntries(habit.id, day);
+			return;
+		}
 		if (habit.kind === "build" && habit.target > 1) {
 			setDraft(logs.get(day)?.count ?? 0);
 			setEditing(day);

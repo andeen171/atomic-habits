@@ -1,13 +1,16 @@
-import type {
-	DayKey,
-	Habit,
-	HabitColor,
-	HabitInput,
-	HabitKind,
-	HabitTemplate,
-	Schedule,
-	TimeOfDay,
-	Weekday,
+import {
+	type DayKey,
+	type Habit,
+	type HabitColor,
+	type HabitInput,
+	type HabitKind,
+	type HabitTemplate,
+	type Schedule,
+	type SetupTaskDraft,
+	type TimeOfDay,
+	type TrackerConfigInput,
+	type Weekday,
+	knownTracker,
 } from "@atomic/core";
 
 /** Editable form state for a habit (strings for text fields, never null). */
@@ -33,6 +36,10 @@ export interface HabitDraft {
 	reward: string;
 	environment: string;
 	why: string;
+	/** Setup tasks created with the habit on save (Annex T §4.4; T2's editor pieces write it). */
+	setupTasks: SetupTaskDraft[];
+	/** How the habit is logged (Annex K §4.3; `TrackerField` [T4] writes it); null: simple check-off. */
+	tracker: TrackerConfigInput | null;
 }
 
 export function emptyDraft(kind: HabitKind = "build"): HabitDraft {
@@ -57,6 +64,8 @@ export function emptyDraft(kind: HabitKind = "build"): HabitDraft {
 		reward: "",
 		environment: "",
 		why: "",
+		setupTasks: [],
+		tracker: null,
 	};
 }
 
@@ -90,10 +99,13 @@ export function draftFromHabit(habit: Habit): HabitDraft {
 		reward: text(habit.reward),
 		environment: text(habit.environment),
 		why: text(habit.why),
+		setupTasks: [],
+		// A tracker from a newer build (unknown type) stays out of the form and untouched.
+		tracker: knownTracker(habit),
 	};
 }
 
-/** Apply a template while keeping the chosen identity. */
+/** Apply a template while keeping the chosen identity (and any setup task drafts). */
 export function applyTemplate(draft: HabitDraft, template: HabitTemplate): HabitDraft {
 	return {
 		...draft,
@@ -112,6 +124,7 @@ export function applyTemplate(draft: HabitDraft, template: HabitTemplate): Habit
 		bundle: text(template.bundle),
 		reward: text(template.reward),
 		environment: text(template.environment),
+		tracker: template.tracker,
 	};
 }
 
@@ -147,6 +160,8 @@ export function draftToInput(draft: HabitDraft, identityId: string | null): Habi
 		reward: draft.reward,
 		environment: draft.environment,
 		why: isBreak ? null : draft.why,
+		// Sent only when set: an absent key leaves the habit's tracker (known or foreign) as it is.
+		...(draft.tracker ? { tracker: draft.tracker } : {}),
 	};
 }
 

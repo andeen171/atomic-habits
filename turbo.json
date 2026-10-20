@@ -10,6 +10,7 @@
 		"build:artifact": {
 			"dependsOn": ["^build"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"env": ["ARTIFACT_OUT_DIR"],
 			"outputs": ["dist-artifact/**"]
 		},
 		"test": {

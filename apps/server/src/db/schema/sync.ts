@@ -28,10 +28,20 @@ export const syncRecord = sqliteTable(
 	],
 );
 
-/** Per-user sequence counter: the last `seq` handed out. */
+/**
+ * Per-user sync state: `seq` is the last sequence number handed out and
+ * `bytes` the UTF-8 size of every stored document (`data`), the usage the
+ * sync quota (spec §4.5) is checked against.
+ *
+ * `bytes` is maintained by triggers on `sync_record` (migration 0001_v2), so
+ * it moves in the same transaction as the write that changes a document and
+ * no code path can forget it. drizzle-kit does not model triggers; they live
+ * in the migration's hand-written tail.
+ */
 export const syncCursor = sqliteTable("sync_cursor", {
 	userId: text("user_id")
 		.primaryKey()
 		.references(() => user.id, { onDelete: "cascade" }),
 	seq: integer("seq").notNull().default(0),
+	bytes: integer("bytes").notNull().default(0),
 });

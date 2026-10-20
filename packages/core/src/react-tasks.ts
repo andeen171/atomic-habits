@@ -16,6 +16,7 @@ import {
 	type TaskLogIndex,
 	habitSetupTasks,
 	liveTasks,
+	openTaskCount,
 	taskAgenda,
 	taskGroups,
 } from "./tasks";
@@ -57,6 +58,12 @@ export function useTaskGroups(): Record<TaskBucket, TaskItem[]> {
 	return useMemo(() => taskGroups(ctx), [ctx]);
 }
 
+/** Today's open, actionable tasks and occurrences (navigation badges). */
+export function useOpenTaskCount(): number {
+	const ctx = useTaskContext();
+	return useMemo(() => openTaskCount(ctx), [ctx]);
+}
+
 /** A live series with its derived state and logs. */
 export function useSeries(
 	taskId?: string,
@@ -80,14 +87,14 @@ export function useSeriesHistory(taskId?: string, limit?: number): SeriesHistory
 	);
 }
 
-/** The habit page's Setup tasks card. */
+/** The habit page's Setup tasks card (empty without a habit id). */
 export function useHabitSetupTasks(habitId?: string): HabitSetupTasks {
 	const ctx = useTaskContext();
 	return useMemo(
 		() =>
 			habitId
 				? habitSetupTasks(ctx, habitId)
-				: { active: [], paused: [], done: [], byField: new Map() },
+				: { active: [], paused: [], done: [], byField: new Map(), covering: new Map() },
 		[ctx, habitId],
 	);
 }

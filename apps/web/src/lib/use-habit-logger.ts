@@ -1,9 +1,10 @@
-import { type DayKey, type Habit, getLog, logId } from "@atomic/core";
+import { type DayKey, type Habit, getLog, isTrackerActive, logId } from "@atomic/core";
 import { useActions, useAtomicStore } from "@atomic/core/react";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { announce } from "./announce";
 import { useT } from "./messages";
+import { useTrackerActions } from "./use-tracker-actions";
 
 export type LogOutcome =
 	| "completed"
@@ -11,7 +12,9 @@ export type LogOutcome =
 	| "undone"
 	| "already-done"
 	| "slipped"
-	| "unslipped";
+	| "unslipped"
+	/** A tracker habit: its composer, timer or writing pad opened instead (Annex K §1.3). */
+	| "opened";
 
 /**
  * The one-tap logging rule from the spec:
@@ -22,9 +25,15 @@ export function useHabitLogger() {
 	const store = useAtomicStore();
 	const actions = useActions();
 	const { t, at } = useT();
+	const { openTracker } = useTrackerActions();
 
 	const tap = useCallback(
 		(habit: Habit, day: DayKey): LogOutcome => {
+			// Tracker habits log through entries; the ring opens the tracker.
+			if (isTrackerActive(habit)) {
+				openTracker(habit, day);
+				return "opened";
+			}
 			const state = store.getState();
 			const count = getLog(state, habit.id, day)?.count ?? 0;
 			const identity = habit.identityId ? state.data.identities[habit.identityId] : undefined;
@@ -71,7 +80,7 @@ export function useHabitLogger() {
 			}
 			return "progress";
 		},
-		[store, actions, t, at],
+		[store, actions, t, at, openTracker],
 	);
 
 	return { tap };

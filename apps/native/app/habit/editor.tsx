@@ -1,3 +1,4 @@
+import { AiSuggestButton } from "@/components/ai/ai-suggest-button";
 import {
 	ColorPicker,
 	EmojiPicker,
@@ -11,19 +12,24 @@ import {
 	TimeField,
 	TimeOfDayField,
 } from "@/components/editor/fields";
+import { SetupTaskAdder } from "@/components/editor/setup-task-adder";
+import { SetupTaskToggle } from "@/components/editor/setup-task-toggle";
+import { SetupTasksReview } from "@/components/editor/setup-tasks-review";
 import { BlueprintCard } from "@/components/habit/blueprint-card";
 import { HabitRing } from "@/components/habit/habit-ring";
 import { ArrowLeft, ArrowRight, BellRing, Check, X } from "@/components/icons";
+import { TrackerField } from "@/components/trackers/tracker-picker";
+import { TrackerReviewLine } from "@/components/trackers/tracker-review-line";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Screen } from "@/components/ui/screen";
 import { SectionLabel } from "@/components/ui/section-label";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Stepper } from "@/components/ui/stepper";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
@@ -37,9 +43,12 @@ import {
 	type HabitKind,
 	type HabitTemplate,
 	type Schedule,
+	type SetupTaskDraft,
 	type TimeOfDay,
+	type TrackerConfigInput,
 	blueprintLines,
 	habitTemplates,
+	knownTracker,
 	scheduleLabel,
 } from "@atomic/core";
 import { useActions, useAtomic, useHabit, useIdentities, useToday } from "@atomic/core/react";
@@ -67,6 +76,10 @@ interface Draft {
 	reward: string;
 	why: string;
 	environment: string;
+	/** How it is logged (Annex K): null = simple check-off. Saved by T1/T4. */
+	tracker: TrackerConfigInput | null;
+	/** Setup tasks to create on save (Annex T §5.4). Saved by T1/T2. */
+	setupTasks: SetupTaskDraft[];
 }
 
 type StepKey = "what" | "identity" | "obvious" | "easy" | "satisfying" | "review";
@@ -92,6 +105,8 @@ function fromHabit(habit: Habit): Draft {
 		reward: habit.reward ?? "",
 		why: habit.why ?? "",
 		environment: habit.environment ?? "",
+		tracker: knownTracker(habit),
+		setupTasks: [],
 	};
 }
 
@@ -113,6 +128,7 @@ function applyTemplate(draft: Draft, template: HabitTemplate): Draft {
 		bundle: template.bundle ?? "",
 		reward: template.reward ?? "",
 		environment: template.environment ?? "",
+		tracker: template.tracker,
 	};
 }
 
@@ -157,6 +173,7 @@ export default function HabitEditorScreen() {
 	const today = useToday();
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	const habitCount = useAtomic((s) => Object.keys(s.data.habits).length);
+	const allHabits = useAtomic((s) => s.data.habits);
 	const styles = useStyles();
 	const reduceMotion = useReduceMotion();
 	const scroll = useRef<ScrollView>(null);
@@ -185,6 +202,8 @@ export default function HabitEditorScreen() {
 			reward: "",
 			why: "",
 			environment: "",
+			tracker: null,
+			setupTasks: [],
 		};
 		const template = templates.find((tpl) => tpl.key === params.template);
 		return template ? applyTemplate(base, template) : base;
@@ -197,6 +216,18 @@ export default function HabitEditorScreen() {
 		setDraft((d) => ({ ...d, [key]: value }));
 		if (key === "name") setNameError(null);
 	};
+	/** Merges a patch (the tracker and setup-task components edit the draft through it). */
+	const update = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
+	const habitId = existing?.id ?? null;
+	/** The user's other build habits: candidate anchors for habit stacking (Annex C §1.6). */
+	const stackAnchors = useMemo(
+		() =>
+			Object.values(allHabits)
+				.filter((h) => !h.deletedAt && !h.archivedAt && h.kind === "build" && h.id !== habitId)
+				.map((h) => h.name.slice(0, 80))
+				.slice(0, 10),
+		[allHabits, habitId],
+	);
 
 	const isBreak = draft.kind === "break";
 	const identity =
@@ -311,8 +342,21 @@ export default function HabitEditorScreen() {
 					<KindToggle value={draft.kind} onChange={(kind) => set("kind", kind)} />
 				</Field>
 			)}
-			<TextField
+			<SmartTextField
+				field="habit.name"
 				label={t.t("form.name")}
+				right={
+					<AiSuggestButton
+						kind="habit.name"
+						label={t.t("form.name")}
+						input={() => ({
+							partial: draft.name.trim().slice(0, 80) || undefined,
+							identity: identity?.statement,
+							kind: draft.kind,
+						})}
+						onPick={(name) => set("name", name)}
+					/>
+				}
 				value={draft.name}
 				onChangeText={(name) => set("name", name)}
 				placeholder={isBreak ? t.t("form.namePlaceholderBreak") : t.t("form.namePlaceholder")}
@@ -353,14 +397,16 @@ export default function HabitEditorScreen() {
 
 	const obviousSection = isBreak ? (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.cueLocation"
 				label={t.t("form.trigger")}
 				value={draft.cueLocation}
 				onChangeText={(v) => set("cueLocation", v)}
 				placeholder={t.t("form.triggerPlaceholder")}
 				maxLength={120}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.environment"
 				label={t.t("form.invisible")}
 				value={draft.environment}
 				onChangeText={(v) => set("environment", v)}
@@ -368,6 +414,8 @@ export default function HabitEditorScreen() {
 				maxLength={280}
 				multiline
 			/>
+			<SetupTaskToggle field="environment" draft={draft} update={update} habitId={habitId} />
+			<SetupTaskAdder law={1} draft={draft} update={update} />
 		</View>
 	) : (
 		<View style={styles.section}>
@@ -385,15 +433,42 @@ export default function HabitEditorScreen() {
 					}
 				/>
 			</Field>
-			<TextField
+			<SmartTextField
+				field="habit.cueLocation"
 				label={t.t("form.cueLocation")}
+				right={
+					<AiSuggestButton
+						kind="habit.intention"
+						label={t.t("form.cueLocation")}
+						input={() => ({
+							habit: draft.name.trim(),
+							kind: draft.kind,
+							timeOfDay: draft.timeOfDay,
+						})}
+						onPick={(intention) =>
+							update({
+								cueLocation: intention.location,
+								...(intention.time ? { cueTime: intention.time } : {}),
+							})
+						}
+					/>
+				}
 				value={draft.cueLocation}
 				onChangeText={(v) => set("cueLocation", v)}
 				placeholder={t.t("form.cueLocationPlaceholder")}
 				maxLength={120}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.stackAfter"
 				label={t.t("form.stackAfter")}
+				right={
+					<AiSuggestButton
+						kind="habit.stack"
+						label={t.t("form.stackAfter")}
+						input={() => ({ habit: draft.name.trim(), anchors: stackAnchors })}
+						onPick={(stackAfter) => set("stackAfter", stackAfter)}
+					/>
+				}
 				hint={t.t("form.stackAfterHint")}
 				prefix={t.t("form.stackAfterPrefix")}
 				value={draft.stackAfter}
@@ -429,12 +504,14 @@ export default function HabitEditorScreen() {
 					/>
 				</Card>
 			)}
+			<SetupTaskAdder law={1} draft={draft} update={update} />
 		</View>
 	);
 
 	const easySection = isBreak ? (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.twoMinute"
 				label={t.t("form.difficult")}
 				value={draft.twoMinute}
 				onChangeText={(v) => set("twoMinute", v)}
@@ -442,16 +519,29 @@ export default function HabitEditorScreen() {
 				maxLength={160}
 				multiline
 			/>
+			<SetupTaskToggle field="twoMinute" draft={draft} update={update} habitId={habitId} />
+			<TrackerField draft={draft} update={update} />
+			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</View>
 	) : (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.twoMinute"
 				label={t.t("form.twoMinute")}
+				right={
+					<AiSuggestButton
+						kind="habit.twoMinute"
+						label={t.t("form.twoMinute")}
+						input={() => ({ habit: draft.name.trim(), kind: draft.kind })}
+						onPick={(twoMinute) => set("twoMinute", twoMinute)}
+					/>
+				}
 				value={draft.twoMinute}
 				onChangeText={(v) => set("twoMinute", v)}
 				placeholder={t.t("form.twoMinutePlaceholder")}
 				maxLength={160}
 			/>
+			<TrackerField draft={draft} update={update} />
 			<Field label={t.t("form.target")} hint={t.t("form.targetHint")}>
 				<View style={styles.goalRow}>
 					<Stepper
@@ -461,7 +551,8 @@ export default function HabitEditorScreen() {
 						onChange={(v) => set("target", v)}
 						accessibilityLabel={t.t("form.target")}
 					/>
-					<TextField
+					<SmartTextField
+						field="habit.unit"
 						value={draft.unit}
 						onChangeText={(v) => set("unit", v)}
 						placeholder={t.t("form.unitPlaceholder")}
@@ -471,12 +562,14 @@ export default function HabitEditorScreen() {
 					/>
 				</View>
 			</Field>
+			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</View>
 	);
 
 	const satisfyingSection = isBreak ? (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.bundle"
 				label={t.t("form.unattractive")}
 				value={draft.bundle}
 				onChangeText={(v) => set("bundle", v)}
@@ -484,7 +577,8 @@ export default function HabitEditorScreen() {
 				maxLength={160}
 				multiline
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.reward"
 				label={t.t("form.unsatisfying")}
 				value={draft.reward}
 				onChangeText={(v) => set("reward", v)}
@@ -492,10 +586,14 @@ export default function HabitEditorScreen() {
 				maxLength={160}
 				multiline
 			/>
+			<SetupTaskToggle field="reward" draft={draft} update={update} habitId={habitId} />
+			<SetupTaskAdder law={2} draft={draft} update={update} />
+			<SetupTaskAdder law={4} draft={draft} update={update} />
 		</View>
 	) : (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.bundle"
 				label={t.t("form.bundle")}
 				hint={t.t("form.bundleHint")}
 				value={draft.bundle}
@@ -503,7 +601,8 @@ export default function HabitEditorScreen() {
 				placeholder={t.t("form.bundlePlaceholder")}
 				maxLength={160}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.reward"
 				label={t.t("form.reward")}
 				hint={t.t("form.rewardHint")}
 				value={draft.reward}
@@ -511,7 +610,8 @@ export default function HabitEditorScreen() {
 				placeholder={t.t("form.rewardPlaceholder")}
 				maxLength={160}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.why"
 				label={t.t("form.why")}
 				value={draft.why}
 				onChangeText={(v) => set("why", v)}
@@ -519,7 +619,8 @@ export default function HabitEditorScreen() {
 				maxLength={280}
 				multiline
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.environment"
 				label={t.t("form.environment")}
 				value={draft.environment}
 				onChangeText={(v) => set("environment", v)}
@@ -527,6 +628,10 @@ export default function HabitEditorScreen() {
 				maxLength={280}
 				multiline
 			/>
+			{/* T1 moves environment (and this toggle) to the obvious step (D13). */}
+			<SetupTaskToggle field="environment" draft={draft} update={update} habitId={habitId} />
+			<SetupTaskAdder law={2} draft={draft} update={update} />
+			<SetupTaskAdder law={4} draft={draft} update={update} />
 		</View>
 	);
 
@@ -542,6 +647,8 @@ export default function HabitEditorScreen() {
 					.filter(Boolean)
 					.join(" · ")}
 			</Text>
+			<TrackerReviewLine draft={draft} />
+			<SetupTasksReview draft={draft} update={update} habitId={habitId} />
 		</View>
 	);
 
@@ -707,6 +814,7 @@ export default function HabitEditorScreen() {
 						</Text>
 						{satisfyingSection}
 					</View>
+					<SetupTasksReview draft={draft} update={update} habitId={habitId} />
 				</Animated.View>
 			)}
 		</Screen>

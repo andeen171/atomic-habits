@@ -9,16 +9,25 @@
 			"distribution": "internal",
 			"android": {
 				"buildType": "apk"
+			},
+			"env": {
+				"EXPO_PUBLIC_BILLING_UI": "external"
 			}
 		},
 		"preview": {
 			"distribution": "internal",
 			"android": {
 				"buildType": "apk"
+			},
+			"env": {
+				"EXPO_PUBLIC_BILLING_UI": "external"
 			}
 		},
 		"production": {
-			"autoIncrement": true
+			"autoIncrement": true,
+			"env": {
+				"EXPO_PUBLIC_BILLING_UI": "status"
+			}
 		}
 	},
 	"submit": {

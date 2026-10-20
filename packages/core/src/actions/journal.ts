@@ -37,7 +37,8 @@ export interface JournalActions {
 	 * Creates an entry (`journalEntrySchema.parse`: throws on invalid input,
 	 * like `createTask`). `date` defaults to today; with `identityId`
 	 * undefined and a `habitId`, the habit's identity is copied when it is
-	 * live. Answers go through `sanitizeJournalAnswers`.
+	 * live. Answers go through `sanitizeJournalAnswers`. A contract starts
+	 * unsigned and without an outcome (`signContract`, `setContractOutcome`).
 	 */
 	createJournalEntry(input: JournalInput): JournalEntry;
 	/**
@@ -73,9 +74,40 @@ function cut(text: string, max: number): string {
 }
 
 /**
+ * Drops characters that carry no text but cost up to 6 bytes each on the
+ * wire (`\u0001` → `"\\u0001"`): control characters other than tab and line
+ * feed, and unpaired surrogates. Without them an answer costs at most 3
+ * UTF-8 bytes per UTF-16 unit, so a full entry (20,000 units) stays under
+ * `MAX_RECORD_BYTES` and is never refused as too large. A loop, not a
+ * regex: Hermes-safe and no lookbehind.
+ */
+export function stripUnsafeText(text: string): string {
+	let out = "";
+	let run = 0; // start of the current run of safe units
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+		let drop = false;
+		let pair = false;
+		if (code < 0x20) drop = code !== 0x09 && code !== 0x0a;
+		else if (code === 0x7f) drop = true;
+		else if (code >= 0xd800 && code <= 0xdbff) {
+			const next = text.charCodeAt(i + 1);
+			if (next >= 0xdc00 && next <= 0xdfff) pair = true;
+			else drop = true;
+		} else if (code >= 0xdc00 && code <= 0xdfff) drop = true;
+		if (drop) {
+			out += text.slice(run, i);
+			run = i + 1;
+		} else if (pair) i++;
+	}
+	return run === 0 ? text : out + text.slice(run);
+}
+
+/**
  * The store's generic answer sanitizer (spec §3.4; the backstop behind the
- * per-prompt `sanitizeAnswers` of `journal.ts`): CRLF → LF, trimmed, empty
- * answers and ids that are not prompt ids dropped, each answer at most
+ * per-prompt `sanitizeAnswers` of `journal.ts`): CRLF → LF, control
+ * characters and unpaired surrogates dropped (`stripUnsafeText`), trimmed,
+ * empty answers and ids that are not prompt ids dropped, each answer at most
  * `JOURNAL_ANSWER_MAX`, at most `JOURNAL_ANSWERS_MAX` answers, and the last
  * answers clamped so the total stays within `JOURNAL_TEXT_MAX`.
  */
@@ -87,7 +119,7 @@ export function sanitizeJournalAnswers(answers: unknown): Record<string, string>
 	for (const [id, raw] of Object.entries(answers as Record<string, unknown>)) {
 		if (count >= JOURNAL_ANSWERS_MAX || total >= JOURNAL_TEXT_MAX) break;
 		if (!PROMPT_ID_RE.test(id) || typeof raw !== "string") continue;
-		let value = raw.replace(/\r\n?/g, "\n").trim();
+		let value = stripUnsafeText(raw.replace(/\r\n?/g, "\n")).trim();
 		if (!value) continue;
 		value = cut(value, Math.min(JOURNAL_ANSWER_MAX, JOURNAL_TEXT_MAX - total));
 		if (!value) continue;
@@ -105,7 +137,7 @@ export function localOnlyCollections(settings: Pick<Settings, "syncJournal">): C
 
 const clean = (value: string | null | undefined): string | null => {
 	if (value == null) return null;
-	const trimmed = value.trim();
+	const trimmed = stripUnsafeText(value.replace(/\s+/g, " ")).trim();
 	return trimmed.length ? trimmed : null;
 };
 
@@ -161,7 +193,11 @@ export function createJournalActions(internals: StoreInternals): JournalActions 
 				habitId,
 				identityId: input.identityId !== undefined ? input.identityId : identityOfHabit(habitId),
 				answers: sanitizeJournalAnswers(input.answers ?? {}),
-				contract: input.contract == null ? null : cleanContract(input.contract),
+				// A contract is signed (and given an outcome) only through its own actions.
+				contract:
+					input.contract == null
+						? null
+						: cleanContract({ ...input.contract, signedAt: null, outcome: null }),
 				id: createId(),
 				createdAt: t,
 				updatedAt: t,

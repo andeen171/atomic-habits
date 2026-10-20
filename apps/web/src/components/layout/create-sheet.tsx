@@ -2,11 +2,11 @@ import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { useToday } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, ListPlus, Orbit } from "lucide-react";
+import { ChevronRight, ListPlus, NotebookPen, Orbit } from "lucide-react";
 import type { ReactNode } from "react";
 import { Dialog, DialogBody, DialogContent, DialogHeader } from "../ui/dialog";
 
-/** Mobile ⊕: choose between a new habit and a new task. */
+/** Mobile ⊕: a new habit, a new task or a journal entry. */
 export function CreateSheet() {
 	const { t, at } = useT();
 	const open = useUI((s) => s.createSheetOpen);
@@ -36,6 +36,16 @@ export function CreateSheet() {
 						onClick={() => {
 							setOpen(false);
 							openTaskDialog({ mode: "create", date: today });
+						}}
+					/>
+					<CreateOption
+						icon={<NotebookPen />}
+						title={t("create.journalEntry")}
+						body={t("create.journalHint")}
+						onClick={() => {
+							setOpen(false);
+							// The kind picker (spec §5.10).
+							void navigate({ to: "/journal/new" });
 						}}
 					/>
 				</DialogBody>

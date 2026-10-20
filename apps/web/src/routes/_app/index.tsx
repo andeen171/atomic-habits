@@ -1,4 +1,5 @@
 import { WeekStrip } from "@/components/habit/week-strip";
+import { JournalNudgeCard, useTodayJournalNudge } from "@/components/journal/journal-nudge-card";
 import { FreshStartBanner, NeverMissTwiceBanner } from "@/components/today/banners";
 import { DayProgress } from "@/components/today/day-progress";
 import { HabitGroup } from "@/components/today/habit-group";
@@ -7,10 +8,22 @@ import { PrincipleCard } from "@/components/today/principle-card";
 import { AllDoneCard, NothingDueCard } from "@/components/today/status-cards";
 import { TodayTasks } from "@/components/today/today-tasks";
 import { useCelebration } from "@/components/today/use-celebration";
+import { RunningTimerBanner, useRunningTimer } from "@/components/trackers/running-timer-banner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useT } from "@/lib/messages";
-import { type DayKey, type DayScore, TIMES_OF_DAY, greetingKey, isDayKey } from "@atomic/core";
+import { useIsMobile } from "@/lib/use-media-query";
+import {
+	type DayAgenda,
+	type DayKey,
+	type DayScore,
+	type JournalNudge,
+	TIMES_OF_DAY,
+	type TodayCardKind,
+	greetingKey,
+	isDayKey,
+	planTodayCards,
+} from "@atomic/core";
 import {
 	useActions,
 	useDayAgenda,
@@ -41,6 +54,7 @@ function TodayScreen() {
 	const day = search.day && search.day < today ? search.day : today;
 	const agenda = useDayAgenda(day);
 	useCelebration(agenda);
+	const cards = useTodayCards(agenda);
 
 	const selectDay = (next: DayKey) => {
 		void navigate({ to: "/", search: next === today ? {} : { day: next } });
@@ -63,12 +77,9 @@ function TodayScreen() {
 			votes
 		>
 			<WeekStrip selected={day} onSelect={selectDay} />
-			{agenda.isToday ? (
-				<>
-					<NeverMissTwiceBanner items={agenda.atRisk} />
-					<FreshStartBanner items={agenda.broken} />
-				</>
-			) : null}
+			{cards.above.map((kind) => (
+				<TodayCard key={kind} kind={kind} agenda={agenda} nudge={cards.nudge} />
+			))}
 			{agenda.allDone && agenda.isToday ? <AllDoneCard votes={agenda.votes} /> : null}
 			{!hasDue && agenda.score.due === 0 ? <NothingDueCard past={!agenda.isToday} /> : null}
 			{TIMES_OF_DAY.map((time) => (
@@ -82,8 +93,52 @@ function TodayScreen() {
 				showCount={false}
 			/>
 			<HabitGroup title={t("today.breaking")} items={agenda.breaking} day={day} showCount={false} />
+			{cards.below.map((kind) => (
+				<TodayCard key={kind} kind={kind} agenda={agenda} nudge={cards.nudge} />
+			))}
 		</TodayLayout>
 	);
+}
+
+/**
+ * The cards Today may show (spec §5.1), through the card budget
+ * (`planTodayCards`, D35): at most one above the habit groups on phones,
+ * two on wider screens, the rest after the groups.
+ */
+function useTodayCards(agenda: DayAgenda) {
+	const compact = useIsMobile();
+	const timer = useRunningTimer();
+	const nudge = useTodayJournalNudge(agenda.day);
+	const candidates: TodayCardKind[] = [];
+	if (timer) candidates.push("timer");
+	if (agenda.isToday && agenda.atRisk.length) candidates.push("neverMissTwice");
+	// "levelUp" and "monthBehind" [T1] join here.
+	if (nudge) {
+		candidates.push(nudge.type === "slip" || nudge.type === "contract" ? "recoveryNudge" : "nudge");
+	}
+	if (agenda.isToday && agenda.broken.length) candidates.push("freshStart");
+	return { ...planTodayCards(candidates, { compact }), nudge };
+}
+
+function TodayCard({
+	kind,
+	agenda,
+	nudge,
+}: { kind: TodayCardKind; agenda: DayAgenda; nudge: JournalNudge | null }) {
+	switch (kind) {
+		case "timer":
+			return <RunningTimerBanner />;
+		case "neverMissTwice":
+			return <NeverMissTwiceBanner items={agenda.atRisk} />;
+		case "recoveryNudge":
+		case "nudge":
+			return nudge ? <JournalNudgeCard nudge={nudge} /> : null;
+		case "freshStart":
+			return <FreshStartBanner items={agenda.broken} />;
+		// "levelUp": <LevelUpCard variant="banner" />, "monthBehind": <MonthBehindCard /> [T1].
+		default:
+			return null;
+	}
 }
 
 /** Header, then habits (main) | tasks, principle and votes (right rail from 1280px). */

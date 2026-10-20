@@ -149,6 +149,25 @@ export const sessionInfoSchema = z.looseObject({
 });
 export type SessionInfo = z.infer<typeof sessionInfoSchema>;
 
+/** How long an account export link works (spec §4.3, D69); it also works only once. */
+export const EXPORT_LINK_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * `POST /trpc/account.exportLink`: a single-use link to the account archive
+ * (a ZIP with `export.json`, export v2 plus an `account` block, and the
+ * photos of live entries). Open it in a browser or download it directly.
+ */
+export const exportLinkSchema = z.looseObject({
+	url: z.string().url(),
+	/** Epoch ms. */
+	expiresAt: z.number(),
+});
+export type ExportLink = z.infer<typeof exportLinkSchema>;
+
+/** `account.revokeSession` / `account.revokeOtherSessions`: how many sessions ended. */
+export const revokeResultSchema = z.looseObject({ revoked: z.number().int() });
+export type RevokeResult = z.infer<typeof revokeResultSchema>;
+
 /** Stripe's zero-decimal currencies (amounts are whole units). */
 const ZERO_DECIMAL = new Set([
 	"BIF",

@@ -347,14 +347,27 @@ function seriesRow(ctx: TaskContext, task: Task): TaskItem | null {
 const isClosed = (item: TaskItem) =>
 	item.state === "done" || item.state === "skipped" || item.state === "ended";
 
+/** When a closed row was closed: the check-off, the settling log, or the series' ending. */
+function closedAt(item: TaskItem): number {
+	if (item.log) return item.log.updatedAt;
+	if (item.task.completedAt != null) return item.task.completedAt;
+	return item.seriesState?.lastResolved?.updatedAt ?? 0;
+}
+
 /**
- * Open before done, then priority (high first), date (none last), time (none
- * last), manual order and age.
+ * Open before done (Annex T §1.4). Open rows: priority (high first), date
+ * (none last), time (none last), manual order, age. Closed rows keep v1's
+ * order: most recently closed first, then the same keys.
  */
 export function sortTaskItems(items: readonly TaskItem[]): TaskItem[] {
 	return [...items].sort((a, b) => {
-		const closed = Number(isClosed(a)) - Number(isClosed(b));
+		const aClosed = isClosed(a);
+		const closed = Number(aClosed) - Number(isClosed(b));
 		if (closed) return closed;
+		if (aClosed) {
+			const recent = closedAt(b) - closedAt(a);
+			if (recent) return recent;
+		}
 		const aTime = parseTime(a.task.time) ?? Number.POSITIVE_INFINITY;
 		const bTime = parseTime(b.task.time) ?? Number.POSITIVE_INFINITY;
 		return (
@@ -380,14 +393,31 @@ export interface HabitSetupTasks {
 	paused: TaskItem[];
 	/** Completed one-offs and ended or finished series. */
 	done: TaskItem[];
-	/** Live linked tasks by `habitField` (newest first), for "linked" chips and duplicates. */
+	/**
+	 * Live linked tasks by `habitField`: the ones still covering the field
+	 * first (see `covering`), then the newest.
+	 */
 	byField: Map<string, Task[]>;
+	/**
+	 * Per field, the linked task that still covers it (Annex T §1.5,
+	 * duplicates): an open one-off, or a series that is not ended or finished.
+	 * Such a field shows the "Task · Every day" chip instead of the toggle; a
+	 * field without one offers "Make it a task".
+	 */
+	covering: Map<string, Task>;
 }
 
 /** The habit page's Setup tasks card: the live tasks linked to the habit. */
 export function habitSetupTasks(ctx: TaskContext, habitId: string): HabitSetupTasks {
-	const out: HabitSetupTasks = { active: [], paused: [], done: [], byField: new Map() };
+	const out: HabitSetupTasks = {
+		active: [],
+		paused: [],
+		done: [],
+		byField: new Map(),
+		covering: new Map(),
+	};
 	const habit = ctx.habits[habitId];
+	const going = new Set<string>();
 	for (const task of ctx.tasks) {
 		if (task.deletedAt || task.habitId !== habitId) continue;
 		if (task.habitField) {
@@ -397,11 +427,13 @@ export function habitSetupTasks(ctx: TaskContext, habitId: string): HabitSetupTa
 		}
 		if (!isSeries(task)) {
 			const item = oneOffItem(task, ctx.today);
+			if (item.state !== "done") going.add(task.id);
 			(item.state === "done" ? out.done : out.active).push(item);
 			continue;
 		}
 		const logs = ctx.logs.get(task.id) ?? [];
 		const state = seriesState(task, logs, ctx.today, habit);
+		if (state.status !== "ended" && state.status !== "finished") going.add(task.id);
 		if (state.status === "paused") {
 			out.paused.push({
 				key: task.id,
@@ -421,7 +453,13 @@ export function habitSetupTasks(ctx: TaskContext, habitId: string): HabitSetupTa
 		const row = seriesRow(ctx, task);
 		if (row) (row.state === "ended" ? out.done : out.active).push(row);
 	}
-	for (const list of out.byField.values()) list.sort((a, b) => b.createdAt - a.createdAt);
+	for (const [field, list] of out.byField) {
+		list.sort(
+			(a, b) => Number(going.has(b.id)) - Number(going.has(a.id)) || b.createdAt - a.createdAt,
+		);
+		const first = list[0];
+		if (first && going.has(first.id)) out.covering.set(field, first);
+	}
 	out.active = sortTaskItems(out.active);
 	out.paused = sortTaskItems(out.paused);
 	out.done = sortTaskItems(out.done);

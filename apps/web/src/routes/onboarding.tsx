@@ -1,5 +1,6 @@
 import { LogoMark } from "@/components/brand/logo";
 import { CompoundChart } from "@/components/insights/compound-chart";
+import { TrackerBadge } from "@/components/trackers/tracker-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { focusHeading } from "@/lib/focus";
@@ -493,6 +494,7 @@ function HabitOption({
 						{habit.twoMinute}
 					</span>
 				) : null}
+				<TrackerBadge template={habit} className="mt-1" />
 			</span>
 			<SelectCheck selected={selected} />
 		</button>

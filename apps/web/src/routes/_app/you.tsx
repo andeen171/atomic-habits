@@ -1,3 +1,4 @@
+import { AccountRow } from "@/components/account/account-row";
 import { NAV, YOU_ITEMS } from "@/components/layout/nav-items";
 import { Page, PageHeader } from "@/components/layout/page";
 import { IdentityVotesCard } from "@/components/today/identity-votes-card";
@@ -29,6 +30,7 @@ function YouScreen() {
 	return (
 		<Page>
 			<PageHeader title={displayName.trim() || t("nav.you")} subtitle={at("you.subtitle")} />
+			<AccountRow />
 			{habits.length ? (
 				<div className="mb-6 grid grid-cols-2 gap-3">
 					<StatTile

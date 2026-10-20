@@ -44,6 +44,7 @@ export function useGlobalShortcuts(): void {
 				if (lower === "t") void navigate({ to: "/" });
 				else if (lower === "h") void navigate({ to: "/habits" });
 				else if (lower === "k") void navigate({ to: "/tasks" });
+				else if (lower === "j") void navigate({ to: "/journal" });
 				else return;
 				event.preventDefault();
 				return;
@@ -64,6 +65,12 @@ export function useGlobalShortcuts(): void {
 				case "H":
 					event.preventDefault();
 					void navigate({ to: "/habits/new" });
+					return;
+				case "j":
+				case "J":
+					// New journal entry: the kind picker.
+					event.preventDefault();
+					void navigate({ to: "/journal/new" });
 					return;
 				case "?":
 					event.preventDefault();

@@ -1,30 +1,63 @@
 import { trpcServer } from "@hono/trpc-server";
-import { type Context, Hono } from "hono";
+import { getHTTPStatusCodeFromError } from "@trpc/server/http";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
-import { logger } from "hono/logger";
-import { env } from "./env";
-import { auth } from "./lib/auth";
+import { matchedRoutes } from "hono/route";
+import type { Config } from "./config";
+import { safeTag } from "./lib/log";
+import { retryAfterSeconds } from "./lib/rate-limit";
 import { bearerOnlyRequest, withoutCookies } from "./lib/request";
-import { createContext } from "./trpc/context";
-import { appRouter } from "./trpc/router";
+import type { AppEnv, Services } from "./services";
+import { createContextFactory } from "./trpc/context";
+import { AtomicCause } from "./trpc/init";
+import { PROCEDURE_PATHS, appRouter } from "./trpc/router";
 
-/** What Bun passes as the second `fetch` argument (absent under `app.request`). */
-interface Bindings {
-	requestIP?: (request: Request) => { address: string } | null;
-}
-
-type AppEnv = { Bindings: Bindings; Variables: { clientIp: string | undefined } };
+const KIB = 1024;
+const MIB = 1024 * KIB;
 
 /**
- * Client IP for auth rate limiting: a trusted proxy header, else the TCP peer.
+ * The one body limit of a request (spec §4.2): no two limiters ever apply to
+ * the same route.
+ */
+export function bodyLimitFor(
+	config: Pick<Config, "blobMaxFileBytes">,
+	method: string,
+	path: string,
+) {
+	if (path === "/api/auth/stripe/webhook") return 512 * KIB; // raw body kept (signature)
+	if (path.startsWith("/api/auth/")) return 64 * KIB;
+	if (path.startsWith("/trpc/ai.")) return 16 * KIB;
+	if (path.startsWith("/trpc/")) return 8 * MIB;
+	if (method === "PUT" && path.startsWith("/blobs/")) return config.blobMaxFileBytes;
+	return 64 * KIB;
+}
+
+function bodyLimits(config: Config): MiddlewareHandler<AppEnv> {
+	const limiters = new Map<number, MiddlewareHandler>();
+	return (c, next) => {
+		const maxSize = bodyLimitFor(config, c.req.method, c.req.path);
+		let limiter = limiters.get(maxSize);
+		if (!limiter) {
+			limiter = bodyLimit({
+				maxSize,
+				onError: (c) => c.json({ message: "Payload too large" }, 413),
+			});
+			limiters.set(maxSize, limiter);
+		}
+		return limiter(c, next);
+	};
+}
+
+/**
+ * Client IP for rate limiting: a trusted proxy header, else the TCP peer.
  * For list headers (`x-forwarded-for`) the right-most entry is the one the
  * trusted proxy appended; entries to its left are client-controlled.
  */
-function clientIp(c: Context<AppEnv>): string | undefined {
-	if (env.clientIpHeader) {
-		const value = c.req.header(env.clientIpHeader)?.split(",").at(-1)?.trim();
+function clientIp(c: Context<AppEnv>, header: string | null): string | undefined {
+	if (header) {
+		const value = c.req.header(header)?.split(",").at(-1)?.trim();
 		if (value) return value;
 	}
 	try {
@@ -34,63 +67,148 @@ function clientIp(c: Context<AppEnv>): string | undefined {
 	}
 }
 
-export const app = new Hono<AppEnv>();
+const REQUEST_ID_RE = /^[\w.-]{8,64}$/;
 
-if (!env.isTest) app.use(logger());
+/**
+ * The route template of a request, never its concrete path: tRPC procedures
+ * by name when they exist, otherwise the registered pattern (`/blobs/:sha256`,
+ * `/api/auth/*`). Paths can carry tokens and hashes; templates can't.
+ */
+export function routeTemplate(c: Context<AppEnv>): string {
+	const path = c.req.path;
+	if (path.startsWith("/trpc/")) {
+		const procedure = path.slice("/trpc/".length);
+		return PROCEDURE_PATHS.has(procedure) ? `/trpc/${procedure}` : "/trpc/*";
+	}
+	if (path === "/") return "/";
+	let routes: ReturnType<typeof matchedRoutes> = [];
+	try {
+		routes = matchedRoutes(c);
+	} catch {
+		// Not routed (e.g. an error before routing).
+	}
+	const route = routes.filter((r) => r.path !== "*" && r.path !== "/*").at(-1);
+	return route?.path ?? "unmatched";
+}
 
-app.use(
-	"*",
-	cors({
-		// Bearer tokens, never cookies: any origin may call the API unless the
-		// operator restricts browsers with CORS_ORIGINS.
-		origin: env.corsOrigins.length ? env.corsOrigins : "*",
-		allowHeaders: ["Content-Type", "Authorization"],
-		allowMethods: ["GET", "POST", "OPTIONS"],
-		exposeHeaders: ["set-auth-token"],
-		maxAge: 600,
-	}),
-);
+/**
+ * Builds the HTTP app (Hono): request log, CORS, body limits, Better Auth
+ * under `/api/auth/*` and tRPC under `/trpc/*`.
+ */
+export function createApp(services: Services) {
+	const { config, log } = services;
+	const app = new Hono<AppEnv>();
 
-app.get("/", (c) => c.text("OK"));
+	// Content-free request log: route template, status and duration; never the
+	// query string, path parameters, IP, user, headers or bodies.
+	app.use("*", async (c, next) => {
+		const incoming = c.req.header("x-request-id");
+		const id = incoming && REQUEST_ID_RE.test(incoming) ? incoming : crypto.randomUUID();
+		c.set("requestId", id);
+		const start = performance.now();
+		await next();
+		c.header("X-Request-Id", id);
+		log.info({
+			msg: "req",
+			id,
+			method: c.req.method,
+			route: routeTemplate(c),
+			status: c.res.status,
+			ms: Math.round(performance.now() - start),
+		});
+	});
 
-// Resolve the client IP while `c.req.raw` is still the original request
-// (bodyLimit may replace it, and Bun only knows the peer of the original).
-app.use("*", async (c, next) => {
-	c.set("clientIp", clientIp(c));
-	await next();
-});
+	app.use(
+		"*",
+		cors({
+			// Bearer tokens, never cookies: any origin may call the API unless the
+			// operator restricts browsers with CORS_ORIGINS.
+			origin: config.corsOrigins.length ? config.corsOrigins : "*",
+			allowHeaders: [
+				"Content-Type",
+				"Authorization",
+				"X-Atomic-Locale",
+				"X-Atomic-Client",
+				"X-Atomic-Device",
+			],
+			allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+			exposeHeaders: ["set-auth-token", "Retry-After", "X-Request-Id"],
+			maxAge: 600,
+		}),
+	);
 
-// Better Auth: /api/auth/sign-up/email, /sign-in/email, /get-session, /sign-out…
-app.use("/api/auth/*", bodyLimit({ maxSize: 64 * 1024 }));
-app.on(["GET", "POST"], "/api/auth/*", async (c) => {
-	const response = await auth.handler(await bearerOnlyRequest(c.req.raw, c.get("clientIp")));
-	return withoutCookies(response);
-});
+	app.get("/", (c) => c.text("OK"));
 
-// tRPC over plain HTTP: POST /trpc/sync.push, GET /trpc/sync.pull?input=…
-app.use("/trpc/*", bodyLimit({ maxSize: 8 * 1024 * 1024 }));
-app.use(
-	"/trpc/*",
-	trpcServer({
-		router: appRouter,
-		endpoint: "/trpc",
-		// Clients never batch; a batch would multiply one request's cost.
-		allowBatching: false,
-		createContext: (opts) => createContext({ headers: opts.req.headers }),
-		onError: ({ error, path }) => {
-			if (error.code === "INTERNAL_SERVER_ERROR") {
-				console.error(`[trpc] ${path ?? "<unknown>"} failed`, error);
+	// Resolve the client IP while `c.req.raw` is still the original request
+	// (bodyLimit may replace it, and Bun only knows the peer of the original).
+	app.use("*", async (c, next) => {
+		c.set("clientIp", clientIp(c, config.clientIpHeader));
+		await next();
+	});
+
+	app.use("*", bodyLimits(config));
+
+	// Google sign-in is ID-token only: the redirect flow can't work cookie-less.
+	if (config.google) {
+		app.post("/api/auth/sign-in/social", async (c, next) => {
+			let idToken: unknown;
+			try {
+				idToken = ((await c.req.raw.clone().json()) as { idToken?: unknown } | null)?.idToken;
+			} catch {
+				idToken = undefined;
 			}
-		},
-	}),
-);
+			if (!idToken)
+				return c.json({ message: "idToken is required", code: "ID_TOKEN_REQUIRED" }, 400);
+			await next();
+		});
+	}
 
-app.notFound((c) => c.json({ message: "Not found" }, 404));
+	// Better Auth: /api/auth/sign-up/email, /sign-in/email, /get-session, /sign-out…
+	app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+		const request = await bearerOnlyRequest(c.req.raw, c.get("clientIp"));
+		return withoutCookies(await services.auth.handler(request));
+	});
 
-app.onError((error, c) => {
-	if (error instanceof HTTPException) return error.getResponse();
-	console.error("[atomic] Unhandled error", error);
-	return c.json({ message: "Internal server error" }, 500);
-});
+	// tRPC over plain HTTP: POST /trpc/sync.push, GET /trpc/sync.pull?input=…, GET /trpc/meta
+	app.use(
+		"/trpc/*",
+		trpcServer({
+			router: appRouter,
+			endpoint: "/trpc",
+			// Clients never batch; a batch would multiply one request's cost.
+			allowBatching: false,
+			createContext: createContextFactory(services),
+			// Content-free: the code, a known procedure path and the cause's name.
+			onError: ({ error, path }) => {
+				if (getHTTPStatusCodeFromError(error) < 500) return;
+				log.error({
+					msg: "trpc",
+					path: path && PROCEDURE_PATHS.has(path) ? path : "unknown",
+					code: error.code,
+					cause: safeTag(error.cause?.name),
+				});
+			},
+			responseMeta: ({ errors }) => {
+				const retryAt = errors
+					.map((error) => (error.cause instanceof AtomicCause ? error.cause.retryAt : undefined))
+					.find((at) => at !== undefined);
+				if (retryAt === undefined) return {};
+				const headers = new Headers();
+				headers.set("Retry-After", String(retryAfterSeconds(retryAt, services.now())));
+				return { headers };
+			},
+		}),
+	);
 
-export type App = typeof app;
+	app.notFound((c) => c.json({ message: "Not found" }, 404));
+
+	app.onError((error, c) => {
+		if (error instanceof HTTPException) return error.getResponse();
+		log.error({ msg: "error", name: safeTag(error.name), id: c.get("requestId") });
+		return c.json({ message: "Internal server error" }, 500);
+	});
+
+	return app;
+}
+
+export type App = ReturnType<typeof createApp>;

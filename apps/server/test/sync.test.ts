@@ -1,24 +1,35 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { MAX_PULL_BATCH, MAX_PUSH_BATCH, canonicalJson, compareVersions } from "@atomic/core/sync";
+import type { Plan } from "@atomic/core";
+import {
+	MAX_PULL_BATCH,
+	MAX_PUSH_BATCH,
+	canonicalJson,
+	compareVersions,
+	serializedBytes,
+} from "@atomic/core/sync";
+import { type Config, loadConfig } from "../src/config";
+import { syncUsage } from "../src/sync/service";
 import {
 	BASE_URL,
 	type TestApp,
+	type TestServer,
 	bearer,
+	createTestServer,
 	habit,
 	pull,
 	pullOk,
 	push,
 	pushOk,
-	setupApp,
 	signUp,
 	task,
 	trpcData,
 } from "./helpers";
 
 let app: TestApp;
+let db: TestServer["db"];
 
 beforeAll(async () => {
-	app = await setupApp();
+	({ app, db } = await createTestServer());
 });
 
 describe("authentication", () => {
@@ -159,7 +170,6 @@ describe("last write wins", () => {
 			data: Object.fromEntries(Object.entries(record.data).reverse()),
 		};
 		await pushOk(app, token, [record]);
-		const { db } = await import("../src/db");
 		const row = await db.$client.execute({
 			sql: "SELECT data FROM sync_record WHERE user_id = ? AND id = ?",
 			args: [user.id, "t1"],
@@ -171,7 +181,6 @@ describe("last write wins", () => {
 
 	test("a tie with a row stored before documents were canonical is decided canonically", async () => {
 		const { token, user } = await signUp(app);
-		const { db } = await import("../src/db");
 		// Stored the old way: JSON.stringify in the pushed key order ("id" first).
 		const legacy = task("t1", 100, { aaa: 1 });
 		await pushOk(app, token, [legacy]);
@@ -480,5 +489,167 @@ describe("protocol v2 (spec §2.7, §4.6)", () => {
 			expect(serverTime).toBeGreaterThanOrEqual(before);
 			expect(serverTime).toBeLessThanOrEqual(after);
 		}
+	});
+});
+
+/** The default plans with every plan's sync storage set to `syncBytes`. */
+function plansWith(
+	syncBytes: Partial<Record<Plan, number>>,
+	defaultPlan: Plan = "pro",
+): Config["plans"] {
+	const { limits } = loadConfig({ NODE_ENV: "test" }).plans;
+	return {
+		defaultPlan,
+		limits: {
+			free: { ...limits.free, syncBytes: syncBytes.free ?? limits.free.syncBytes },
+			pro: { ...limits.pro, syncBytes: syncBytes.pro ?? limits.pro.syncBytes },
+		},
+	};
+}
+
+/** A task whose stored JSON is about `bytes` long. */
+const sized = (id: string, updatedAt: number, bytes: number, patch: Record<string, unknown> = {}) =>
+	task(id, updatedAt, { notes: "n".repeat(Math.max(0, bytes - 200)), ...patch });
+
+describe("sync quota (spec §4.5, D54)", () => {
+	const LIMIT = 2_000;
+	let quota: TestServer;
+
+	beforeAll(async () => {
+		quota = await createTestServer({ config: { plans: plansWith({ pro: LIMIT }) } });
+	});
+
+	test("usage is the UTF-8 size of the stored documents, through inserts, updates and tombstones", async () => {
+		const { token, user } = await signUp(app);
+		await pushOk(app, token, [
+			task("a", 1, { title: "Ler à noite 📚" }),
+			task("b", 1, { notes: "x".repeat(500) }),
+			habit("h", 1),
+		]);
+		await pushOk(app, token, [
+			task("a", 2, { title: "Ler à noite 📚📚📚", notes: "ç".repeat(40) }),
+			task("b", 2, { notes: "short" }),
+			habit("h", 2, { deletedAt: 2 }),
+		]);
+		const { records } = await pullOk(app, token, { cursor: 0 });
+		const expected = records.reduce((sum, r) => sum + serializedBytes(r.data), 0);
+		expect(expected).toBeGreaterThan(0);
+		expect(await syncUsage(db, user.id)).toBe(expected);
+	});
+
+	test("a write past the limit is refused with quota; the rest of the batch is stored", async () => {
+		const { token, user } = await signUp(quota.app);
+		expect(await pushOk(quota.app, token, [sized("a", 1, 700), sized("b", 1, 700)])).toMatchObject({
+			accepted: 2,
+			rejected: [],
+		});
+		const used = await syncUsage(quota.db, user.id);
+		const result = await pushOk(quota.app, token, [
+			habit("small-1", 1),
+			sized("c", 1, 700),
+			habit("small-2", 1),
+		]);
+		expect(result.accepted).toBe(2);
+		expect(result.rejected).toEqual([
+			{ collection: "tasks", id: "c", reason: "$: quota", code: "quota" },
+		]);
+		expect(result.conflicts).toEqual([]);
+		const ids = (await pullOk(quota.app, token, { cursor: 0 })).records.map((r) => r.id);
+		expect(ids).toEqual(["a", "b", "small-1", "small-2"]);
+		expect(await syncUsage(quota.db, user.id)).toBeGreaterThan(used);
+		expect(await syncUsage(quota.db, user.id)).toBeLessThanOrEqual(LIMIT);
+	});
+
+	test("tombstones are always accepted, even over the quota; growing writes are not", async () => {
+		const { token, user } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 1, 900), sized("b", 1, 900)]);
+		// A deletion keeps the full entity (no compaction in v2), so it can grow the usage.
+		const deleted = await pushOk(quota.app, token, [
+			sized("gone", 5, 1500, { deletedAt: 5 }),
+			sized("a", 5, 1500, { deletedAt: 5 }),
+		]);
+		expect(deleted).toMatchObject({ accepted: 2, rejected: [] });
+		expect(await syncUsage(quota.db, user.id)).toBeGreaterThan(LIMIT);
+		// Over the quota: growing (or new) documents are refused…
+		const grow = await pushOk(quota.app, token, [sized("b", 6, 1200), habit("new", 6)]);
+		expect(grow.rejected.map((r) => [r.id, r.code])).toEqual([
+			["b", "quota"],
+			["new", "quota"],
+		]);
+		expect(grow.accepted).toBe(0);
+		// …while edits that don't grow are accepted, so the user can trim.
+		const trim = await pushOk(quota.app, token, [sized("b", 7, 300)]);
+		expect(trim).toMatchObject({ accepted: 1, rejected: [] });
+	});
+
+	test("a refused record is accepted once there is room (the client keeps it pending)", async () => {
+		const { token } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 1, 1500)]);
+		const refused = await pushOk(quota.app, token, [sized("c", 1, 700)]);
+		expect(refused.rejected.map((r) => r.code)).toEqual(["quota"]);
+		await pushOk(quota.app, token, [sized("a", 2, 400)]);
+		expect(await pushOk(quota.app, token, [sized("c", 1, 700)])).toMatchObject({
+			accepted: 1,
+			rejected: [],
+		});
+	});
+
+	test("a refused record that also lost last-write-wins comes back as a conflict, not quota", async () => {
+		const { token } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 500, 300), sized("filler", 1, 1600)]);
+		const result = await pushOk(quota.app, token, [sized("a", 100, 1200)]);
+		expect(result.rejected).toEqual([]);
+		expect(result.conflicts.map((r) => [r.id, r.updatedAt])).toEqual([["a", 500]]);
+	});
+
+	test("the limit is the user's plan's (DEFAULT_PLAN without billing)", async () => {
+		const free = await createTestServer({
+			config: { plans: plansWith({ free: 1_000, pro: 1_000_000 }, "free") },
+		});
+		const { token } = await signUp(free.app);
+		const result = await pushOk(free.app, token, [sized("a", 1, 700), sized("b", 1, 700)]);
+		expect(result.rejected.map((r) => [r.id, r.code])).toEqual([["b", "quota"]]);
+	});
+});
+
+describe("push rate limit (D54)", () => {
+	test("past 60 pushes a minute a user gets 429 with Retry-After; others are unaffected", async () => {
+		let t = Date.now();
+		const limited = await createTestServer({ deps: { now: () => t } });
+		const ana = await signUp(limited.app, "Ana");
+		const ben = await signUp(limited.app, "Ben");
+		for (let i = 0; i < 60; i++) {
+			expect((await push(limited.app, ana.token, [task(`t${i}`, i + 1)])).status).toBe(200);
+		}
+		t += 20_000;
+		const response = await push(limited.app, ana.token, [task("late", 1)]);
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("40");
+		const body = (await response.json()) as {
+			error: { data: { code: string; atomic?: { reason: string; retryAt: number } } };
+		};
+		expect(body.error.data.code).toBe("TOO_MANY_REQUESTS");
+		expect(body.error.data.atomic?.reason).toBe("rate");
+
+		// Nothing was stored; pulls and other users still work.
+		const page = await pullOk(limited.app, ana.token, { cursor: 0 });
+		expect(page.records.map((r) => r.id)).not.toContain("late");
+		expect((await push(limited.app, ben.token, [task("b", 1)])).status).toBe(200);
+
+		// The next window.
+		t += 40_000;
+		expect(await pushOk(limited.app, ana.token, [task("late", 1)])).toMatchObject({ accepted: 1 });
+	});
+
+	test("malformed pushes count too", async () => {
+		let t = Date.now();
+		const limited = await createTestServer({ deps: { now: () => t } });
+		const { token } = await signUp(limited.app);
+		for (let i = 0; i < 60; i++) {
+			expect((await push(limited.app, token, [{ nonsense: true }])).status).toBe(400);
+		}
+		expect((await push(limited.app, token, [task("a", 1)])).status).toBe(429);
+		t += 60_000;
+		expect((await push(limited.app, token, [task("a", 1)])).status).toBe(200);
 	});
 });

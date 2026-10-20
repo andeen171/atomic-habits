@@ -12,6 +12,7 @@ import {
 } from "@/components/icons";
 import { ActionList, type SheetAction } from "@/components/sheet/action-list";
 import { Sheet } from "@/components/sheet/sheet";
+import { useTrackerActionRows } from "@/components/trackers/tracker-action-rows";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { TextField } from "@/components/ui/text-field";
@@ -20,7 +21,7 @@ import { useT } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import { showToast, ui, useUI } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
-import { getLog, progressLabel } from "@atomic/core";
+import { getLog, isTrackerDay, progressLabel } from "@atomic/core";
 import { useActions, useAtomic, useHabit, useToday } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -60,6 +61,8 @@ function HabitActionsContent({
 	);
 	const [mode, setMode] = useState<"actions" | "note">("actions");
 	const [note, setNote] = useState("");
+	// Tracker days log through entries (Annex K §1.3): T4's rows replace +1 / −1 / toggle / reset.
+	const trackerRows = useTrackerActionRows(habit, day, ui.closeHabitActions);
 
 	// Reset to the action list (and the saved note) each time the sheet opens.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on open only
@@ -84,8 +87,11 @@ function HabitActionsContent({
 		close();
 	};
 
+	const trackerDay = isTrackerDay(habit, day);
 	const list: SheetAction[] = [];
-	if (isBreak) {
+	if (trackerDay) {
+		list.push(...trackerRows);
+	} else if (isBreak) {
 		list.push(
 			count > 0
 				? {
@@ -170,7 +176,7 @@ function HabitActionsContent({
 		icon: Eye,
 		onPress: run(() => router.push({ pathname: "/habit/[id]", params: { id: habit.id } })),
 	});
-	if (count > 0 || skipped) {
+	if (!trackerDay && (count > 0 || skipped)) {
 		list.push({
 			key: "reset",
 			label: t.t("habit.reset"),

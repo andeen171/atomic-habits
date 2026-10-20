@@ -24,6 +24,11 @@ export const sharedPtBR: Record<keyof typeof sharedEn, string> = {
 
 	"app.newVersion": "Uma nova versão está pronta",
 	"app.reload": "Recarregar",
+	"app.comingSoon": "Em breve",
+	"app.comingSoonBody": "Esta parte do Atomic ainda está sendo construída.",
+
+	"sync.cloudPaused":
+		"Salvamento na nuvem pausado — exporte um backup para manter as últimas alterações.",
 
 	"list.and.pair": "{first} e {second}",
 	"list.and.last": "{rest} e {last}",

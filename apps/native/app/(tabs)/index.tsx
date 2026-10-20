@@ -1,11 +1,13 @@
 import { EmptyState } from "@/components/empty-state";
 import { HabitRow } from "@/components/habit/habit-row";
 import { ArrowLeft, Check } from "@/components/icons";
-import { FreshStartCard, NeverMissTwiceBanner } from "@/components/today/banners";
+import { JournalNudgeCard, useJournalNudge } from "@/components/journal/journal-nudge-card";
+import { FreshStartBanner, NeverMissTwiceBanner } from "@/components/today/banners";
 import { PerfectDayCard } from "@/components/today/perfect-day-card";
 import { PrincipleCard } from "@/components/today/principle-card";
 import { TodayTasks } from "@/components/today/today-tasks";
 import { WeekStrip } from "@/components/today/week-strip";
+import { RunningTimerBanner, useRunningTimer } from "@/components/trackers/running-timer-banner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressRing } from "@/components/ui/progress-ring";
@@ -17,7 +19,14 @@ import { useT } from "@/lib/i18n";
 import { claimCelebration } from "@/lib/prefs";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
-import { type AgendaItem, type AtomicData, TIMES_OF_DAY, greetingKey } from "@atomic/core";
+import {
+	type AgendaItem,
+	TIMES_OF_DAY,
+	type TodayCardKind,
+	greetingKey,
+	hasAnyData,
+	planTodayCards,
+} from "@atomic/core";
 import { useActions, useAtomic, useDayAgenda, useToday } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -37,6 +46,8 @@ export default function TodayScreen() {
 	const allArchived = useAtomic((s) =>
 		Object.values(s.data.habits).some((h) => !h.deletedAt && h.archivedAt),
 	);
+	const timer = useRunningTimer();
+	const nudge = useJournalNudge(day);
 
 	// Follow midnight rollover when the user was looking at "today".
 	const lastToday = useRef(today);
@@ -75,6 +86,33 @@ export default function TodayScreen() {
 		(g) => g.items.length > 0,
 	);
 	const nothingDue = !agenda.empty && groups.length === 0 && agenda.score.due === 0;
+
+	// The Today card budget (D35): at most one card above the first group on native.
+	const candidates: TodayCardKind[] = [];
+	if (timer) candidates.push("timer");
+	if (isToday && agenda.atRisk.length) candidates.push("neverMissTwice");
+	// T1 adds "levelUp" (days 1–7) and "monthBehind" (last 7 days of the month).
+	if (isToday && nudge) {
+		candidates.push(nudge.type === "slip" || nudge.type === "contract" ? "recoveryNudge" : "nudge");
+	}
+	if (isToday && agenda.broken.length) candidates.push("freshStart");
+	const cards = planTodayCards(candidates, { compact: true });
+	const renderCard = (kind: TodayCardKind) => {
+		switch (kind) {
+			case "timer":
+				return <RunningTimerBanner key={kind} />;
+			case "neverMissTwice":
+				return <NeverMissTwiceBanner key={kind} items={agenda.atRisk} />;
+			case "recoveryNudge":
+			case "nudge":
+				return nudge ? <JournalNudgeCard key={kind} nudge={nudge} /> : null;
+			case "freshStart":
+				return <FreshStartBanner key={kind} items={agenda.broken} />;
+			default:
+				// "levelUp" and "monthBehind" (T1).
+				return null;
+		}
+	};
 
 	if (agenda.empty) {
 		return (
@@ -156,12 +194,7 @@ export default function TodayScreen() {
 				<WeekStrip selected={day} onSelect={setDay} />
 			</View>
 
-			{isToday ? (
-				<>
-					<NeverMissTwiceBanner items={agenda.atRisk} />
-					<FreshStartCard items={agenda.broken} />
-				</>
-			) : null}
+			{cards.above.map(renderCard)}
 
 			{agenda.allDone ? <PerfectDayCard votes={agenda.votes} /> : null}
 
@@ -191,17 +224,12 @@ export default function TodayScreen() {
 				<HabitGroup label={t.t("today.breaking")} items={agenda.breaking} day={day} />
 			) : null}
 
+			{cards.below.map(renderCard)}
+
 			<TodayTasks day={day} />
 			<PrincipleCard day={day} />
 		</Screen>
 	);
-}
-
-/** True when anything at all is stored (archived habits count), so sample data would replace it. */
-function hasAnyData(data: AtomicData): boolean {
-	const live = (records: Record<string, { deletedAt: number | null }>) =>
-		Object.values(records).some((record) => !record.deletedAt);
-	return live(data.habits) || live(data.tasks) || live(data.identities) || live(data.scorecard);
 }
 
 function HabitGroup({

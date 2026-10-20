@@ -39,7 +39,7 @@ export function NeverMissTwiceBanner({ items }: { items: AgendaItem[] }) {
 }
 
 /** Muted card after two misses: start again with the two-minute version. */
-export function FreshStartCard({ items }: { items: AgendaItem[] }) {
+export function FreshStartBanner({ items }: { items: AgendaItem[] }) {
 	const t = useT();
 	const { colors } = useTheme();
 	const styles = useStyles();

@@ -1,8 +1,10 @@
+import { TranslatedText } from "@/components/ai/translated-text";
 import { Heatmap } from "@/components/charts/heatmap";
 import { EmptyState } from "@/components/empty-state";
 import { BlueprintCard } from "@/components/habit/blueprint-card";
 import { HabitCalendar } from "@/components/habit/habit-calendar";
 import { HabitRing } from "@/components/habit/habit-ring";
+import { SetupTasksCard } from "@/components/habit/setup-tasks-card";
 import {
 	Archive,
 	ArchiveRestore,
@@ -15,9 +17,14 @@ import {
 	Trophy,
 	Undo2,
 } from "@/components/icons";
+import { HabitJournalSection } from "@/components/journal/habit-journal-section";
 import { ActionList } from "@/components/sheet/action-list";
 import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { Sheet } from "@/components/sheet/sheet";
+import { useTrackerOverflowRows } from "@/components/trackers/tracker-action-rows";
+import { TrackerEntriesList } from "@/components/trackers/tracker-entries-list";
+import { TrackerLogCard } from "@/components/trackers/tracker-log-card";
+import { TrackerPanel } from "@/components/trackers/tracker-panel";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
@@ -35,6 +42,7 @@ import {
 	dayState,
 	heatColor,
 	intensityOf,
+	isTrackerActive,
 	logsFor,
 	progressLabel,
 	scheduleLabel,
@@ -50,7 +58,7 @@ import {
 	useToday,
 } from "@atomic/core/react";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { View } from "react-native";
 
 export default function HabitDetailScreen() {
@@ -83,18 +91,9 @@ function HabitDetail({ habitId }: { habitId: string }) {
 	const [menu, setMenu] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [shakeKey, setShakeKey] = useState(0);
+	const trackerMenuRows = useTrackerOverflowRows(habit, () => setMenu(false));
 
 	const logs = habit ? logsFor(index, habit.id) : undefined;
-	const notes = useMemo(
-		() =>
-			logs
-				? [...logs.values()]
-						.filter((log) => log.note)
-						.sort((a, b) => b.date.localeCompare(a.date))
-						.slice(0, 12)
-				: [],
-		[logs],
-	);
 
 	if (!habit || !stats || !logs) return null;
 	const tone = theme.habit(habit.color);
@@ -183,9 +182,13 @@ function HabitDetail({ habitId }: { habitId: string }) {
 						{habit.emoji}
 					</Text>
 				</View>
-				<Text variant="title" accessibilityRole="header">
-					{habit.name}
-				</Text>
+				<TranslatedText
+					collection="habits"
+					entity={habit}
+					field="name"
+					variant="title"
+					accessibilityRole="header"
+				/>
 				<Text variant="small" tone="muted">
 					{meta}
 				</Text>
@@ -203,7 +206,9 @@ function HabitDetail({ habitId }: { habitId: string }) {
 				</View>
 			</View>
 
-			{archived ? null : (
+			{archived ? null : isTrackerActive(habit) ? (
+				<TrackerLogCard habit={habit} day={today} />
+			) : (
 				<Card padding={16} style={[styles.block, styles.logCard]}>
 					<HabitRing
 						habit={habit}
@@ -234,6 +239,29 @@ function HabitDetail({ habitId }: { habitId: string }) {
 					) : null}
 				</Card>
 			)}
+
+			<TrackerPanel habit={habit} />
+			{/* Section order is fixed (spec §6, D36); T1 adds LevelUpCard here and MonthGoalCard before the stats. */}
+
+			<SectionLabel
+				right={
+					<Button
+						label={t.t("common.edit")}
+						icon={Pencil}
+						variant="ghost"
+						size="sm"
+						onPress={() => router.push({ pathname: "/habit/editor", params: { id: habit.id } })}
+					/>
+				}
+			>
+				{t.t("detail.blueprint")}
+			</SectionLabel>
+			<View style={styles.block}>
+				<BlueprintCard habit={habit} identity={identity} />
+			</View>
+
+			<TrackerEntriesList habit={habit} limit={5} />
+			<SetupTasksCard habit={habit} />
 
 			<SectionLabel>{t.x("detail.stats")}</SectionLabel>
 			<View style={[styles.grid, styles.block]}>
@@ -306,40 +334,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 				<HabitCalendar habit={habit} />
 			</Card>
 
-			<SectionLabel
-				right={
-					<Button
-						label={t.t("common.edit")}
-						icon={Pencil}
-						variant="ghost"
-						size="sm"
-						onPress={() => router.push({ pathname: "/habit/editor", params: { id: habit.id } })}
-					/>
-				}
-			>
-				{t.t("detail.blueprint")}
-			</SectionLabel>
-			<View style={styles.block}>
-				<BlueprintCard habit={habit} identity={identity} />
-			</View>
-
-			<SectionLabel>{t.t("detail.notes")}</SectionLabel>
-			<Card padding={notes.length ? 0 : 16} style={styles.block}>
-				{notes.length === 0 ? (
-					<Text variant="small" tone="subtle">
-						{t.t("detail.noNotes")}
-					</Text>
-				) : (
-					notes.map((log, i) => (
-						<View key={log.id} style={[styles.note, i > 0 && styles.noteSeparator]}>
-							<Text variant="tiny" weight="semibold" tone="subtle">
-								{t.formatRelativeDay(log.date, today)}
-							</Text>
-							<Text>{log.note}</Text>
-						</View>
-					))
-				)}
-			</Card>
+			<HabitJournalSection habit={habit} />
 			<Text variant="tiny" tone="subtle" align="center">
 				{t.t("detail.started", { date: t.formatDayLong(habit.startDate) })}
 			</Text>
@@ -356,6 +351,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 								router.push({ pathname: "/habit/editor", params: { id: habit.id } });
 							},
 						},
+						...trackerMenuRows,
 						{
 							key: "archive",
 							label: archived ? t.t("common.unarchive") : t.t("common.archive"),
@@ -432,6 +428,4 @@ const useStyles = makeStyles((t) => ({
 	grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
 	hints: { gap: 10 },
 	hintRow: { flexDirection: "row", gap: 10 },
-	note: { padding: 16, gap: 4 },
-	noteSeparator: { borderTopWidth: 1, borderTopColor: t.colors.border },
 }));

@@ -389,9 +389,11 @@ export interface SeriesHistoryEntry {
 }
 
 /**
- * Newest first. Every live log is listed, including logs on dates that are no
- * longer occurrences after a concurrent rule edit. Fixed rules also list the
- * missed occurrences in `[max(anchor, today − windowDays), open)`.
+ * Newest first, at most `limit` (default 50). Every live log is listed,
+ * including logs on dates that are no longer occurrences after a concurrent
+ * rule edit. Fixed rules also list the missed occurrences in
+ * `[max(anchor, today − windowDays), open)` (default 120 days; up to the
+ * ending for ended and finished series).
  */
 export function seriesHistory(
 	task: Task,
@@ -422,12 +424,17 @@ export function seriesHistory(
 			if (last) end = minDay(end, last);
 		}
 		const from = maxDay(anchor, addDays(today, -windowDays));
-		if (end >= from) {
-			const settled = new Set(live.map((log) => log.date));
-			for (const day of occurrencesBetween(rule, anchor, from, end)) {
-				if (!settled.has(day))
-					entries.push({ date: day, state: "missed", resolvedOn: null, late: 0 });
+		// Newest first: only the newest `limit` missed occurrences can make the cut,
+		// and at most OCCURRENCE_LIMIT occurrences are scanned.
+		const settled = new Set(live.map((log) => log.date));
+		let missed = 0;
+		let day = end >= from ? prevOccurrence(rule, anchor, end) : null;
+		for (let i = 0; day !== null && day >= from && missed < limit && i < OCCURRENCE_LIMIT; i++) {
+			if (!settled.has(day)) {
+				entries.push({ date: day, state: "missed", resolvedOn: null, late: 0 });
+				missed++;
 			}
+			day = prevOccurrence(rule, anchor, addDays(day, -1));
 		}
 	}
 	entries.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));

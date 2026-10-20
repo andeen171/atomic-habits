@@ -1,4 +1,4 @@
-import type { DayKey } from "@atomic/core";
+import type { DayKey, EntryType, TaskPrefill } from "@atomic/core";
 import { create } from "zustand";
 
 export interface ToastAction {
@@ -7,6 +7,22 @@ export interface ToastAction {
 }
 
 export type HabitsFilter = "all" | "build" | "break" | "archived";
+
+/** The tracker entry composer (Annex K §5.1): create when `entryId` is absent. */
+export interface EntryComposerTarget {
+	habitId: string;
+	day: DayKey;
+	/** Edit this entry. */
+	entryId?: string;
+	/** Entry type to create (defaults to the tracker's primary type). */
+	type?: EntryType;
+}
+
+/** A tracker habit's entries on one day (calendar on tracker days, spec §6). */
+export interface DayEntriesTarget {
+	habitId: string;
+	day: DayKey;
+}
 
 export interface Toast {
 	id: number;
@@ -20,8 +36,15 @@ interface UIState {
 	toasts: Toast[];
 	/** ⊕ create sheet (New habit / New task). */
 	createOpen: boolean;
-	/** Quick task composer; `date` is the default day (null = someday). */
-	composer: { open: boolean; date: DayKey | null };
+	/**
+	 * Quick task composer; `date` is the default day (null = someday).
+	 * `prefill` comes from setup tasks ("Make it a task", Annex T §5.3).
+	 */
+	composer: { open: boolean; date: DayKey | null; prefill?: TaskPrefill };
+	/** Tracker entry composer sheet (global). */
+	entryComposer: EntryComposerTarget | null;
+	/** Tracker day entries sheet (global). */
+	dayEntries: DayEntriesTarget | null;
 	/** Long-press actions for a habit on a given day. */
 	habitActions: { habitId: string; day: DayKey } | null;
 	/** Bumped to fire the perfect-day confetti. */
@@ -37,6 +60,8 @@ export const useUI = create<UIState>(() => ({
 	toasts: [],
 	createOpen: false,
 	composer: { open: false, date: null },
+	entryComposer: null,
+	dayEntries: null,
 	habitActions: null,
 	celebration: 0,
 	habitsFilter: "all",
@@ -70,11 +95,17 @@ export function dismissToast(id: number) {
 export const ui = {
 	openCreate: () => useUI.setState({ createOpen: true }),
 	closeCreate: () => useUI.setState({ createOpen: false }),
-	openComposer: (date: DayKey | null) => useUI.setState({ composer: { open: true, date } }),
+	openComposer: (date: DayKey | null, prefill?: TaskPrefill) =>
+		useUI.setState({ composer: { open: true, date, prefill } }),
 	closeComposer: () => useUI.setState((s) => ({ composer: { ...s.composer, open: false } })),
 	openHabitActions: (habitId: string, day: DayKey) =>
 		useUI.setState({ habitActions: { habitId, day } }),
 	closeHabitActions: () => useUI.setState({ habitActions: null }),
+	openEntryComposer: (target: EntryComposerTarget) => useUI.setState({ entryComposer: target }),
+	closeEntryComposer: () => useUI.setState({ entryComposer: null }),
+	openDayEntries: (habitId: string, day: DayKey) =>
+		useUI.setState({ dayEntries: { habitId, day } }),
+	closeDayEntries: () => useUI.setState({ dayEntries: null }),
 	celebrate: () => useUI.setState((s) => ({ celebration: s.celebration + 1 })),
 	showHabitsFilter: (habitsFilter: HabitsFilter) => useUI.setState({ habitsFilter }),
 	/** Registers an open sheet; returns the cleanup that unregisters it. */

@@ -1,6 +1,7 @@
 import { CompoundChart } from "@/components/charts/compound-chart";
 import { Check, ChevronLeft, PenLine } from "@/components/icons";
 import { Logo } from "@/components/logo";
+import { TrackerBadge } from "@/components/trackers/tracker-badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { PressableScale } from "@/components/ui/pressable-scale";
@@ -441,6 +442,7 @@ function HabitTile({
 						{habit.twoMinute}
 					</Text>
 				) : null}
+				<TrackerBadge template={habit} />
 			</View>
 			<View
 				style={[styles.check, selected && { backgroundColor: tone.fill, borderColor: tone.fill }]}
