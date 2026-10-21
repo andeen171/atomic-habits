@@ -172,6 +172,8 @@ export const journalEn = {
 	"journal.example.recovery.obstacle": "Worked late and ran out of energy.",
 	"journal.hint.recovery.obstacle": "Look at the system, not at yourself: what made skipping easy?",
 	"journal.prompt.recovery.when": "When will you do it next?",
+	"journal.hint.recovery.when":
+		"Many people think they lack motivation when what they really lack is clarity. Pick the time.",
 	"journal.prompt.recovery.where": "Where will you do it?",
 	"journal.example.recovery.where": "in the living room",
 	"journal.prompt.recovery.after": "Right after I…",
@@ -203,6 +205,8 @@ export const journalEn = {
 
 	"journal.prompt.contract.commitment": "I commit to…",
 	"journal.example.contract.commitment": "Read 10 pages every night before bed.",
+	"journal.hint.contract.commitment":
+		"Spell out exactly what you will do and how often. A vague promise is easy to break.",
 	"journal.prompt.contract.consequence": "If I break it, I will…",
 	"journal.example.contract.consequence": "pay $20 to my partner",
 	"journal.hint.contract.consequence":
@@ -214,6 +218,8 @@ export const journalEn = {
 		"You weren't born with this belief. You learned it, so you can unlearn it.",
 	"journal.prompt.belief.newStory": "The identity you're voting for instead",
 	"journal.example.belief.newStory": "I'm the type of person who starts the day early.",
+	"journal.hint.belief.newStory":
+		"The goal is not to read a book, it's to become a reader. Name who you are becoming, not the result.",
 	"journal.prompt.belief.proof": "One small win that would prove it this week",
 	"journal.example.belief.proof": "Wake up at 6:30 on Tuesday.",
 	"journal.hint.belief.proof": "Small wins are evidence. Make it a task so it actually happens.",
@@ -231,6 +237,8 @@ export const journalEn = {
 
 	"journal.prompt.integrity.values": "What are the core values that drive your life and work?",
 	"journal.example.integrity.values": "Curiosity, health, presence with my family.",
+	"journal.hint.integrity.values":
+		"A few words are enough. They appear as “Your values” on your Identity page.",
 	"journal.prompt.integrity.living": "How are you living and working with integrity right now?",
 	"journal.example.integrity.living":
 		"Mostly: mornings are calm, but evenings still go to the phone.",

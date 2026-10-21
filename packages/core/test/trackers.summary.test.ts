@@ -218,7 +218,7 @@ describe("expense (Annex K §1.8.1)", () => {
 			entry("2026-09-10", "expense", { amount: 155_000, currency: "BRL" }),
 		];
 		expect(statOf(summarize(h, withSeptember, { today: "2026-10-22" }), "total")).toMatchObject({
-			hint: "20% less than last month",
+			hint: "20% less than this time last month",
 			tone: "good",
 		});
 		const pricier = [
@@ -226,12 +226,33 @@ describe("expense (Annex K §1.8.1)", () => {
 			entry("2026-09-10", "expense", { amount: 100_000, currency: "BRL" }),
 		];
 		expect(statOf(summarize(h, pricier, { today: "2026-10-22", t: pt }), "total")).toMatchObject({
-			hint: "24% a mais que no mês passado",
+			hint: "24% a mais que no mesmo período do mês passado",
 			tone: "warning",
 		});
 		// A previous month with only a no-spend day still counts as data.
 		const quiet = [...october, entry("2026-09-10", "none", {})];
 		expect(statOf(summarize(h, quiet, { today: "2026-10-22" }), "total")?.hint).toBeUndefined();
+	});
+
+	test("vs previous period: a month in progress is compared with the same days of the last one", () => {
+		const h = habit(brl);
+		// R$ 1.240 by 22 October; September spent R$ 1.000 by the 22nd and R$ 2.000 after it.
+		const months = [
+			...october,
+			entry("2026-09-22", "expense", { amount: 100_000, currency: "BRL" }),
+			entry("2026-09-23", "expense", { amount: 200_000, currency: "BRL" }),
+		];
+		expect(statOf(summarize(h, months, { today: "2026-10-22" }), "total")).toMatchObject({
+			hint: "24% more than this time last month",
+			tone: "warning",
+		});
+		// Once October is over, it is compared with all of September.
+		expect(
+			statOf(summarize(h, months, { today: "2026-11-02", anchor: "2026-10-15" }), "total"),
+		).toMatchObject({ hint: "59% less than last month", tone: "good" });
+		// Only spending after this point last month: nothing to compare with yet.
+		const late = [...october, entry("2026-09-25", "expense", { amount: 50_000, currency: "BRL" })];
+		expect(statOf(summarize(h, late, { today: "2026-10-22" }), "total")?.hint).toBeUndefined();
 	});
 
 	test("headline: R$ 320 left this month, over budget, or spent without a budget", () => {
@@ -545,6 +566,7 @@ describe("slip (Annex K §1.8.10)", () => {
 		expect(statOf(s, "slips")?.raw).toBe(4);
 		// 20 elapsed days in October, 3 with slips.
 		expect(statOf(s, "clean")?.raw).toBe(17);
+		expect(statOf(s, "clean")?.value).toBe("17 de 20");
 		expect(block(s, "cost", "note").text).toBe(`Isso custou R$${NBSP}35 este mês.`);
 		expect(block(s, "topCue", "note").text).toBe(
 			"A maioria das recaídas começa com: Um sentimento",
@@ -574,6 +596,8 @@ describe("slip (Annex K §1.8.10)", () => {
 
 	test("without slips the headline counts clean days", () => {
 		const h = habit({ type: "slip" }, { kind: "break" });
+		const clean = block(summarize(h, []), "clean", "stats").items.find((i) => i.id === "clean");
+		expect(clean).toMatchObject({ value: "20 of 20", tone: "good" });
 		expect(trackerHeadline(h, indexOf([]), TODAY, en)).toBe("Clean 20 of 20 days this month");
 	});
 });
@@ -688,7 +712,7 @@ describe("measure and plan (milestone 4B definitions)", () => {
 		expect(statOf(month, "change")).toMatchObject({
 			value: "+15 push-ups",
 			tone: "good",
-			hint: "38% more than last month",
+			hint: "38% more than this time last month",
 		});
 		expect(statOf(month, "lowest")?.value).toBe("25 push-ups");
 		expect(statOf(month, "highest")?.value).toBe("30 push-ups");

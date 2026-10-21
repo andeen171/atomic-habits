@@ -10,6 +10,9 @@ import { MotionConfig } from "motion/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { TooltipProvider } from "./components/ui/tooltip";
+// The account controller follows the sync session (plan, usage, focus refresh).
+import "./lib/account";
+import { startAi } from "./lib/ai";
 import { connectArtifactCloud } from "./lib/artifact-cloud";
 import { appMessages } from "./lib/messages";
 import { registerServiceWorker } from "./lib/pwa";
@@ -37,9 +40,13 @@ declare module "@tanstack/react-router" {
 
 const deviceLocales = typeof navigator !== "undefined" ? [...navigator.languages] : [];
 
-// The artifact build has no server sync (spec §2.10): its own cloud copy instead.
+// The artifact build has no server sync or account (spec §1.3, §2.10): its own cloud copy instead.
 if (isArtifactBuild) void connectArtifactCloud(store);
-else void syncController.start();
+else {
+	void syncController.start();
+	// AI beta: availability and the translation runner (Annex C §1.6, §1.8).
+	startAi();
+}
 // Day change: recent tracker days follow their entries again (spec §3.1).
 watchTrackerDays(store);
 registerServiceWorker();

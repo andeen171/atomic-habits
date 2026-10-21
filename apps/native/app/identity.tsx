@@ -30,6 +30,7 @@ import {
 	type IdentityJournalStats,
 	type IdentityStats,
 	identityTemplates,
+	matchIdentityTemplate,
 } from "@atomic/core";
 import { useActions, useIdentityJournalStats, useIdentityStats, useText } from "@atomic/core/react";
 import { router } from "expo-router";
@@ -57,9 +58,13 @@ export default function IdentityScreen() {
 	const [editing, setEditing] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<string | null>(null);
 
+	// An identity counts as taken in either language (sample data written in
+	// English stays English after switching to Português), by statement only.
 	const suggestions = useMemo(() => {
-		const existing = new Set(stats.map((s) => s.identity.statement.toLowerCase()));
-		return identityTemplates(t.locale).filter((tpl) => !existing.has(tpl.statement.toLowerCase()));
+		const taken = new Set(
+			stats.flatMap((s) => matchIdentityTemplate({ statement: s.identity.statement }) ?? []),
+		);
+		return identityTemplates(t.locale).filter((tpl) => !taken.has(tpl.key));
 	}, [stats, t.locale]);
 
 	const add = (input: { statement: string; emoji?: string; color?: HabitColor }) => {

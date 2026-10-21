@@ -1,5 +1,5 @@
 import { useT } from "@/lib/messages";
-import { identityTemplates } from "@atomic/core";
+import { identityTemplates, matchIdentityTemplate } from "@atomic/core";
 import { useActions, useIdentities, useLocale } from "@atomic/core/react";
 import { Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
@@ -14,9 +14,13 @@ export function AddIdentity() {
 	const locale = useLocale();
 	const identities = useIdentities();
 	const [statement, setStatement] = useState("");
+	// An identity counts as taken in either language (sample data written in
+	// English stays English after switching to Português), by statement only.
 	const suggestions = useMemo(() => {
-		const existing = new Set(identities.map((i) => i.statement.toLowerCase()));
-		return identityTemplates(locale).filter((tpl) => !existing.has(tpl.statement.toLowerCase()));
+		const taken = new Set(
+			identities.flatMap((i) => matchIdentityTemplate({ statement: i.statement }) ?? []),
+		);
+		return identityTemplates(locale).filter((tpl) => !taken.has(tpl.key));
 	}, [identities, locale]);
 
 	const submit = (event: FormEvent) => {

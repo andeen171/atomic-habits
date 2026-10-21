@@ -225,6 +225,8 @@ export interface PhotoThumbProps {
 	onDark?: boolean;
 	/** Part of a larger control that names it (a stack of an entry's photos). */
 	decorative?: boolean;
+	/** Behind another thumbnail in a stack: a missing photo is a plain tile, no half-hidden icon. */
+	bare?: boolean;
 	style?: StyleProp<ViewStyle>;
 	testID?: string;
 }
@@ -249,6 +251,7 @@ export function PhotoThumb({
 	radius,
 	onDark,
 	decorative,
+	bare,
 	style,
 	testID,
 }: PhotoThumbProps) {
@@ -277,7 +280,7 @@ export function PhotoThumb({
 				/>
 			) : source.status === "loading" ? (
 				<LoadingFill color={onDark ? "rgba(255,255,255,0.12)" : colors.border} />
-			) : (
+			) : bare ? null : (
 				<View style={styles.missing}>
 					<MissingPhotoIcon
 						where={source.where}

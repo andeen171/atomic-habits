@@ -19,6 +19,7 @@ import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from ".
 import { trackerCaps } from "./caps";
 import { FieldRenderer, firstFocusable } from "./field-renderers";
 import { PhotoThumb } from "./photo-thumb";
+import { useSheetToast } from "./tracker-ui";
 
 const stop = (event: SyntheticEvent) => event.stopPropagation();
 
@@ -80,6 +81,8 @@ function BookForm({
 	onDone(): void;
 }) {
 	const { t } = useT();
+	// Opened from the composer ("+ New book"), which stays open underneath.
+	const sheetToast = useSheetToast();
 	const text = useText();
 	const actions = useActions();
 	const today = useToday();
@@ -132,7 +135,10 @@ function BookForm({
 			toast.error(t("tracker.saveFailed"));
 			return;
 		}
-		toast(t("tracker.reading.bookSaved"), { description: String(data.title ?? "") });
+		toast(t("tracker.reading.bookSaved"), {
+			...(onSaved ? sheetToast : {}),
+			description: String(data.title ?? ""),
+		});
 		onSaved?.(saved.id);
 		onDone();
 	};

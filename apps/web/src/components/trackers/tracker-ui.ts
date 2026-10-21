@@ -1,5 +1,7 @@
 import { useUI } from "@/lib/ui";
+import { useIsMobile } from "@/lib/use-media-query";
 import type { AttachmentRef, DayKey, FormValues, TrackerType } from "@atomic/core";
+import type { ExternalToast } from "sonner";
 import { create } from "zustand";
 
 /**
@@ -67,4 +69,15 @@ export const useTrackerUI = create<TrackerUIState>()((set) => ({
 export function openComposerWith(habitId: string, day: DayKey, values: FormValues): void {
 	useTrackerUI.getState().setPrefill({ habitId, values });
 	useUI.getState().openEntryComposer({ habitId, day });
+}
+
+/**
+ * Toast options for a toast shown while a tracker sheet stays open. On phones
+ * the composer and the book dialog are bottom sheets, right where toasts sit
+ * (above the tab bar), so a toast there would cover their Save buttons for
+ * five seconds; those go to the top instead. Desktop keeps the default.
+ */
+export function useSheetToast(): ExternalToast {
+	const mobile = useIsMobile();
+	return mobile ? { position: "top-center" } : {};
 }

@@ -83,8 +83,9 @@ export function Shelf({
 					{block.finished.length ? (
 						<div className="flex flex-col gap-2">
 							<h4 className="font-medium text-ink-muted text-small">
-								{t("tracker.reading.finished")} ·{" "}
-								{t.tp("tracker.reading.booksFinished", block.finished.length)}
+								{t("tracker.reading.finishedThisYear", {
+									count: t.number(block.finished.length),
+								})}
 							</h4>
 							<ul className="-mx-2 flex flex-col">
 								{block.finished.map((item) => (

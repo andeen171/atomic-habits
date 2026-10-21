@@ -296,10 +296,17 @@ function LinkRow({ ctx, identity, onChangeHabit }: LinkRowProps) {
 		const patch: Partial<JournalDraft> = { identityId: id };
 		// A belief's new story follows the identity while it still reads as the old one's statement.
 		if (kind === "belief") {
+			// Both in the content language (`useText`), like the chip: "Sou uma pessoa que lê…".
 			const story = draft.answers.newStory ?? "";
-			const previous = identity && !identity.deletedAt ? identity.statement : "";
-			if (!story.trim() || story === previous) {
-				patch.answers = { ...draft.answers, newStory: next?.statement ?? "" };
+			const previous =
+				identity && !identity.deletedAt
+					? [identity.statement, text.identity(identity, "statement")]
+					: [""];
+			if (!story.trim() || previous.includes(story)) {
+				patch.answers = {
+					...draft.answers,
+					newStory: next ? text.identity(next, "statement") : "",
+				};
 			}
 		}
 		editor.update(patch);

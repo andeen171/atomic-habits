@@ -969,11 +969,12 @@ function ContractBlock({ ctx }: { ctx: JournalBlockContext }) {
 					</div>
 				) : (
 					<div className="flex flex-col items-start gap-3">
+						{/* Incomplete: secondary (legible, like native), and a click focuses the first missing prompt. */}
 						<Button
+							variant={check.complete ? "primary" : "secondary"}
 							onClick={sign}
 							aria-disabled={check.complete ? undefined : true}
 							aria-describedby={check.complete ? undefined : signHintId}
-							className={cn(!check.complete && "opacity-50")}
 						>
 							<Signature />
 							{t("journal.contract.sign")}

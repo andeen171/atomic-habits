@@ -113,6 +113,18 @@ export function TrackerLogCard({ habit, day }: TrackerLogCardProps) {
 			};
 		}
 		if (clockEntry) return null;
+		// Mornings after a logged bedtime: last night's wake-up comes first, not "Going to bed".
+		if (wakePrompt && day === today) {
+			return {
+				label: t.t("tracker.sleep.quality"),
+				run: () =>
+					ui.openEntryComposer({
+						habitId: habit.id,
+						day: wakePrompt.night,
+						entryId: wakePrompt.entryId,
+					}),
+			};
+		}
 		// Tomorrow's plan is written: the action opens it again to change it.
 		if (plan) {
 			return {
@@ -120,11 +132,14 @@ export function TrackerLogCard({ habit, day }: TrackerLogCardProps) {
 				run: () => ui.openEntryComposer({ habitId: habit.id, day, entryId: plan.id }),
 			};
 		}
-		return { label: trackerActionLabel(type, t), run: () => openTracker(habit, day) };
+		return {
+			label: trackerActionLabel(type, t, tracker.config),
+			run: () => openTracker(habit, day),
+		};
 	})();
 
 	const extras: { key: string; label: string; run(): void }[] = [];
-	if (wakePrompt) {
+	if (wakePrompt && day !== today) {
 		extras.push({
 			key: "wake",
 			label: t.t("tracker.sleep.addWake"),

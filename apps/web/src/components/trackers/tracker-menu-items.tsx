@@ -69,7 +69,7 @@ export function TrackerMenuItems({ habit, day }: TrackerMenuItemsProps) {
 			? t("tracker.session.logManually")
 			: type === "writing" && day !== today
 				? t("tracker.writing.logWords")
-				: trackerActionLabel(type, t);
+				: trackerActionLabel(type, t, tracker.config);
 
 	return (
 		<>

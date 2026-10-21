@@ -1,4 +1,4 @@
-import { type DayKey, addDays, addMonths, minDay } from "../../dates";
+import { type DayKey, addDays, addMonths, diffDays, minDay } from "../../dates";
 import type { MessageKey, Params, PluralKey, Translator } from "../../i18n";
 import { formatMoney } from "../../money";
 import { foldText } from "../../text";
@@ -103,33 +103,47 @@ export function elapsedDays(
 	return elapsedRange(ctx.period, activeStart(ctx), ctx.today).days;
 }
 
-/** Live entries of the previous period of the same kind. */
+/**
+ * Live entries of the previous period of the same kind. While the current
+ * period is still running (it contains today), only the same stretch of the
+ * previous one counts: 1–21 October is compared with 1–21 September, not
+ * with all of September, so a month in progress doesn't always look cheaper
+ * (`toDate`). A finished period is compared with the whole previous one.
+ */
 export function previousEntries(
-	ctx: Pick<SummaryContext, "period" | "all" | "weekStartsOn" | "t">,
-): { period: Period; entries: TrackerEntry[] } {
+	ctx: Pick<SummaryContext, "period" | "all" | "weekStartsOn" | "t" | "today">,
+): { period: Period; entries: TrackerEntry[]; toDate: boolean } {
 	const period = shiftPeriod(ctx.period, -1, ctx.weekStartsOn, ctx.t);
+	const toDate = ctx.today >= ctx.period.from && ctx.today < ctx.period.to;
+	const to = toDate
+		? minDay(period.to, addDays(period.from, diffDays(ctx.today, ctx.period.from)))
+		: period.to;
 	return {
 		period,
-		entries: ctx.all.filter((e) => e.date >= period.from && e.date <= period.to),
+		entries: ctx.all.filter((e) => e.date >= period.from && e.date <= to),
+		toDate,
 	};
 }
 
 /**
  * "12% less than last month" / "8% more than last week" for a total
- * against the previous period (`tracker.compare.{less,more}.{week,month,year}`);
- * null when the previous period had nothing (Annex K §1.8.1) or the totals
- * match. Lower is better by default (spending); `higherIsBetter` flips the tone.
+ * against the previous period (`tracker.compare.{less,more}.{week,month,year}`),
+ * or "…than this time last month" (`….{week,month,year}ToDate`) while the
+ * period is running (`previousEntries().toDate`); null when the previous
+ * period had nothing (Annex K §1.8.1) or the totals match. Lower is better
+ * by default (spending); `higherIsBetter` flips the tone.
  */
 export function compareToPrevious(
 	ctx: Pick<SummaryContext, "period" | "t">,
 	current: number,
 	previous: number,
 	higherIsBetter = false,
+	toDate = false,
 ): { text: string; tone: Tone } | null {
 	if (previous <= 0 || current === previous) return null;
 	const ratio = Math.abs(current - previous) / previous;
 	const more = current > previous;
-	const key = `tracker.compare.${more ? "more" : "less"}.${ctx.period.kind}`;
+	const key = `tracker.compare.${more ? "more" : "less"}.${ctx.period.kind}${toDate ? "ToDate" : ""}`;
 	const good = more === higherIsBetter;
 	return {
 		text: tk(ctx.t, key, { percent: ctx.t.percent(ratio) }),

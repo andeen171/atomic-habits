@@ -61,7 +61,7 @@ export function useTrackerActionRows(
 				? t.t("tracker.writing.logWords")
 				: type === "plan" && entries.some((e) => e.type === "plan")
 					? t.t("tracker.plan.edit")
-					: trackerActionLabel(type, t);
+					: trackerActionLabel(type, t, tracker.config);
 	rows.push({
 		key: "tracker",
 		label,

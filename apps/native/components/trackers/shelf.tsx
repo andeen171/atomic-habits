@@ -114,7 +114,9 @@ export function Shelf({
 					{block.finished.length ? (
 						<View style={styles.group}>
 							<Text variant="small" weight="medium" tone="muted">
-								{`${t.t("tracker.reading.finished")} · ${t.tp("tracker.reading.booksFinished", block.finished.length)}`}
+								{t.t("tracker.reading.finishedThisYear", {
+									count: t.number(block.finished.length),
+								})}
 							</Text>
 							<View style={styles.list}>
 								{block.finished.map((item) => (

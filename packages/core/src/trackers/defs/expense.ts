@@ -132,12 +132,12 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	const elapsed = elapsedDays(ctx);
 	const average = elapsed > 0 ? Math.round(total / elapsed) : 0;
 
-	const previous = previousEntries(ctx).entries;
+	const { entries: previous, toDate } = previousEntries(ctx);
 	const previousLogged = previous.some((e) => e.type === "expense" || e.type === "none");
 	const previousTotal = ofType(previous, "expense")
 		.filter((e) => currencyOf(e, config) === main)
 		.reduce((acc, e) => acc + amountOf(e), 0);
-	const delta = previousLogged ? compareToPrevious(ctx, total, previousTotal) : null;
+	const delta = previousLogged ? compareToPrevious(ctx, total, previousTotal, false, toDate) : null;
 
 	const spendDays = daysOf(expenses);
 	const noSpendDays = [...daysOf(inPeriod(ctx, "none"))].filter((d) => !spendDays.has(d)).length;

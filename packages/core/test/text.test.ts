@@ -27,12 +27,12 @@ describe("text", () => {
 		expect(collapseSpaces("  a \n\t b  c ")).toBe("a b c");
 	});
 
-	// v2:T4 — milestones 4A and 4B shipped (spec §8.3): their flags are on; photos (4C) aren't yet.
+	// v2:T4 — milestones 4A, 4B and 4C (local photos) shipped (spec §8.3): their flags are on.
 	test("feature flags match the shipped tracker milestones", () => {
 		expect(FEATURES).toEqual({
 			templateTrackers: true,
 			trackerPhaseB: true,
-			trackerPhotos: false,
+			trackerPhotos: true,
 		});
 	});
 });

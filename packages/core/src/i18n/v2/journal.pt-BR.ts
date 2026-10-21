@@ -81,7 +81,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	// ── Editor: vínculos, status e ajudas ──
 	"journal.aboutToday": "Sobre hoje",
 	"journal.aboutYesterday": "Sobre ontem",
-	"journal.dateLabel": "O dia de que esta entrada trata",
+	"journal.dateLabel": "O dia a que esta entrada se refere",
 	"journal.link.identity": "Identidade",
 	"journal.link.habit": "Hábito",
 	"journal.pickIdentity": "Escolha uma identidade",
@@ -118,7 +118,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.kind.review": "Revisão",
 	"journal.kind.review.hint": "O que foi bem, o que não foi, o que você aprendeu",
 	"journal.kind.integrity": "Relatório de Integridade",
-	"journal.kind.integrity.hint": "Seus valores, e o quanto você os vive",
+	"journal.kind.integrity.hint": "Seus valores e o quanto você vive de acordo com eles",
 	"journal.kind.note": "Nota livre",
 	"journal.kind.note.hint": "Qualquer coisa sobre quem você está se tornando",
 
@@ -130,7 +130,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.lead.recovery":
 		"Falhar uma vez é um acidente. Falhar duas vezes é o começo de um novo hábito. Decida agora a próxima repetição.",
 	"journal.lead.recoveryBreak":
-		"Seja gentil consigo: um deslize é informação, não um veredito. Encontre a deixa, esconda-a e acrescente atrito.",
+		"Não se culpe: um deslize é informação, não um veredito. Encontre a deixa, esconda-a e acrescente atrito.",
 	"journal.lead.checkin":
 		"A motivação chega ao máximo em tarefas no limite da sua habilidade: nem fáceis, nem difíceis demais.",
 	"journal.lead.contract":
@@ -165,6 +165,8 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.hint.recovery.obstacle":
 		"Olhe para o sistema, não para você: o que facilitou deixar para depois?",
 	"journal.prompt.recovery.when": "Quando você vai fazer da próxima vez?",
+	"journal.hint.recovery.when":
+		"Muita gente acha que falta motivação quando, na verdade, falta clareza. Escolha o horário.",
 	"journal.prompt.recovery.where": "Onde você vai fazer?",
 	"journal.example.recovery.where": "na sala",
 	"journal.prompt.recovery.after": "Logo depois de…",
@@ -197,6 +199,8 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 
 	"journal.prompt.contract.commitment": "Eu me comprometo a…",
 	"journal.example.contract.commitment": "Ler 10 páginas toda noite antes de dormir.",
+	"journal.hint.contract.commitment":
+		"Diga exatamente o que vai fazer e com que frequência. Uma promessa vaga é fácil de quebrar.",
 	"journal.prompt.contract.consequence": "Se eu quebrar, eu vou…",
 	"journal.example.contract.consequence": "pagar R$ 50 ao meu parceiro",
 	"journal.hint.contract.consequence":
@@ -208,6 +212,8 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 		"Você não nasceu com essa crença. Você a aprendeu, então pode desaprendê-la.",
 	"journal.prompt.belief.newStory": "A identidade em que você vota no lugar",
 	"journal.example.belief.newStory": "Sou o tipo de pessoa que começa o dia cedo.",
+	"journal.hint.belief.newStory":
+		"O objetivo não é ler um livro, é se tornar um leitor. Diga quem você está se tornando, não o resultado.",
 	"journal.prompt.belief.proof": "Uma pequena vitória que provaria isso esta semana",
 	"journal.example.belief.proof": "Acordar às 6h30 na terça.",
 	"journal.hint.belief.proof":
@@ -227,6 +233,8 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.prompt.integrity.values":
 		"Quais são os valores centrais que guiam sua vida e seu trabalho?",
 	"journal.example.integrity.values": "Curiosidade, saúde, presença com minha família.",
+	"journal.hint.integrity.values":
+		"Algumas palavras bastam. Elas aparecem como “Seus valores” na sua página de Identidade.",
 	"journal.prompt.integrity.living": "Como você está vivendo e trabalhando com integridade agora?",
 	"journal.example.integrity.living":
 		"Em boa parte: as manhãs são calmas, mas as noites ainda vão para o celular.",
@@ -258,7 +266,7 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.goldilocks.hard":
 		"Reduza até ficar fácil começar. Um hábito precisa existir antes de ser melhorado.",
 	"journal.goldilocks.right":
-		"Na medida. Quando ficar chato, continue aparecendo: profissionais seguem a agenda.",
+		"Na medida. Quando ficar chato, continue firme: profissionais seguem o cronograma.",
 	"journal.goldilocks.easy":
 		"A maior ameaça ao sucesso não é o fracasso, é o tédio. Deixe um pouco mais difícil.",
 	"journal.goldilocks.applied": "Meta diária atualizada",

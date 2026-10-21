@@ -158,7 +158,7 @@ function SummaryPanel({ habit, tracker }: { habit: Habit; tracker: TrackerInfo }
 					{/* A clean period on a break habit is the goal, not a gap to fill: no "I slipped" here. */}
 					{editable && controls.canNext === false && habit.kind !== "break" ? (
 						<Button size="sm" variant="soft" onClick={() => openTracker(habit, today)}>
-							{trackerActionLabel(type, t)}
+							{trackerActionLabel(type, t, tracker.config)}
 						</Button>
 					) : null}
 				</div>

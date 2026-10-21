@@ -85,6 +85,11 @@ function costSentence(
 		: tk(t, `tracker.slip.time.${kind}`, { duration: text });
 }
 
+/** "17 of 20": clean days out of the period's elapsed days. */
+function cleanOf(clean: number, elapsed: number, t: Translator): string {
+	return t.t("tracker.stat.daysOf", { count: t.number(clean), total: t.number(elapsed) });
+}
+
 function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	const { config, t, period } = ctx;
 	const slips = inPeriod(ctx, "slip");
@@ -98,11 +103,7 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 				id: "clean",
 				items: [
 					stat("slips", t.t("tracker.slip.slips"), t.number(0), 0),
-					stat("clean", t.t("tracker.slip.cleanDays"), t.number(clean), clean, {
-						hint: t.t("tracker.stat.daysOf", {
-							count: t.number(clean),
-							total: t.number(elapsed),
-						}),
+					stat("clean", t.t("tracker.slip.cleanDays"), cleanOf(clean, elapsed, t), clean, {
 						tone: "good",
 					}),
 				],
@@ -139,7 +140,7 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 		}));
 	const items = [
 		stat("slips", t.t("tracker.slip.slips"), t.number(slips.length), slips.length),
-		stat("clean", t.t("tracker.slip.cleanDays"), t.number(clean), clean),
+		stat("clean", t.t("tracker.slip.cleanDays"), cleanOf(clean, elapsed, t), clean),
 	];
 	if (cost)
 		items.push(

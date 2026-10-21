@@ -170,10 +170,15 @@ export function TrackerChart({ block }: { block: ChartBlock }) {
 								strokeWidth={1.25}
 								strokeDasharray="4 4"
 							/>
+							{/* A halo in the card color keeps the label readable over the dots and bars under it. */}
 							<text
 								x={width - PAD.right}
 								y={y(block.reference.value) - 5}
 								textAnchor="end"
+								stroke="var(--surface)"
+								strokeWidth={3}
+								strokeLinejoin="round"
+								paintOrder="stroke"
 								className="fill-ink-muted text-[10px]"
 							>
 								{`${block.reference.label} · ${formatTick(block.format, block.reference.value, t, block.currency)}`}

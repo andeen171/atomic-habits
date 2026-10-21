@@ -1,7 +1,7 @@
 import { downloadJson } from "@/lib/download";
 import { useT } from "@/lib/messages";
 import { syncController } from "@/lib/sync";
-import { useActions, useLocale, useToday } from "@atomic/core/react";
+import { useActions, useLocale, useSyncState, useToday } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Download, FlaskConical, RotateCcw, Upload } from "lucide-react";
 import { type ChangeEvent, useRef, useState } from "react";
@@ -18,6 +18,7 @@ export function DataSection() {
 	const navigate = useNavigate();
 	const fileRef = useRef<HTMLInputElement>(null);
 	const [confirm, setConfirm] = useState<"demo" | "reset" | null>(null);
+	const signedIn = useSyncState(syncController).user !== null;
 
 	const exportBackup = async () => {
 		const saved = await downloadJson(`atomic-backup-${today}.json`, actions.exportData());
@@ -42,7 +43,11 @@ export function DataSection() {
 	};
 
 	return (
-		<SettingsSection title={t("settings.data")} description={t("settings.dataHint")}>
+		<SettingsSection
+			title={t("settings.data")}
+			// Signed in, the account keeps a copy too (Annex C §4).
+			description={signedIn ? t("sync.dataHintSignedIn") : t("settings.dataHint")}
+		>
 			<SettingsRow label={t("settings.export")} stack>
 				<Button variant="secondary" size="sm" onClick={() => void exportBackup()}>
 					<Download />

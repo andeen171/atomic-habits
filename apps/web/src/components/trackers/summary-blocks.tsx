@@ -156,10 +156,24 @@ export const toneText: Record<Tone, string> = {
 
 // ── Stats ─────────────────────────────────────────────────────────────────
 
-/** Columns by tile count, so no row ends with a lone tile (5 → 3 + 2, then one row of 5). */
+/**
+ * Columns by tile count, so no row ends with a lone tile and two tiles share
+ * the row instead of leaving half of it empty. On phones (two columns) an odd
+ * count lets the first, lead stat span the row (5 → 1 + 2 + 2, 3 → 1 + 2), as
+ * on native; wider, 3 and 6 go in threes, 5 in 3 + 2 and then one row of 5.
+ */
 function statColumns(count: number): string {
-	if (count === 5) return "grid-cols-2 @lg:grid-cols-3 @3xl:grid-cols-5";
-	if (count === 3 || count === 6) return "grid-cols-2 @lg:grid-cols-3";
+	if (count <= 2) return "grid-cols-2";
+	if (count === 5) {
+		return "grid-cols-2 @lg:grid-cols-3 @3xl:grid-cols-5 [&>:first-child]:col-span-2 @lg:[&>:first-child]:col-span-1";
+	}
+	if (count === 3) {
+		return "grid-cols-2 @lg:grid-cols-3 [&>:first-child]:col-span-2 @lg:[&>:first-child]:col-span-1";
+	}
+	if (count === 6) return "grid-cols-2 @lg:grid-cols-3";
+	if (count % 2 === 1) {
+		return "grid-cols-2 @xl:grid-cols-4 [&>:first-child]:col-span-2 @xl:[&>:first-child]:col-span-1";
+	}
 	return "grid-cols-2 @xl:grid-cols-4";
 }
 
@@ -172,25 +186,31 @@ function StatsBlock({ items }: { items: readonly StatItem[] }) {
 }
 
 function StatGrid({ items }: { items: readonly StatItem[] }) {
+	// One size for the whole grid, so "4 push-ups" doesn't outgrow "278 push-ups" beside it.
+	const long = items.some((item) => item.value.length > 10);
 	return (
 		<dl className={cn("grid @xl:gap-3 gap-2.5", statColumns(items.length))}>
 			{items.map((item) => (
+				// A subgrid row each for label, value and hint, so values line up across a row
+				// even when one label wraps to two lines ("PESSOAS ALCANÇADAS"). The tile can't
+				// be a size container (containment turns the subgrid off), so the value is.
 				<div
 					key={item.id}
-					className="@container flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-3.5 py-3"
+					className="row-span-3 grid min-w-0 grid-rows-subgrid content-start gap-1 rounded-lg border border-line bg-surface px-3.5 py-3"
 				>
 					<dt className="section-label line-clamp-2 break-words">{item.label}</dt>
 					{/* Never broken mid-number ("R$ 442,5|0"): sized to the tile instead, h2 at most. */}
-					<dd
-						title={item.value}
-						className={cn(
-							"overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-ink tabular-nums leading-tight",
-							item.value.length > 10
-								? "text-[length:clamp(0.9375rem,12cqi,1.0625rem)]"
-								: "text-[length:clamp(1rem,16cqi,1.375rem)]",
-						)}
-					>
-						{item.value}
+					<dd title={item.value} className="@container min-w-0">
+						<span
+							className={cn(
+								"block overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-ink tabular-nums leading-tight",
+								long
+									? "text-[length:clamp(0.9375rem,12cqi,1.0625rem)]"
+									: "text-[length:clamp(1rem,16cqi,1.375rem)]",
+							)}
+						>
+							{item.value}
+						</span>
 					</dd>
 					{item.hint ? (
 						<dd className={cn("break-words text-small", toneText[item.tone ?? "default"])}>

@@ -214,7 +214,7 @@ const EX_HINT = { example: true, hint: true } as const;
 
 const RECOVERY_BUILD: readonly JournalBlock[] = [
 	prompt("obstacle", "text", 500, REQ),
-	prompt("when", "time", 5),
+	prompt("when", "time", 5, { hint: true }),
 	prompt("where", "line", 120, EX),
 	prompt("after", "line", 160, EX_HINT),
 	{ type: "intention" },
@@ -239,13 +239,13 @@ const BLOCKS: Readonly<Record<Exclude<JournalKind, "recovery">, readonly Journal
 	],
 	checkin: [{ type: "difficulty" }, { type: "goldilocks" }, prompt("adjust", "text", 500, EX_HINT)],
 	contract: [
-		prompt("commitment", "text", 280, { required: true, example: true }),
+		prompt("commitment", "text", 280, REQ),
 		prompt("consequence", "text", 280, REQ),
 		{ type: "contract" },
 	],
 	belief: [
 		prompt("oldStory", "text", 280, REQ),
-		prompt("newStory", "line", 120, { required: true, example: true }),
+		prompt("newStory", "line", 120, REQ),
 		prompt("proof", "line", 280, REQ),
 		{ type: "makeTask", from: "proof" },
 	],
@@ -258,7 +258,7 @@ const BLOCKS: Readonly<Record<Exclude<JournalKind, "recovery">, readonly Journal
 		{ type: "makeTask", from: "next" },
 	],
 	integrity: [
-		prompt("values", "text", 2000, { required: true, example: true }),
+		prompt("values", "text", 2000, REQ),
 		prompt("living", "text", 2000, EX),
 		prompt("standard", "text", 2000, EX),
 	],

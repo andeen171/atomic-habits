@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { PhotoThumb } from "./photo-thumb";
-import { useTrackerUI } from "./tracker-ui";
+import { useSheetToast, useTrackerUI } from "./tracker-ui";
 
 /**
  * The composer's photo control (Annex K §1.11, §4.1; spec §5.8): take a photo
@@ -63,6 +63,7 @@ export function PhotoPicker({
 	autoFocus,
 }: PhotoPickerProps) {
 	const { t } = useT();
+	const sheetToast = useSheetToast();
 	const openViewer = useTrackerUI((s) => s.openViewer);
 	const touch = useMediaQuery("(pointer: coarse)");
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -92,7 +93,9 @@ export function PhotoPicker({
 			return;
 		}
 		const taken = images.slice(0, room);
-		if (images.length > taken.length) toast(t("tracker.photo.limit", { max: t.number(max) }));
+		if (images.length > taken.length) {
+			toast(t("tracker.photo.limit", { max: t.number(max) }), sheetToast);
+		}
 		if (taken.length === 0) return;
 		const slots = taken.map(() => ({ id: nextPending++ }));
 		setPending((current) => [...current, ...slots]);

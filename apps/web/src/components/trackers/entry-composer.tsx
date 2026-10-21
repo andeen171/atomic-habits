@@ -1,6 +1,7 @@
 import { announce } from "@/lib/announce";
 import { useT } from "@/lib/messages";
 import { type EntryComposerState, useUI } from "@/lib/ui";
+import { useIsMobile } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 import {
 	type EntryType,
@@ -52,7 +53,7 @@ import { BookDialog } from "./book-dialog";
 import { trackerCaps } from "./caps";
 import { FieldRenderer, firstFocusable } from "./field-renderers";
 import { TrackerDialogsHost } from "./tracker-dialogs";
-import { useTrackerUI } from "./tracker-ui";
+import { useSheetToast, useTrackerUI } from "./tracker-ui";
 import { useNothingToLog } from "./use-nothing-to-log";
 
 /** Events from the portaled dialog must not reach a clickable host row (React bubbles through portals). */
@@ -83,6 +84,13 @@ export function EntryComposerDialog() {
 		lastPath.current = pathname;
 		if (useUI.getState().entryComposer) close();
 	}, [pathname, close]);
+	// On phones the composer is a bottom sheet, right where toasts sit: an earlier toast
+	// ("Logged…", "Entry deleted") would cover its Save button, so opening it clears them.
+	const mobile = useIsMobile();
+	const open = state !== null;
+	useEffect(() => {
+		if (open && mobile) toast.dismiss();
+	}, [open, mobile]);
 
 	return (
 		<>
@@ -206,6 +214,7 @@ function ComposerFields({
 	contentRef,
 }: ComposerFieldsProps) {
 	const { t } = useT();
+	const sheetToast = useSheetToast();
 	const text = useText();
 	const actions = useActions();
 	const store = useAtomicStore();
@@ -328,7 +337,9 @@ function ComposerFields({
 		} else if (editing) {
 			toast(t("common.saved"), { description: line ?? name });
 		} else {
+			// "Save & add another" keeps the sheet open: on phones the toast goes to the top.
 			toast(t("tracker.entrySaved"), {
+				...(again ? sheetToast : {}),
 				description: line ?? name,
 				action: {
 					label: t("common.undo"),

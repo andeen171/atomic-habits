@@ -11,7 +11,13 @@ import { showToast } from "@/lib/ui-store";
 import { afterSheet } from "@/lib/use-tracker-actions";
 import type { AttachmentRef, DayKey } from "@atomic/core";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Linking, View } from "react-native";
+import {
+	AccessibilityInfo,
+	ActivityIndicator,
+	type LayoutChangeEvent,
+	Linking,
+	View,
+} from "react-native";
 import { PhotoThumb } from "./photo-thumb";
 import { trackerUI } from "./tracker-ui";
 
@@ -155,10 +161,15 @@ export function PhotoPicker({
 		/>
 	);
 
+	// The field's width sizes the tiles. Measured on the root, which keeps `onLayout` from its
+	// first render: React reuses the empty target's view for the grid, and react-native-web
+	// only observes views that had `onLayout` when they mounted.
+	const measure = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
+
 	// Nothing yet: one generous target (take or choose).
 	if (value.length === 0 && !busy) {
 		return (
-			<View style={styles.root}>
+			<View style={styles.root} onLayout={measure}>
 				<View
 					style={[
 						styles.empty,
@@ -186,12 +197,8 @@ export function PhotoPicker({
 
 	const tile = width > 0 ? Math.floor((width - GAP * (COLUMNS - 1)) / COLUMNS) : 0;
 	return (
-		<View style={styles.root}>
-			<View
-				style={styles.grid}
-				onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-				accessibilityState={{ busy }}
-			>
+		<View style={styles.root} onLayout={measure}>
+			<View style={styles.grid} accessibilityState={{ busy }}>
 				{tile > 0 ? (
 					<>
 						{value.map((photo, index) => {

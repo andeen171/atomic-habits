@@ -242,6 +242,20 @@ export function PointChart({
 										strokeWidth={1.25}
 										strokeDasharray="4 4"
 									/>
+									{/* A halo in the card color keeps the label readable over the dots under it. */}
+									<SvgText
+										x={width - PAD.right}
+										y={y(reference.value) - 5}
+										fontSize={10}
+										fontFamily={fonts.medium}
+										fill={colors.surface}
+										stroke={colors.surface}
+										strokeWidth={3}
+										strokeLinejoin="round"
+										textAnchor="end"
+									>
+										{`${reference.label} · ${formatTick(reference.value)}`}
+									</SvgText>
 									<SvgText
 										x={width - PAD.right}
 										y={y(reference.value) - 5}

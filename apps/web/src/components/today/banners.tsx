@@ -5,6 +5,7 @@ import { useJournal, useText } from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Check, PenLine, RefreshCw, Sprout, TriangleAlert } from "lucide-react";
 import { type ReactNode, useId } from "react";
+import { displayHabit } from "../habit/display-habit";
 import { Button } from "../ui/button";
 
 function Banner({
@@ -114,6 +115,7 @@ function SinglePlan({
 	lead?: ReactNode;
 }) {
 	const { t } = useT();
+	const text = useText();
 	const { item, plan } = planned;
 	if (!plan) {
 		return (
@@ -128,7 +130,8 @@ function SinglePlan({
 			</div>
 		);
 	}
-	const line = recoveryPlanText(plan, item.habit, t);
+	// The habit in the content language: "Vou meditar às 07:00…", not "Vou meditate…".
+	const line = recoveryPlanText(plan, displayHabit(item.habit, text), t);
 	return (
 		<>
 			{lead ? <div className="mt-2.5 flex">{lead}</div> : null}

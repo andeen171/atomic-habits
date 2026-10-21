@@ -405,6 +405,7 @@ function EntryPhotos({
 					size={38}
 					radius={9}
 					decorative
+					bare={i > 0}
 					style={[styles.stackThumb, i > 0 && styles.stacked, { zIndex: 3 - i }]}
 				/>
 			))}

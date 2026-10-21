@@ -61,7 +61,7 @@ type Draft = Pick<TrackerEntry, "type" | "data"> & { id?: string; hour?: number 
 const COPY = {
 	en: {
 		/** One per `PURCHASES` row, in the same order. */
-		expenseNotes: ["Coffee", "Groceries", "Bus fare", "Lunch with Ana", "Cinema", "Light bulbs"],
+		expenseNotes: ["Coffee", "Weekly shop", "Bus fare", "Lunch with Ana", "Cinema", "Light bulbs"],
 		people: ["Mom", "Ana", "Grandma", "Leo"],
 		/** The connection log's circle: Grandma (index 2 of `people`) is overdue. */
 		circle: [
@@ -70,10 +70,10 @@ const COPY = {
 			{ name: "Leo", emoji: "🧑", every: 21 },
 		],
 		moments: [
-			"Talked about her garden",
+			"Talked about the garden",
 			"Planned the trip in May",
 			"Laughed at old photos",
-			"Starting a new job next week",
+			"Heard all about the new job",
 		],
 		pages: ["One line about today: calm morning.", "Grateful for a long walk.", "Slept well."],
 		/** Read in this order; the one in progress at the end is "Reading now", the rest "Up next". */
@@ -117,7 +117,7 @@ const COPY = {
 	"pt-BR": {
 		expenseNotes: [
 			"Café",
-			"Mercado",
+			"Compras da semana",
 			"Passagem de ônibus",
 			"Almoço com a Ana",
 			"Cinema",
@@ -130,10 +130,10 @@ const COPY = {
 			{ name: "Léo", emoji: "🧑", every: 21 },
 		],
 		moments: [
-			"Falamos da horta dela",
+			"Falamos da horta",
 			"Planejamos a viagem de maio",
 			"Rimos de fotos antigas",
-			"Começa num emprego novo semana que vem",
+			"Ouvi tudo sobre o emprego novo",
 		],
 		pages: ["Uma linha sobre hoje: manhã calma.", "Grato por uma caminhada longa.", "Dormi bem."],
 		books: [

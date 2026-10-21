@@ -151,8 +151,19 @@ export function trackerHint(type: TrackerType, t: Translator): string {
 	return t.t(`tracker.type.${type}.hint` as MessageKey);
 }
 
-/** The main action ("Add expense", "Start timer"; `tracker.type.<type>.action`). */
-export function trackerActionLabel(type: TrackerType, t: Translator): string {
+/**
+ * The main action ("Add expense", "Start timer"; `tracker.type.<type>.action`).
+ * A photo journal whose photo is optional (the meal log) reads "Add photo or
+ * note", so nobody thinks a photo is needed; pass the habit's config for that.
+ */
+export function trackerActionLabel(
+	type: TrackerType,
+	t: Translator,
+	config?: TrackerConfig | null,
+): string {
+	if (type === "photo" && config?.type === "photo" && config.photoRequired === false) {
+		return t.t("tracker.type.photo.actionOptional");
+	}
 	return t.t(`tracker.type.${type}.action` as MessageKey);
 }
 

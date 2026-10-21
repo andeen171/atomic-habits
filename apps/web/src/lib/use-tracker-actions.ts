@@ -173,8 +173,7 @@ export function useTrackerActions(): TrackerActions {
 			if (!latest) return;
 			actions.deleteTrackerEntry(latest.id);
 			const message = at("habit.unslipAnnounce", { habit: text.habit(habit, "name") });
-			toast(t("tracker.entryDeleted"), {
-				description: text.habit(habit, "name"),
+			toast(t("tracker.slip.removed", { habit: text.habit(habit, "name") }), {
 				action: {
 					label: t("common.undo"),
 					onClick: () => actions.restoreTrackerEntry(latest.id),

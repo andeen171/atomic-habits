@@ -202,7 +202,10 @@ function NewEntryEditor({
 			weekStartsOn,
 			t,
 			habit: habit ? displayHabit(habit, text) : undefined,
-			identity,
+			// The statement in the content language: a belief's new story starts from it.
+			identity: identity
+				? { ...identity, statement: text.identity(identity, "statement") }
+				: undefined,
 			date: search.date,
 			scope: search.scope,
 			prefill,

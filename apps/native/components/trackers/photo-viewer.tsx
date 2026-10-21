@@ -567,7 +567,6 @@ function CompareView({
 }) {
 	const t = useT();
 	const dayLabel = usePhotoDay(true);
-	const insets = useSafeAreaInsets();
 	const [mode, setMode] = useState<CompareMode>("side");
 	const [split, setSplit] = useState(50);
 	const { before, after } = state;
@@ -596,37 +595,7 @@ function CompareView({
 			</TopBar>
 			<ModeSwitch mode={mode} onChange={setMode} />
 			{mode === "side" ? (
-				<View style={[styles.fill, { paddingBottom: Math.max(16, insets.bottom + 8) }]}>
-					{/* One row for both photos, one for both captions: a longer caption never shifts a photo. */}
-					<View style={[styles.fill, styles.sideRow]}>
-						{([before, after] as const).map((photo, i) => (
-							<View key={i === 0 ? "then" : "now"} style={styles.fill}>
-								<FullPhoto
-									photo={photo}
-									alt={`${caption(i === 0 ? "then" : "now", photo)} · ${altOf(photo, t)}`}
-								/>
-							</View>
-						))}
-					</View>
-					<View style={[styles.sideRow, styles.sideCaptions]}>
-						{([before, after] as const).map((photo, i) => (
-							<Text
-								key={i === 0 ? "then" : "now"}
-								variant="small"
-								color={WHITE_MUTED}
-								align="center"
-								style={styles.fill}
-								importantForAccessibility="no-hide-descendants"
-								accessibilityElementsHidden
-							>
-								<Text variant="small" weight="semibold" color={WHITE}>
-									{t.t(i === 0 ? "tracker.photo.then" : "tracker.photo.now")}
-								</Text>
-								{` · ${dayLabel(photo.day)}`}
-							</Text>
-						))}
-					</View>
-				</View>
+				<SideBySide before={before} after={after} caption={caption} />
 			) : (
 				<Overlay
 					before={before}
@@ -684,6 +653,102 @@ function ModeSwitch({ mode, onChange }: { mode: CompareMode; onChange(mode: Comp
 	);
 }
 
+/**
+ * The room under the mode switch, measured: the photos are sized to fit it
+ * and centred in it together with what belongs under them (captions, the
+ * slider), so nothing is stranded at the bottom of a tall phone screen.
+ */
+function useStage() {
+	const [stage, setStage] = useState<{ w: number; h: number } | null>(null);
+	const onLayout = (event: LayoutChangeEvent) => {
+		const { width, height } = event.nativeEvent.layout;
+		if (width > 0 && height > 0) setStage({ w: Math.round(width), h: Math.round(height) });
+	};
+	return [stage, onLayout] as const;
+}
+
+const SIDE_GAP = 8;
+/** Room kept under the photos for a caption of up to two lines. */
+const CAPTION_ROOM = 54;
+
+/** Height ÷ width of a photo (square when its size is unknown). */
+const tallness = (photo: ViewerPhoto) =>
+	photo.ref.w > 0 && photo.ref.h > 0 ? photo.ref.h / photo.ref.w : 1;
+
+/**
+ * Then beside now: both photos in cells of one size (the taller photo's
+ * shape, as large as the screen allows), each caption right under its photo.
+ * A longer caption never moves a photo.
+ */
+function SideBySide({
+	before,
+	after,
+	caption,
+}: {
+	before: ViewerPhoto;
+	after: ViewerPhoto;
+	caption(which: "then" | "now", photo: ViewerPhoto): string;
+}) {
+	const t = useT();
+	const dayLabel = usePhotoDay(true);
+	const insets = useSafeAreaInsets();
+	const [stage, onLayout] = useStage();
+	const pairs = [
+		["then", before],
+		["now", after],
+	] as const;
+	const cellW = stage ? Math.floor((stage.w - SIDE_GAP) / 2) : 0;
+	const cellH = stage
+		? Math.round(
+				Math.max(
+					80,
+					Math.min(stage.h - CAPTION_ROOM, cellW * Math.max(tallness(before), tallness(after))),
+				),
+			)
+		: 0;
+	return (
+		<View
+			style={[styles.fill, styles.stagePad, { paddingBottom: Math.max(16, insets.bottom + 8) }]}
+		>
+			<View style={[styles.fill, styles.stage]} onLayout={onLayout}>
+				{stage ? (
+					<>
+						<View style={styles.sideRow}>
+							{pairs.map(([which, photo]) => (
+								<View key={which} style={{ width: cellW, height: cellH }}>
+									<FullPhoto photo={photo} alt={`${caption(which, photo)} · ${altOf(photo, t)}`} />
+								</View>
+							))}
+						</View>
+						<View style={styles.sideRow}>
+							{pairs.map(([which, photo]) => (
+								<Text
+									key={which}
+									variant="small"
+									color={WHITE_MUTED}
+									align="center"
+									numberOfLines={2}
+									style={{ width: cellW }}
+									importantForAccessibility="no-hide-descendants"
+									accessibilityElementsHidden
+								>
+									<Text variant="small" weight="semibold" color={WHITE}>
+										{t.t(which === "then" ? "tracker.photo.then" : "tracker.photo.now")}
+									</Text>
+									{` · ${dayLabel(photo.day)}`}
+								</Text>
+							))}
+						</View>
+					</>
+				) : null}
+			</View>
+		</View>
+	);
+}
+
+/** The slider under the overlay, and the gap above it. */
+const SLIDER_ROOM = 44 + 16;
+
 /** Then under now, with a draggable split; the frame takes the latest photo's shape. */
 function Overlay({
 	before,
@@ -700,87 +765,82 @@ function Overlay({
 }) {
 	const t = useT();
 	const insets = useSafeAreaInsets();
-	const [area, setArea] = useState<{ w: number; h: number } | null>(null);
-	const [track, setTrack] = useState(0);
-	const ratio = after.ref.w / after.ref.h;
-	const frame = area
-		? area.w / area.h > ratio
-			? { w: Math.round(area.h * ratio), h: area.h }
-			: { w: area.w, h: Math.round(area.w / ratio) }
+	const [stage, onLayout] = useStage();
+	const ratio = 1 / tallness(after);
+	const room = stage ? { w: stage.w, h: Math.max(80, stage.h - SLIDER_ROOM) } : null;
+	const frame = room
+		? room.w / room.h > ratio
+			? { w: Math.round(room.h * ratio), h: room.h }
+			: { w: room.w, h: Math.round(room.w / ratio) }
 		: null;
 	const frameW = useRef(0);
 	frameW.current = frame?.w ?? 0;
-	const trackW = useRef(0);
-	trackW.current = track;
 	const onSplitRef = useRef(onSplit);
 	onSplitRef.current = onSplit;
-	// Drag anywhere on the photo, or along the slider below it (children don't take touches,
-	// so `locationX` is measured from the left edge of the frame or the track).
-	const [framePan] = useState(() => splitResponder(() => frameW.current, onSplitRef));
-	const [trackPan] = useState(() => splitResponder(() => trackW.current, onSplitRef));
+	// Drag anywhere on the photo, or along the slider under it: both are as wide as the photo,
+	// so the thumb sits right under the split. Children don't take touches, so `locationX` is
+	// measured from the photo's left edge.
+	const [pan] = useState(() => splitResponder(() => frameW.current, onSplitRef));
 	const value = `${t.t("tracker.photo.then")} ${t.percent(split / 100)} · ${t.t("tracker.photo.now")} ${t.percent(1 - split / 100)}`;
 	const cut = frame ? (frame.w * split) / 100 : 0;
 	return (
-		<View style={[styles.fill, styles.overlay, { paddingBottom: Math.max(16, insets.bottom + 8) }]}>
-			<View
-				style={styles.fillCenter}
-				onLayout={(event) => {
-					const { width, height } = event.nativeEvent.layout;
-					if (width > 0 && height > 0) setArea({ w: width, h: height });
-				}}
-			>
+		<View
+			style={[styles.fill, styles.stagePad, { paddingBottom: Math.max(16, insets.bottom + 8) }]}
+		>
+			<View style={[styles.fill, styles.stage, { gap: 16 }]} onLayout={onLayout}>
 				{frame ? (
-					<View
-						style={[styles.overlayFrame, { width: frame.w, height: frame.h }]}
-						pointerEvents="box-only"
-						accessible
-						accessibilityRole="image"
-						accessibilityLabel={`${label("then")} · ${label("now")}`}
-						{...framePan.panHandlers}
-					>
-						<FullPhoto photo={before} alt="" fit="cover" />
-						<View style={[styles.clip, { left: cut }]}>
-							<View style={[styles.clipInner, { left: -cut, width: frame.w }]}>
-								<FullPhoto photo={after} alt="" fit="cover" />
+					<>
+						<View
+							style={[styles.overlayFrame, { width: frame.w, height: frame.h }]}
+							pointerEvents="box-only"
+							accessible
+							accessibilityRole="image"
+							accessibilityLabel={`${label("then")} · ${label("now")}`}
+							{...pan.panHandlers}
+						>
+							<FullPhoto photo={before} alt="" fit="cover" />
+							<View style={[styles.clip, { left: cut }]}>
+								<View style={[styles.clipInner, { left: -cut, width: frame.w }]}>
+									<FullPhoto photo={after} alt="" fit="cover" />
+								</View>
+							</View>
+							<View style={[styles.divider, { left: cut - 1 }]} />
+							<View style={[styles.knob, { left: cut - 16, top: frame.h / 2 - 16 }]}>
+								<ChevronLeft size={14} color="#000000" strokeWidth={2.6} />
+								<ChevronRight size={14} color="#000000" strokeWidth={2.6} />
+							</View>
+							<View style={[styles.tag, { left: 8 }]}>
+								<Text variant="tiny" weight="semibold" color={WHITE}>
+									{label("then")}
+								</Text>
+							</View>
+							<View style={[styles.tag, { right: 8 }]}>
+								<Text variant="tiny" weight="semibold" color={WHITE}>
+									{label("now")}
+								</Text>
 							</View>
 						</View>
-						<View style={[styles.divider, { left: cut - 1 }]} />
-						<View style={[styles.knob, { left: cut - 16, top: frame.h / 2 - 16 }]}>
-							<ChevronLeft size={14} color="#000000" strokeWidth={2.6} />
-							<ChevronRight size={14} color="#000000" strokeWidth={2.6} />
+						<View
+							style={[styles.slider, { width: frame.w }]}
+							pointerEvents="box-only"
+							accessible
+							accessibilityRole="adjustable"
+							accessibilityLabel={t.t("tracker.photo.reveal")}
+							accessibilityValue={{ min: 0, max: 100, now: split, text: value }}
+							accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+							onAccessibilityAction={(event) => {
+								const step = event.nativeEvent.actionName === "increment" ? 10 : -10;
+								onSplit(Math.min(100, Math.max(0, split + step)));
+							}}
+							testID="compare-slider"
+							{...pan.panHandlers}
+						>
+							<View style={styles.sliderTrack} />
+							<View style={[styles.sliderFill, { width: cut }]} />
+							<View style={[styles.sliderThumb, { left: cut - 12 }]} />
 						</View>
-						<View style={[styles.tag, { left: 8 }]}>
-							<Text variant="tiny" weight="semibold" color={WHITE}>
-								{label("then")}
-							</Text>
-						</View>
-						<View style={[styles.tag, { right: 8 }]}>
-							<Text variant="tiny" weight="semibold" color={WHITE}>
-								{label("now")}
-							</Text>
-						</View>
-					</View>
+					</>
 				) : null}
-			</View>
-			<View
-				style={styles.slider}
-				onLayout={(event) => setTrack(event.nativeEvent.layout.width)}
-				pointerEvents="box-only"
-				accessible
-				accessibilityRole="adjustable"
-				accessibilityLabel={t.t("tracker.photo.reveal")}
-				accessibilityValue={{ min: 0, max: 100, now: split, text: value }}
-				accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
-				onAccessibilityAction={(event) => {
-					const step = event.nativeEvent.actionName === "increment" ? 10 : -10;
-					onSplit(Math.min(100, Math.max(0, split + step)));
-				}}
-				testID="compare-slider"
-				{...trackPan.panHandlers}
-			>
-				<View style={styles.sliderTrack} />
-				<View style={[styles.sliderFill, { width: (track * split) / 100 }]} />
-				<View style={[styles.sliderThumb, { left: (track * split) / 100 - 12 }]} />
 			</View>
 		</View>
 	);
@@ -808,7 +868,6 @@ function splitResponder(width: () => number, onSplit: { current: (split: number)
 const styles = StyleSheet.create({
 	frame: { backgroundColor: "#000000" },
 	fill: { flex: 1, minHeight: 0, minWidth: 0 },
-	fillCenter: { flex: 1, minHeight: 0, alignItems: "center", justifyContent: "center" },
 	shrink: { flexShrink: 1 },
 	hidden: { position: "absolute", width: 1, height: 1, opacity: 0 },
 	topBar: {
@@ -898,9 +957,9 @@ const styles = StyleSheet.create({
 		borderRadius: 999,
 	},
 	modeSelected: { backgroundColor: "#FFFFFF" },
-	sideRow: { flexDirection: "row", gap: 8, paddingHorizontal: 8 },
-	sideCaptions: { paddingTop: 10 },
-	overlay: { paddingHorizontal: 8, gap: 12 },
+	stagePad: { paddingHorizontal: 8 },
+	stage: { alignItems: "center", justifyContent: "center", gap: 10 },
+	sideRow: { flexDirection: "row", gap: SIDE_GAP },
 	overlayFrame: { overflow: "hidden", borderRadius: 12 },
 	clip: { position: "absolute", top: 0, bottom: 0, right: 0, overflow: "hidden" },
 	clipInner: { position: "absolute", top: 0, bottom: 0 },
@@ -934,13 +993,7 @@ const styles = StyleSheet.create({
 		borderRadius: 999,
 		backgroundColor: "rgba(0,0,0,0.65)",
 	},
-	slider: {
-		alignSelf: "center",
-		width: "100%",
-		maxWidth: 420,
-		height: 44,
-		justifyContent: "center",
-	},
+	slider: { height: 44, justifyContent: "center" },
 	sliderTrack: {
 		position: "absolute",
 		left: 0,

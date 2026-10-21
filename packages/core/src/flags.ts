@@ -20,9 +20,12 @@ export interface FeatureFlags {
 export type FeatureFlag = keyof FeatureFlags;
 
 export const FEATURES: FeatureFlags = {
-	// 4A and 4B shipped on web and native: template habits come with their trackers,
-	// and `plan` and `measure` are offered.
+	// 4A, 4B and 4C's local photos shipped on web and native: template habits come with
+	// their trackers, `plan` and `measure` are offered, and so are photos (the progress
+	// photo, the meal log, photo fields). Each app still turns photos off where it can't
+	// keep them (the artifact build, a browser without IndexedDB or WebCrypto). Photo
+	// backup follows blob sync (T5-F) and needs no flag of its own.
 	templateTrackers: true,
 	trackerPhaseB: true,
-	trackerPhotos: false,
+	trackerPhotos: true,
 };

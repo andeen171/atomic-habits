@@ -216,13 +216,42 @@ function StatsBlock({ items }: { items: readonly StatItem[] }) {
 				// One size per row, so neighbouring values line up.
 				const fontSize = Math.min(...row.map((item) => statFontSize(item.value, tileWidth)));
 				return (
-					<View key={row[0]?.id ?? size} style={styles.statRow}>
-						{row.map((item) => (
-							<StatTile key={item.id} item={item} fontSize={fontSize} />
-						))}
-					</View>
+					<StatRow
+						key={`${row[0]?.id ?? size}:${Math.round(width)}`}
+						row={row}
+						fontSize={fontSize}
+					/>
 				);
 			})}
+		</View>
+	);
+}
+
+/**
+ * A row of tiles whose values line up even when one label wraps to two lines
+ * ("PESSOAS ALCANÇADAS" beside "CONEXÕES"): every label box takes the tallest
+ * label's height. Each label's own (unstretched) height is measured; the row
+ * remounts when the width changes, so a narrower layout measures afresh.
+ */
+function StatRow({ row, fontSize }: { row: readonly StatItem[]; fontSize: number }) {
+	const styles = useStyles();
+	const [heights, setHeights] = useState<Readonly<Record<string, number>>>({});
+	const tallest = Math.max(0, ...Object.values(heights));
+	return (
+		<View style={styles.statRow}>
+			{row.map((item) => (
+				<StatTile
+					key={item.id}
+					item={item}
+					fontSize={fontSize}
+					labelHeight={tallest}
+					onLabelHeight={(height) =>
+						setHeights((current) =>
+							current[item.id] === height ? current : { ...current, [item.id]: height },
+						)
+					}
+				/>
+			))}
 		</View>
 	);
 }
@@ -239,7 +268,18 @@ function statFontSize(value: string, tileWidth: number): number {
 	return Math.max(13, Math.min(20, Math.floor(room / (Math.max(value.length, 3) * 0.6 * scale))));
 }
 
-function StatTile({ item, fontSize }: { item: StatItem; fontSize: number }) {
+function StatTile({
+	item,
+	fontSize,
+	labelHeight = 0,
+	onLabelHeight,
+}: {
+	item: StatItem;
+	fontSize: number;
+	/** The row's tallest label: this label's box grows to it so the values line up. */
+	labelHeight?: number;
+	onLabelHeight?(height: number): void;
+}) {
 	const styles = useStyles();
 	return (
 		<View
@@ -247,9 +287,15 @@ function StatTile({ item, fontSize }: { item: StatItem; fontSize: number }) {
 			accessible
 			accessibilityLabel={[`${item.label}: ${item.value}`, item.hint].filter(Boolean).join(". ")}
 		>
-			<Text variant="label" numberOfLines={2}>
-				{item.label}
-			</Text>
+			<View style={labelHeight > 0 ? { minHeight: labelHeight } : null}>
+				<Text
+					variant="label"
+					numberOfLines={2}
+					onLayout={(event) => onLabelHeight?.(Math.round(event.nativeEvent.layout.height))}
+				>
+					{item.label}
+				</Text>
+			</View>
 			<Text
 				variant="h2"
 				weight="semibold"

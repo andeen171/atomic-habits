@@ -114,11 +114,18 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	} else {
 		const total = round3(values.reduce((a, b) => a + b, 0));
 		items.push(stat("total", t.t("tracker.measure.total"), fmt(total), total));
-		const previous = ofType(previousEntries(ctx).entries, "measure");
+		const earlier = previousEntries(ctx);
+		const previous = ofType(earlier.entries, "measure");
 		if (previous.length) {
 			const before = round3(previous.reduce((acc, e) => acc + numberOf(e), 0));
 			const delta = round3(total - before);
-			const versus = compareToPrevious(ctx, total, before, config.direction !== "down");
+			const versus = compareToPrevious(
+				ctx,
+				total,
+				before,
+				config.direction !== "down",
+				earlier.toDate,
+			);
 			items.push(
 				stat("change", t.t("tracker.measure.change"), signed(delta, config, t), delta, {
 					tone: changeTone(config, delta),
