@@ -1,15 +1,17 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { AccountInfo, ExportLink } from "@atomic/core";
 import { eq } from "drizzle-orm";
-import { session, user } from "../src/db/schema";
+import { account, session, user } from "../src/db/schema";
 import { disabledAuthPaths, isDisabledAuthPath } from "../src/lib/auth";
 import {
 	EMAIL_ENV,
 	type FakeGoogle,
+	type FakeNet,
 	GOOGLE_ANDROID_CLIENT,
 	GOOGLE_ENV,
 	createFakeGoogle,
 	createFakeNet,
+	linkIn,
 } from "./fakes";
 import {
 	type AuthBody,
@@ -19,6 +21,8 @@ import {
 	bearer,
 	createTestServer,
 	postJson,
+	pullOk,
+	pushOk,
 	setupApp,
 	signUp,
 	task,
@@ -615,6 +619,32 @@ describe("account deletion needs re-authentication (D55)", () => {
 		expect((await json({ password })).status).toBe(200);
 		expect(await userExists(owner.id)).toBe(false);
 	});
+
+	test("path variants never reach deletion without the password", async () => {
+		// Was a debug probe (zz-audit-probe.test.ts): odd spellings of the route
+		// are either unknown (404) or the guarded route itself (400).
+		const variants = [
+			"/api/auth/delete-user/",
+			"/api/auth//delete-user",
+			"/api/auth/Delete-User",
+			"/api/auth/delete-user?x=1",
+			"/api/auth/./delete-user",
+			"/api/auth/delete-user%2F",
+		];
+		for (const path of variants) {
+			const { token, user: owner } = await signUp(server.app, "Probe");
+			const response = await server.app.request(`${BASE_URL}${path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json", ...bearer(token) },
+				body: JSON.stringify({}),
+			});
+			expect([path, [400, 404].includes(response.status)]).toEqual([path, true]);
+			if (response.status === 400) {
+				expect(((await response.json()) as { code: string }).code).toBe("PASSWORD_REQUIRED");
+			}
+			expect([path, await userExists(owner.id)]).toEqual([path, true]);
+		}
+	});
 });
 
 describe("auth bodies are JSON only", () => {
@@ -640,5 +670,117 @@ describe("auth bodies are JSON only", () => {
 		});
 		expect(signOut.status).toBe(200);
 		expect(await status(app, token)).toBe(401);
+	});
+});
+
+describe("Google addresses must be proven (Google + email)", () => {
+	let google: FakeGoogle;
+	let net: FakeNet;
+	let server: TestServer;
+
+	beforeAll(async () => {
+		google = await createFakeGoogle();
+		net = createFakeNet(google);
+		server = await createTestServer({
+			env: { ...EMAIL_ENV, ...GOOGLE_ENV },
+			deps: { fetch: net.fetch },
+		});
+	});
+
+	const providersOf = async (userId: string) =>
+		(
+			await server.db
+				.select({ provider: account.providerId })
+				.from(account)
+				.where(eq(account.userId, userId))
+		)
+			.map((row) => row.provider)
+			.sort();
+
+	/** "Forgot password" from the app, then the emailed link's form. */
+	async function resetPassword(email: string, password: string): Promise<number> {
+		expect((await postJson(server.app, "/api/auth/request-password-reset", { email })).status).toBe(
+			200,
+		);
+		await server.server.services.email?.idle();
+		const mail = net.outbox.findLast(
+			(m) => m.to.includes(email) && m.tags.some((tag) => tag.value === "reset"),
+		);
+		const token = new URL(linkIn(mail)).searchParams.get("token") ?? "";
+		const reset = await server.app.request(`${BASE_URL}/account/reset-password`, {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({ token, password, confirm: password, lang: "en" }).toString(),
+		});
+		return reset.status;
+	}
+
+	test("an address Google did not verify never creates an account", async () => {
+		// Regression: sign-up accepted any signature-valid token, whatever `email_verified` said.
+		const email = uniqueEmail("unproven");
+		const response = await googleSignIn(
+			server.app,
+			await google.idToken({ email, email_verified: false, sub: "attacker-sub-1" }),
+		);
+		expect(response.status).toBe(401);
+		const rows = await server.db.select({ id: user.id }).from(user).where(eq(user.email, email));
+		expect(rows).toEqual([]);
+	});
+
+	test("a reset of an unverified account drops the Google link made before the proof", async () => {
+		// Regression (the full chain): an account created from an unverified
+		// Google address (possible before the check above) kept that sign-in
+		// method after the owner reset the password, and its creator signed
+		// back in to the owner's data.
+		const email = uniqueEmail("owner");
+		const userId = crypto.randomUUID();
+		await server.db.insert(user).values({ id: userId, name: "Owner", email, emailVerified: false });
+		await server.db.insert(account).values({
+			id: crypto.randomUUID(),
+			accountId: "attacker-sub-2",
+			providerId: "google",
+			userId,
+		});
+
+		expect(await resetPassword(email, "owner-pass-123")).toBe(200);
+		const signIn = await postJson(server.app, "/api/auth/sign-in/email", {
+			email,
+			password: "owner-pass-123",
+		});
+		expect(signIn.status).toBe(200);
+		const owner = (await signIn.json()) as AuthBody;
+		const info = await accountInfo(server.app, owner.token ?? "");
+		expect(info).toMatchObject({
+			emailVerified: true,
+			hasPassword: true,
+			providers: ["credential"],
+		});
+		expect(await providersOf(userId)).toEqual(["credential"]);
+		await pushOk(server.app, owner.token ?? "", [
+			task("diary", Date.now(), { title: "OWNER-PRIVATE" }),
+		]);
+
+		// The creator tries Google again: refused, and nothing of the owner's leaks.
+		const again = await googleSignIn(
+			server.app,
+			await google.idToken({ email, email_verified: false, sub: "attacker-sub-2" }),
+		);
+		expect(again.status).toBe(401);
+		const body = (await again.json()) as { token?: string };
+		expect(body.token).toBeUndefined();
+		const page = await pullOk(server.app, owner.token ?? "", { cursor: 0 });
+		expect(page.records.map((r) => r.id)).toEqual(["diary"]);
+	});
+
+	test("a reset of a verified account keeps its Google sign-in", async () => {
+		const email = uniqueEmail("both");
+		const first = await googleSignIn(server.app, await google.idToken({ email }));
+		expect(first.status).toBe(200);
+		const { user: owner } = (await first.json()) as AuthBody;
+		expect(await resetPassword(email, "a-new-password-1")).toBe(200);
+		expect(await providersOf(owner.id)).toEqual(["credential", "google"]);
+		const again = await googleSignIn(server.app, await google.idToken({ email }));
+		expect(again.status).toBe(200);
+		expect(((await again.json()) as AuthBody).user.id).toBe(owner.id);
 	});
 });

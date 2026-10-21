@@ -5,6 +5,7 @@ import {
 	type TrackerType,
 	isTrackerActive,
 	knownTracker,
+	trackerCountKey,
 	trackerDef,
 	trackerMeta,
 	trackerName,
@@ -99,6 +100,8 @@ function SettingsForm({
 	const summed = meta.measure(config) === "sum";
 	const unit = trackerUnitWord(meta.unit(config), config, t);
 	const attaching = !active || stored?.type !== config.type;
+	// Pages → minutes and the like restart the count today too (Annex K §1.5).
+	const recounting = !attaching && trackerCountKey(stored) !== trackerCountKey(config);
 	const name = trackerName(config.type, t);
 
 	const pick = (next: TrackerType | "simple") => {
@@ -126,8 +129,9 @@ function SettingsForm({
 	const save = (event: FormEvent) => {
 		event.preventDefault();
 		event.stopPropagation();
-		const previous = habit.tracker;
-		const previousTarget = habit.target;
+		// What Undo puts back: the setup before this save (attaching may also change the goal
+		// and the unit), read now, not from a render that is gone by the time Undo is pressed.
+		const before = { tracker: habit.tracker ?? null, target: habit.target, unit: habit.unit };
 		if (summed && goal && goal !== habit.target) actions.updateHabit(habit.id, { target: goal });
 		actions.setTracker(habit.id, config);
 		if (attaching) {
@@ -135,13 +139,7 @@ function SettingsForm({
 				description: t("tracker.startsToday"),
 				action: {
 					label: t("common.undo"),
-					onClick: () => {
-						if (previous && active) actions.setTracker(habit.id, previous as TrackerConfig);
-						else actions.setTracker(habit.id, null);
-						if (previousTarget !== habit.target) {
-							actions.updateHabit(habit.id, { target: previousTarget });
-						}
-					},
+					onClick: () => actions.restoreTrackerSetup(habit.id, before),
 				},
 			});
 		} else toast(t("common.saved"), { description: name });
@@ -165,10 +163,14 @@ function SettingsForm({
 						simple={false}
 					/>
 				)}
-				{attaching ? (
+				{attaching || recounting ? (
 					<p className="flex items-start gap-2 rounded-lg bg-sunken/70 px-3 py-2.5 text-ink-muted text-small">
 						<Info className="mt-0.5 size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
-						{active ? t("tracker.settings.switchHint") : t("tracker.startsToday")}
+						{recounting
+							? t("tracker.settings.recountHint")
+							: active
+								? t("tracker.settings.switchHint")
+								: t("tracker.startsToday")}
 					</p>
 				) : null}
 				<TrackerSettingsFields config={config} onChange={change} />

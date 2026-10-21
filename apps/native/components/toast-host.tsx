@@ -1,4 +1,4 @@
-import { CircleCheck, Info, TriangleAlert } from "@/components/icons";
+import { CircleCheck, Info, TriangleAlert, Trophy } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { type Toast, dismissToast, useUI } from "@/lib/ui-store";
@@ -44,13 +44,22 @@ function ToastItem({ toast }: { toast: Toast }) {
 		return () => clearTimeout(timer);
 	}, [toast]);
 	const Icon =
-		toast.tone === "danger" ? TriangleAlert : toast.tone === "success" ? CircleCheck : Info;
+		toast.icon === "trophy"
+			? Trophy
+			: toast.tone === "danger"
+				? TriangleAlert
+				: toast.tone === "success"
+					? CircleCheck
+					: Info;
+	// The month win's trophy wears the accent, as on web.
 	const iconColor =
-		toast.tone === "danger"
-			? inverse.danger
-			: toast.tone === "success"
-				? inverse.success
-				: inverse.textMuted;
+		toast.icon === "trophy"
+			? inverse.accentText
+			: toast.tone === "danger"
+				? inverse.danger
+				: toast.tone === "success"
+					? inverse.success
+					: inverse.textMuted;
 	return (
 		<Animated.View
 			entering={FadeInDown.springify().damping(18)}

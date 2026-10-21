@@ -65,6 +65,7 @@ import {
 	useHabit,
 	useHabitStats,
 	useIdentity,
+	useLevelUpSuggestion,
 	useLogIndex,
 	useText,
 	useToday,
@@ -102,6 +103,9 @@ function HabitDetail({ habitId }: { habitId: string }) {
 	const shown = useDisplayHabit(habit);
 	const identity = useIdentity(habit?.identityId);
 	const stats = useHabitStats(habit);
+	// One suggestion for the card and the journal section: while the level-up card shows,
+	// the journal's "Still the right size?" check-in waits (D9); once dismissed, it can show.
+	const levelUp = useLevelUpSuggestion(habit);
 	const index = useLogIndex();
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	// Deleting a habit deletes its linked tasks too (D18); the confirmation says so.
@@ -379,7 +383,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 
 			{/* Section order is fixed (spec §6, D36). */}
 			<TrackerPanel habit={habit} />
-			<LevelUpCard habit={habit} variant="card" style={styles.block} />
+			<LevelUpCard habit={habit} suggestion={levelUp} variant="card" style={styles.block} />
 			{/* A direct child of the scroll content (sticky law headers); keyed so another habit starts closed. */}
 			<BlueprintBoard key={habit.id} habit={habit} scrollY={scrollY} />
 
@@ -460,7 +464,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 				<HabitCalendar habit={habit} />
 			</Card>
 
-			<HabitJournalSection habit={habit} />
+			<HabitJournalSection habit={habit} levelUpVisible={levelUp !== null} />
 			<Text variant="tiny" tone="subtle" align="center">
 				{t.t("detail.started", { date: t.formatDayLong(habit.startDate) })}
 			</Text>

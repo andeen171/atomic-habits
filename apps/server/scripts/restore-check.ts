@@ -14,8 +14,10 @@ import { fail, openScript, takeFlag } from "./_cli";
  * object in BLOB_DIR / the bucket, and that no deleted account came back
  * with the backup (the erasure log next to the database). `--fix` repairs
  * cursors and totals, drops photo rows whose object is gone (devices that
- * still hold those photos upload them again on their daily check) and
- * deletes the returned accounts again. Prints counts only.
+ * still hold those photos upload them again on their daily check),
+ * deletes the returned accounts again and moves every account's sync cursor
+ * past the restore point (each device starts its sync over: it uploads what
+ * it holds and pulls everything again). Prints counts only.
  * Exit code 0 when the copy is ready to serve, 1 when problems remain.
  */
 
@@ -61,6 +63,11 @@ try {
 		if (report.erasedAccounts !== null) {
 			console.log(
 				`deleted, back:    ${report.erasedAccounts}${report.fixed.erasedAccounts ? ` (deleted again ${report.fixed.erasedAccounts})` : ""}`,
+			);
+		}
+		if (fix) {
+			console.log(
+				`sync restarted:   ${report.fixed.epochs} accounts (their devices re-upload and pull again)`,
 			);
 		}
 		console.log(

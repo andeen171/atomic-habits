@@ -5,6 +5,8 @@
 export const sharedEn = {
 	"nav.journal": "Journal",
 	"nav.account": "Account",
+	// A nav item's accessible name when it carries a count badge ("Tasks, 8 to do").
+	"nav.withCount": "{label}, {count} to do",
 
 	// The book's five cues (CUE_TYPES), shared by the journal and the slip tracker.
 	"cue.time": "A time of day",

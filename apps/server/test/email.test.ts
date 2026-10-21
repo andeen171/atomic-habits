@@ -93,6 +93,12 @@ describe("email verification", () => {
 		expect(message?.tags).toEqual([{ name: "category", value: "verify" }]);
 		expect(message?.html).toContain('lang="pt-BR"');
 		expect(message?.text).toContain("Oi, Vera!");
+		// Read before the button: confirming an account you didn't create hands it over.
+		const text = message?.text ?? "";
+		expect(text.indexOf("Não confirme")).toBeGreaterThan(0);
+		expect(text.indexOf("Não confirme")).toBeLessThan(text.indexOf("/api/auth/verify-email"));
+		const body = message?.html ?? "";
+		expect(body.indexOf("Não confirme")).toBeLessThan(body.indexOf("/api/auth/verify-email"));
 
 		const link = new URL(linkIn(message));
 		expect(`${link.origin}${link.pathname}`).toBe(`${BASE_URL}/api/auth/verify-email`);

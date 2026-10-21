@@ -29,7 +29,7 @@ export const cloudPtBR: Record<keyof typeof cloudEn, string> = {
 	"sync.backupPhotosHint":
 		"Guarda as fotos dos seus registros na sua conta, para que seus outros aparelhos possam mostrá-las.",
 	"sync.photosNotInBackups":
-		"Backups não incluem fotos. Entre na sincronização para mantê-las seguras.",
+		"Os backups não incluem fotos. Entre na sua conta para sincronizá-las e mantê-las seguras.",
 	// Estado do backup de fotos (`SyncControllerState.blobs`, D23).
 	"sync.photosWaiting.one": "{count} foto aguardando backup",
 	"sync.photosWaiting.other": "{count} fotos aguardando backup",

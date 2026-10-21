@@ -2,7 +2,7 @@ import { announce } from "@/lib/announce";
 import { playBell } from "@/lib/bell";
 import { scheduleBlobCleanup } from "@/lib/blob-store";
 import { useT } from "@/lib/messages";
-import { getTimer, timerStore, useTimerState } from "@/lib/timer-store";
+import { canTime, getTimer, timerStore, useTimerState } from "@/lib/timer-store";
 import { type TrackerConfig, knownTracker, remainingMs, trackerName } from "@atomic/core";
 import { useActions, useAtomicStore, useHabit, useText } from "@atomic/core/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -102,6 +102,21 @@ function TimerBell() {
 	const pathRef = useRef(pathname);
 	pathRef.current = pathname;
 
+	// A timer whose habit was deleted, archived or switched to a simple check-off (here
+	// or on another device) can't be saved any more: drop it, so it never blocks the
+	// timer of another habit. Only once the store has loaded everything.
+	useEffect(() => {
+		if (!timer) return;
+		const sweep = () => {
+			const state = getTimer();
+			const { hydrated, partial, data } = store.getState();
+			if (!state || !hydrated || partial) return;
+			if (!canTime(data.habits[state.habitId])) timerStore.clear();
+		};
+		sweep();
+		return store.subscribe(sweep);
+	}, [timer, store]);
+
 	useEffect(() => {
 		if (!timer || timer.resumedAt === null) return;
 		const left = remainingMs(timer, Date.now());
@@ -112,7 +127,7 @@ function TimerBell() {
 			timerStore.settleTimeUp();
 			if (late || !claimBell(state.startedAt)) return;
 			const habit = store.getState().data.habits[state.habitId];
-			if (!habit) return;
+			if (!habit || !canTime(habit)) return;
 			const config = knownTracker(habit);
 			if (config?.type === "session" && config.bell) playBell();
 			const message = t("tracker.session.notifyTitle", {

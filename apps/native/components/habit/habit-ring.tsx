@@ -297,7 +297,8 @@ function ExtraPill({
 				style={{ fontSize: Math.max(10, Math.round(height * 0.6)), lineHeight: height }}
 				tabular
 			>
-				{`+${t.number(extra)}`}
+				{/* Capped like web ("+99"): the label already says the full amount. */}
+				{`+${t.number(Math.min(extra, 99))}`}
 			</Text>
 		</Animated.View>
 	);

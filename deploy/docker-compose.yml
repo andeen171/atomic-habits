@@ -24,17 +24,80 @@ services:
       context: ..
       dockerfile: apps/server/Dockerfile
     image: atomic-server:local
-    env_file: .env
+    # An allow-list, not `env_file: .env`: the API gets only the variables it
+    # reads (apps/server/src/config.ts), never the Litestream keys (write
+    # access to the backups) or the other services' settings. A name without
+    # a value takes it from .env, and stays unset when .env doesn't have it.
+    # A new server variable must be added here (deploy.test.ts checks it).
     environment:
       NODE_ENV: production
       PORT: "3000"
       # The volume below; set DATABASE_URL=libsql://… in .env to use Turso instead.
       DATABASE_URL: ${DATABASE_URL:-file:/data/atomic.db}
+      DATABASE_AUTH_TOKEN:
       BLOB_DIR: /data/blobs
       # Caddy replaces X-Forwarded-For with the caller's address; the server
       # reads its right-most entry. Without the `tls` profile, put a proxy
       # that does the same in front, or set CLIENT_IP_HEADER= in .env.
       CLIENT_IP_HEADER: ${CLIENT_IP_HEADER-x-forwarded-for}
+      # Core
+      BETTER_AUTH_SECRET:
+      BETTER_AUTH_URL:
+      APP_WEB_URL:
+      CORS_ORIGINS:
+      PRIVACY_URL:
+      TERMS_URL:
+      METRICS_TOKEN:
+      ANDROID_LATEST_VERSION:
+      ANDROID_DOWNLOAD_URL:
+      LOG_FORMAT:
+      # Email
+      EMAIL_PROVIDER:
+      RESEND_API_KEY:
+      EMAIL_FROM:
+      EMAIL_DAILY_CAP:
+      # Google sign-in
+      GOOGLE_CLIENT_IDS:
+      GOOGLE_WEB_ORIGINS:
+      # Billing and plans
+      STRIPE_SECRET_KEY:
+      STRIPE_WEBHOOK_SECRET:
+      STRIPE_PRICE_PRO_MONTHLY:
+      STRIPE_PRICE_PRO_YEARLY:
+      STRIPE_TRIAL_DAYS:
+      BILLING_GRACE_DAYS:
+      DEFAULT_PLAN:
+      LIMIT_FREE_SYNC_MB:
+      LIMIT_PRO_SYNC_MB:
+      LIMIT_FREE_BLOB_MB:
+      LIMIT_PRO_BLOB_MB:
+      LIMIT_FREE_AI_REQUESTS:
+      LIMIT_PRO_AI_REQUESTS:
+      LIMIT_FREE_AI_TRANSLATE_CHARS:
+      LIMIT_PRO_AI_TRANSLATE_CHARS:
+      # AI beta
+      AI_BASE_URL:
+      AI_MODEL:
+      AI_API_KEY:
+      AI_JSON_MODE:
+      AI_TIMEOUT_MS:
+      AI_TRANSLATE_TIMEOUT_MS:
+      AI_MAX_CONCURRENCY:
+      AI_QUEUE_MAX:
+      AI_HOSTING:
+      AI_PROVIDER_NAME:
+      AI_REQUIRE_VERIFIED_EMAIL:
+      AI_GLOBAL_DAILY_REQUESTS:
+      # Set but empty switches AI off (kill switch), so it is passed only when present.
+      AI_FEATURES:
+      # Photo backup
+      BLOB_STORAGE:
+      BLOB_MAX_FILE_BYTES:
+      S3_ENDPOINT:
+      S3_BUCKET:
+      S3_ACCESS_KEY_ID:
+      S3_SECRET_ACCESS_KEY:
+      S3_REGION:
     volumes:
       - atomic-data:/data
     # Loopback only: the internet reaches the server through Caddy.

@@ -7,8 +7,16 @@ import {
 	compareVersions,
 	serializedBytes,
 } from "@atomic/core/sync";
+import type { InStatement } from "@libsql/client";
 import { type Config, loadConfig } from "../src/config";
-import { syncUsage } from "../src/sync/service";
+import type { Database } from "../src/db";
+import {
+	PULL_PAGE_BYTES,
+	TOMBSTONE_GROWTH_BYTES,
+	TOMBSTONE_SLACK_BYTES,
+	pullRecords,
+	syncUsage,
+} from "../src/sync/service";
 import {
 	BASE_URL,
 	type TestApp,
@@ -306,6 +314,88 @@ describe("pagination", () => {
 		expect(second.hasMore).toBe(false);
 	});
 
+	test("a 1000-limit pull over 64 KiB rows loads only the documents it returns", async () => {
+		// Regression: the pull loaded `limit + 1` whole rows (up to ~64 MiB) and
+		// only then cut the page at PULL_PAGE_BYTES.
+		const server = await createTestServer();
+		const { user } = await signUp(server.app);
+		const count = 120;
+		const pad = "x".repeat(60_000);
+		await server.db.$client.batch(
+			[
+				...Array.from({ length: count }, (_, i) => ({
+					sql: `INSERT INTO sync_record (user_id, collection, id, data, updated_at, deleted_at, seq)
+						VALUES (?, 'tasks', ?, ?, 1, NULL, ?)`,
+					args: [user.id, `big${i}`, canonicalJson(task(`big${i}`, 1, { notes: pad }).data), i + 1],
+				})),
+				{
+					sql: `INSERT INTO sync_cursor (user_id, seq) VALUES (?, ${count})
+						ON CONFLICT (user_id) DO UPDATE SET seq = ${count}`,
+					args: [user.id],
+				},
+			],
+			"write",
+		);
+		// Every document the pull loads (rows read with their `data` column).
+		let documentsRead = 0;
+		const execute = server.db.$client.execute.bind(server.db.$client);
+		const counting = {
+			$client: {
+				execute: async (statement: InStatement) => {
+					const result = await execute(statement);
+					if (result.columns.includes("data")) documentsRead += result.rows.length;
+					return result;
+				},
+			},
+		} as unknown as Database;
+
+		const ids: string[] = [];
+		let cursor = 0;
+		let pages = 0;
+		for (;;) {
+			documentsRead = 0;
+			const page = await pullRecords(counting, user.id, { cursor, limit: MAX_PULL_BATCH });
+			pages++;
+			const bytes = page.records.reduce((sum, r) => sum + serializedBytes(r.data), 0);
+			expect(bytes).toBeLessThanOrEqual(PULL_PAGE_BYTES);
+			expect(page.records.length).toBeGreaterThan(0);
+			expect(documentsRead).toBe(page.records.length);
+			ids.push(...page.records.map((r) => r.id));
+			cursor = page.cursor;
+			if (!page.hasMore) break;
+		}
+		expect(pages).toBeGreaterThan(1);
+		expect(ids).toEqual(Array.from({ length: count }, (_, i) => `big${i}`));
+		expect(cursor).toBe(count);
+	});
+
+	test("pages end at the limit or the byte cap, never empty, and say whether more follow", async () => {
+		const server = await createTestServer();
+		const { token, user } = await signUp(server.app);
+		await pushOk(
+			server.app,
+			token,
+			Array.from({ length: 10 }, (_, i) => task(`n${i}`, i + 1)),
+		);
+		// Exactly the limit: hasMore only when a row follows.
+		const first = await pullOk(server.app, token, { cursor: 0, limit: 5 });
+		expect(first.records.map((r) => r.id)).toEqual(["n0", "n1", "n2", "n3", "n4"]);
+		expect(first.hasMore).toBe(true);
+		const rest = await pullOk(server.app, token, { cursor: first.cursor, limit: 5 });
+		expect(rest.records.map((r) => r.id)).toEqual(["n5", "n6", "n7", "n8", "n9"]);
+		expect(rest.hasMore).toBe(false);
+		const caughtUp = await pullOk(server.app, token, { cursor: rest.cursor });
+		expect(caughtUp).toMatchObject({ records: [], cursor: rest.cursor, hasMore: false });
+		// One document bigger than the whole page still comes alone (the client makes progress).
+		await server.db.$client.execute({
+			sql: "UPDATE sync_record SET data = json_set(data, '$.notes', ?) WHERE user_id = ? AND id = 'n0'",
+			args: ["y".repeat(PULL_PAGE_BYTES), user.id],
+		});
+		const alone = await pullRecords(server.db, user.id, { cursor: 0, limit: 1000 });
+		expect(alone.records.map((r) => r.id)).toEqual(["n0"]);
+		expect(alone).toMatchObject({ cursor: 1, hasMore: true });
+	});
+
 	test("limits above MAX_PULL_BATCH are rejected", async () => {
 		const { token } = await signUp(app);
 		expect((await pull(app, token, { cursor: 0, limit: MAX_PULL_BATCH + 1 })).status).toBe(400);
@@ -560,7 +650,7 @@ describe("sync quota (spec §4.5, D54)", () => {
 		expect(await syncUsage(quota.db, user.id)).toBeLessThanOrEqual(LIMIT);
 	});
 
-	test("tombstones are always accepted, even over the quota; growing writes are not", async () => {
+	test("tombstones may go past the quota (within the slack); growing writes may not", async () => {
 		const { token, user } = await signUp(quota.app);
 		await pushOk(quota.app, token, [sized("a", 1, 900), sized("b", 1, 900)]);
 		// A deletion keeps the full entity (no compaction in v2), so it can grow the usage.
@@ -580,6 +670,64 @@ describe("sync quota (spec §4.5, D54)", () => {
 		// …while edits that don't grow are accepted, so the user can trim.
 		const trim = await pushOk(quota.app, token, [sized("b", 7, 300)]);
 		expect(trim).toMatchObject({ accepted: 1, rejected: [] });
+	});
+
+	test("tombstones can't store unlimited data: past the slack they are refused with quota", async () => {
+		// Regression: every tombstone passed, whatever its size or id, so one
+		// account could fill the disk with deletions of documents it never had.
+		const { token, user } = await signUp(quota.app);
+		// Unknown keys are kept (newer clients' fields), so any tombstone can carry ~64 KiB.
+		const big = (id: string, at: number) =>
+			task(id, at, { deletedAt: at, pad: "p".repeat(40_000) });
+		const count = Math.ceil(TOMBSTONE_SLACK_BYTES / 40_000) + 5;
+		const result = await pushOk(
+			quota.app,
+			token,
+			Array.from({ length: count }, (_, i) => big(`t${i}`, 10)),
+		);
+		const refused = result.rejected.filter((r) => r.code === "quota");
+		expect(refused.length).toBeGreaterThanOrEqual(5);
+		expect(result.accepted + refused.length).toBe(count);
+		expect(await syncUsage(quota.db, user.id)).toBeLessThanOrEqual(LIMIT + TOMBSTONE_SLACK_BYTES);
+		// Refused, not dropped: the same tombstone passes once there is room.
+		const rows = await quota.db.$client.execute({
+			sql: "SELECT count(*) AS n FROM sync_record WHERE user_id = ?",
+			args: [user.id],
+		});
+		expect(Number(rows.rows[0]?.n)).toBe(result.accepted);
+	});
+
+	test("far over the quota (as after a downgrade) live documents can still be deleted", async () => {
+		const { token, user } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 1, 900), sized("b", 1, 900), sized("c", 1, 300)]);
+		await pushOk(quota.app, token, [sized("c", 2, 300, { deletedAt: 2 })]);
+		// The plan's limit dropped far below what is stored.
+		await quota.db.$client.execute({
+			sql: "UPDATE sync_cursor SET bytes = bytes + ? WHERE user_id = ?",
+			args: [10 * TOMBSTONE_SLACK_BYTES, user.id],
+		});
+		const result = await pushOk(quota.app, token, [
+			// Deleting a live document: the deletedAt stamp and a new updatedAt.
+			sized("a", 3, 900, { deletedAt: 3 }),
+			// A deletion that also grows the document a lot.
+			sized("b", 3, 900 + TOMBSTONE_GROWTH_BYTES + 200, { deletedAt: 3 }),
+			// A tombstone for a document the server never had.
+			sized("new", 3, 300, { deletedAt: 3 }),
+			// A tombstone over a tombstone that grows it.
+			sized("c", 3, 300 + 100, { deletedAt: 3 }),
+		]);
+		expect(result.accepted).toBe(1);
+		expect(result.rejected.map((r) => [r.id, r.code])).toEqual([
+			["b", "quota"],
+			["new", "quota"],
+			["c", "quota"],
+		]);
+		const { records } = await pullOk(quota.app, token, { cursor: 0 });
+		expect(records.find((r) => r.id === "a")?.deletedAt).toBe(3);
+		expect(records.find((r) => r.id === "b")?.deletedAt).toBeNull();
+		// Trimming still works too.
+		expect(await pushOk(quota.app, token, [sized("b", 4, 300)])).toMatchObject({ accepted: 1 });
+		expect(await syncUsage(quota.db, user.id)).toBeGreaterThan(10 * TOMBSTONE_SLACK_BYTES);
 	});
 
 	test("a refused record is accepted once there is room (the client keeps it pending)", async () => {
@@ -609,6 +757,27 @@ describe("sync quota (spec §4.5, D54)", () => {
 		const { token } = await signUp(free.app);
 		const result = await pushOk(free.app, token, [sized("a", 1, 700), sized("b", 1, 700)]);
 		expect(result.rejected.map((r) => [r.id, r.code])).toEqual([["b", "quota"]]);
+	});
+});
+
+describe("pull rate limit", () => {
+	test("past 120 pulls a minute a user gets 429 with Retry-After; others are unaffected", async () => {
+		let t = Date.now();
+		const limited = await createTestServer({ deps: { now: () => t } });
+		const ana = await signUp(limited.app, "Ana");
+		const ben = await signUp(limited.app, "Ben");
+		for (let i = 0; i < 120; i++) {
+			expect((await pull(limited.app, ana.token, { cursor: 0 })).status).toBe(200);
+		}
+		t += 15_000;
+		const response = await pull(limited.app, ana.token, { cursor: 0 });
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("45");
+		expect((await pull(limited.app, ben.token, { cursor: 0 })).status).toBe(200);
+		// Pushes keep their own budget.
+		expect((await push(limited.app, ana.token, [task("a", 1)])).status).toBe(200);
+		t += 45_000;
+		expect((await pull(limited.app, ana.token, { cursor: 0 })).status).toBe(200);
 	});
 });
 

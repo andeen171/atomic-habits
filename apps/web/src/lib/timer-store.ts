@@ -1,9 +1,12 @@
 import {
 	type DayKey,
+	type Habit,
 	TIMER_STORAGE_KEY,
 	type TimerState,
 	isTimeUp,
+	isTrackerActive,
 	keepGoing,
+	knownTracker,
 	pauseTimer,
 	readTimerState,
 	resumeTimer,
@@ -22,6 +25,17 @@ import { useSyncExternalStore } from "react";
  */
 
 type Listener = () => void;
+
+/**
+ * Whether a timer of this habit can still be saved or discarded on its
+ * screen: a live, unarchived habit whose session tracker is on. A timer of
+ * any other habit is stale (`TimerBell` drops it), so it never blocks the
+ * one timer a device may run.
+ */
+export function canTime(habit: Habit | undefined): boolean {
+	if (!habit || habit.deletedAt || habit.archivedAt) return false;
+	return isTrackerActive(habit) && knownTracker(habit)?.type === "session";
+}
 
 const listeners = new Set<Listener>();
 let current: TimerState | null = null;

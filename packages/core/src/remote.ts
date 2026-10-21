@@ -82,7 +82,9 @@ export interface RemoteClientOptions {
 	now?: () => number;
 	/**
 	 * Abort a request that hasn't answered after this long (default 60 s; 0
-	 * turns it off). A timed-out request fails like a network error.
+	 * turns it off), plus 1 s per 32 KB of request body, so a large push or
+	 * photo has time to go up a slow link. A timed-out request fails like a
+	 * network error, with the name `TimeoutError` (`isTimeoutError`).
 	 */
 	timeoutMs?: number;
 }
@@ -255,6 +257,29 @@ export interface RemoteClient {
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+/** Request body bytes the timeout allows per extra millisecond (32 KB/s, a weak uplink). */
+const BODY_BYTES_PER_MS = 32;
+
+/** A request the remote client gave up on (`RemoteClientOptions.timeoutMs`). */
+export class RequestTimeoutError extends Error {
+	constructor(ms: number) {
+		super(`No answer after ${Math.round(ms / 1000)} s`);
+		this.name = "TimeoutError";
+	}
+}
+
+/** A request that timed out (ours, or a fetch aborted by its own timeout signal). */
+export function isTimeoutError(error: unknown): boolean {
+	const name = (error as { name?: unknown } | null)?.name;
+	return name === "TimeoutError" || name === "AbortError";
+}
+
+/** About the size of a request body (characters for text: JSON is mostly ASCII). */
+function bodyBytes(body: unknown): number {
+	if (typeof body === "string") return body.length;
+	if (body instanceof Uint8Array) return body.byteLength;
+	return 0;
+}
 
 /** The bytes of a blob source: as given, or read from its URI. */
 async function sourceBytes(source: BlobSource): Promise<Uint8Array> {
@@ -321,7 +346,12 @@ export function createRemoteClient(
 		}
 		const controller = new Controller();
 		const abort = () => controller.abort();
-		const timer = setTimeout(abort, timeoutMs);
+		const limit = timeoutMs + Math.ceil(bodyBytes(rest.body) / BODY_BYTES_PER_MS);
+		let timedOut = false;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			abort();
+		}, limit);
 		if (signal) {
 			if (signal.aborted) controller.abort();
 			else signal.addEventListener("abort", abort);
@@ -332,6 +362,9 @@ export function createRemoteClient(
 				headers: merged,
 				signal: controller.signal,
 			});
+		} catch (error) {
+			if (timedOut) throw new RequestTimeoutError(limit);
+			throw error;
 		} finally {
 			clearTimeout(timer);
 			signal?.removeEventListener("abort", abort);

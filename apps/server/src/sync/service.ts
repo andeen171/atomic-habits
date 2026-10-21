@@ -9,9 +9,7 @@ import {
 	validateWireRecord,
 } from "@atomic/core/sync";
 import type { InStatement, ResultSet, Row } from "@libsql/client";
-import { and, asc, eq, gt } from "drizzle-orm";
 import type { Database } from "../db";
-import { syncRecord } from "../db/schema";
 
 /**
  * Server side of the sync protocol in `@atomic/core/sync`: per-user
@@ -25,9 +23,44 @@ import { syncRecord } from "../db/schema";
  * Sync quota (spec §4.5, D54): `sync_cursor.bytes` is the UTF-8 size of the
  * user's stored documents, kept exact by triggers on `sync_record` (migration
  * 0001_v2). A write that would grow it past the plan's `syncBytes` is refused
- * with `quota` (the client keeps it pending); shrinking writes and tombstones
- * always pass, so a user over quota can still delete and trim.
+ * with `quota` (the client keeps it pending); writes that don't grow it
+ * always pass, so a user over quota can still trim. Deletions keep the
+ * document (tombstones carry the full entity), so they are bounded too
+ * (`WITHIN_QUOTA`): a tombstone may use `TOMBSTONE_SLACK_BYTES` past the
+ * limit, and deleting an existing live document always works (it grows by
+ * the `deletedAt` stamp only). Any other tombstone is a growing write like
+ * any other: an unbounded stream of large tombstones could fill the disk.
  */
+
+/**
+ * Sync epochs (restores): `restore-check --fix` moves every user's cursor to
+ * the start of a new epoch (`nextEpochSeq`), past the restore point and past
+ * any epoch an earlier restore started. A device whose cursor is from an
+ * older epoch synced against a timeline the restore discarded, or at least
+ * can't be told from one that did: its pull answers `reset`, and the device
+ * uploads everything it holds and pulls everything again. A cursor below the
+ * restored state can't be trusted either: the device may have pushed writes
+ * after the restore point that it no longer holds as pending.
+ *
+ * An epoch holds 2^24 sequence numbers; a user that writes past that on its
+ * own (16 million writes) starts the next epoch, and its devices start over
+ * once. Epochs follow the clock (minutes since 2026), so a restore from a copy
+ * older than an earlier restore still lands past every cursor handed out
+ * since: 2^24 × minutes stays a safe integer for centuries.
+ */
+export const SYNC_EPOCH_SIZE = 2 ** 24;
+const EPOCH_CLOCK_ORIGIN = Date.UTC(2026, 0, 1);
+const EPOCH_CLOCK_UNIT_MS = 60_000;
+
+export function syncEpochOf(seq: number): number {
+	return Math.floor(seq / SYNC_EPOCH_SIZE);
+}
+
+/** The cursor a restore at `now` moves `seq` to: the start of the next epoch. */
+export function nextEpochSeq(seq: number, now: number): number {
+	const byClock = Math.max(0, Math.floor((now - EPOCH_CLOCK_ORIGIN) / EPOCH_CLOCK_UNIT_MS));
+	return Math.max(syncEpochOf(seq) + 1, byClock) * SYNC_EPOCH_SIZE;
+}
 
 export const DEFAULT_PULL_LIMIT = 500;
 /** A pull page stops growing past this many bytes of record data (it then sets hasMore). */
@@ -59,12 +92,32 @@ const READ_CURSOR = "SELECT seq FROM sync_cursor WHERE user_id = :user";
 const STORED_SIZE = `COALESCE((SELECT length(CAST(data AS BLOB)) FROM sync_record
 	WHERE user_id = :user AND collection = :collection AND id = :id), 0)`;
 
+/** How far tombstones may take a user's stored bytes past the plan's limit. */
+export const TOMBSTONE_SLACK_BYTES = 1024 * 1024;
+
 /**
- * The sync quota for one write, against the user's `sync_cursor` row:
- * tombstones always pass; any other write may grow the stored bytes only up
- * to `:limit` (a write that doesn't grow them always passes).
+ * How much a tombstone may grow the live document it deletes and still pass
+ * over the quota: the `deletedAt` stamp (`null` → 13 digits), a changed
+ * `updatedAt` and small edits made with the deletion.
  */
-const WITHIN_QUOTA = `(:tombstone = 1 OR :size - ${STORED_SIZE} <= MAX(0, :limit - sync_cursor.bytes))`;
+export const TOMBSTONE_GROWTH_BYTES = 256;
+
+/** UTF-8 size of the stored version of one document when it is live; NULL otherwise. */
+const STORED_LIVE_SIZE = `(SELECT length(CAST(data AS BLOB)) FROM sync_record
+	WHERE user_id = :user AND collection = :collection AND id = :id AND deleted_at IS NULL)`;
+
+/**
+ * The sync quota for one write, against the user's `sync_cursor` row. A
+ * write may grow the stored bytes only up to `:limit` (a write that doesn't
+ * grow them always passes); a tombstone up to `:limit` plus
+ * `TOMBSTONE_SLACK_BYTES`, and always when it deletes a live document and
+ * grows it by at most `TOMBSTONE_GROWTH_BYTES` (a user over quota, e.g.
+ * after a downgrade, can still delete).
+ */
+const WITHIN_QUOTA = `(
+	:size - ${STORED_SIZE} <= MAX(0, :limit + :tombstone * ${TOMBSTONE_SLACK_BYTES} - sync_cursor.bytes)
+	OR (:tombstone = 1 AND COALESCE(:size <= ${STORED_LIVE_SIZE} + ${TOMBSTONE_GROWTH_BYTES}, 0))
+)`;
 
 /** Whether the next write is within the quota (`ok` 1 or 0), for the `quota` rejections. */
 const CHECK_QUOTA = `SELECT ${WITHIN_QUOTA} AS ok FROM sync_cursor WHERE user_id = :user`;
@@ -276,10 +329,8 @@ export async function pushRecords(
 			":size": size,
 			":limit": limit,
 		};
-		if (!tombstone) {
-			checks.push({ at: statements.length, entry });
-			statements.push({ sql: CHECK_QUOTA, args: quotaArgs });
-		}
+		checks.push({ at: statements.length, entry });
+		statements.push({ sql: CHECK_QUOTA, args: quotaArgs });
 		statements.push(
 			{
 				sql: UPSERT_RECORD,
@@ -380,7 +431,28 @@ function findConflicts(
 	return conflicts;
 }
 
-/** Everything the user changed after `cursor`, oldest first. */
+/**
+ * The next rows after `:after` with each document's stored UTF-8 size, and
+ * no document: `octet_length` reads the size from the record header, so
+ * planning a page never loads (or sends to JS) the documents it won't return.
+ */
+const PULL_SIZES = `SELECT seq, octet_length(data) AS size FROM sync_record
+	WHERE user_id = :user AND seq > :after ORDER BY seq LIMIT :take`;
+
+/** The documents of the planned page. */
+const PULL_PAGE = `SELECT collection, id, updated_at, deleted_at, data, seq FROM sync_record
+	WHERE user_id = :user AND seq > :after AND seq <= :last ORDER BY seq`;
+
+/**
+ * Everything the user changed after `cursor`, oldest first: up to `limit`
+ * records, and past `PULL_PAGE_BYTES` of data only the first one.
+ *
+ * Two reads: the sizes of the next `limit + 1` rows plan the page (where
+ * it ends, and whether more follow), then only that page's documents are
+ * read. A large `limit` over large documents therefore never loads more
+ * than the page it returns. A row rewritten in between moves past the
+ * page's last seq (every write takes a new one), so the next pull gets it.
+ */
 export async function pullRecords(
 	db: Database,
 	userId: string,
@@ -388,40 +460,45 @@ export async function pullRecords(
 	now: () => number = Date.now,
 ): Promise<PullOutput> {
 	if (cursor > 0) {
-		// A cursor beyond anything this server handed out means the database was
-		// restored from an older copy: tell the device to start over.
-		const latest = await db.$client.execute({ sql: READ_CURSOR, args: { ":user": userId } });
-		if (cursor > cursorFrom(latest)) {
+		// A cursor beyond anything this server handed out, or from an epoch before
+		// the latest restore (`nextEpochSeq`), means the database was restored
+		// from an older copy: tell the device to start over.
+		const latest = cursorFrom(
+			await db.$client.execute({ sql: READ_CURSOR, args: { ":user": userId } }),
+		);
+		if (cursor > latest || syncEpochOf(cursor) < syncEpochOf(latest)) {
 			return { records: [], cursor: 0, hasMore: false, reset: true, serverTime: now() };
 		}
 	}
 
-	const rows = await db
-		.select({
-			collection: syncRecord.collection,
-			id: syncRecord.id,
-			updatedAt: syncRecord.updatedAt,
-			deletedAt: syncRecord.deletedAt,
-			data: syncRecord.data,
-			seq: syncRecord.seq,
-		})
-		.from(syncRecord)
-		.where(and(eq(syncRecord.userId, userId), gt(syncRecord.seq, cursor)))
-		.orderBy(asc(syncRecord.seq))
-		.limit(limit + 1);
-
-	const page: typeof rows = [];
+	const sizes = await db.$client.execute({
+		sql: PULL_SIZES,
+		args: { ":user": userId, ":after": cursor, ":take": limit + 1 },
+	});
+	let last = cursor;
+	let count = 0;
 	let bytes = 0;
-	for (const row of rows.slice(0, limit)) {
+	for (const row of (sizes.rows as Row[]).slice(0, limit)) {
+		const size = Number(row.size);
 		// Always return at least one record so a client can make progress.
-		if (page.length && bytes + JSON.stringify(row.data).length > PULL_PAGE_BYTES) break;
-		bytes += JSON.stringify(row.data).length;
-		page.push(row);
+		if (count && bytes + size > PULL_PAGE_BYTES) break;
+		bytes += size;
+		count++;
+		last = Number(row.seq);
 	}
-	return {
-		records: page.map(({ seq: _seq, ...record }) => record),
-		cursor: page.at(-1)?.seq ?? cursor,
-		hasMore: rows.length > page.length,
-		serverTime: now(),
-	};
+	const hasMore = sizes.rows.length > count;
+	if (!count) return { records: [], cursor, hasMore, serverTime: now() };
+
+	const page = await db.$client.execute({
+		sql: PULL_PAGE,
+		args: { ":user": userId, ":after": cursor, ":last": last },
+	});
+	const records: WireSyncRecord[] = (page.rows as Row[]).map((row) => ({
+		collection: String(row.collection),
+		id: String(row.id),
+		updatedAt: Number(row.updated_at),
+		deletedAt: row.deleted_at == null ? null : Number(row.deleted_at),
+		data: JSON.parse(String(row.data)) as Record<string, unknown>,
+	}));
+	return { records, cursor: last, hasMore, serverTime: now() };
 }

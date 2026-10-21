@@ -209,7 +209,8 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 				: undefined,
 			// Every session ends (above), and so does every export link. The reset
 			// link reached the mailbox, which proves the address: for an account
-			// that was never verified, what was granted before that proof goes too.
+			// that was never verified, what was granted before that proof goes too
+			// (sign-in methods other than the new password among it).
 			onPasswordReset: async ({ user: reset }) => {
 				await revokeExportLinks(db, reset.id);
 				if (!reset.emailVerified) await forgetUnprovenGrants(db, reset.id);
@@ -238,7 +239,24 @@ export function createAuth(config: Config, db: Database, deps: AuthDeps) {
 						clientId: config.google?.clientIds ?? [],
 						// ID-token flow only: no client secret, no redirect (spec §4.2).
 						clientSecret: "",
-						verifyIdToken: async (token, nonce) => (await google.verify(token, nonce)) !== null,
+						/*
+						 * Only addresses Google verified, for sign-up as much as for
+						 * linking: an account created from an unverified Google address
+						 * would keep that sign-in method after the real owner proves the
+						 * mailbox (a reset), and let its creator back in.
+						 */
+						verifyIdToken: async (token, nonce) => {
+							const claims = await google.verify(token, nonce);
+							if (claims && claims.email_verified !== true) {
+								log.warn({
+									msg: "google.link",
+									outcome: "refused",
+									reason: "unverified_google_email",
+								});
+								return false;
+							}
+							return claims !== null;
+						},
 					},
 				}
 			: {},

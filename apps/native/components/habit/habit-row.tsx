@@ -12,12 +12,20 @@ import {
 	canExceedTarget,
 	isTrackerActive,
 	isTrackerDay,
+	knownTracker,
 	monthPaceHint,
 	progressLabel,
 	streakLabel,
 	targetOn,
+	trackerActionLabel,
 } from "@atomic/core";
-import { useMonthGoal, useText, useToday, useTrackerDayLine } from "@atomic/core/react";
+import {
+	useMonthGoal,
+	useSleepWakePrompt,
+	useText,
+	useToday,
+	useTrackerDayLine,
+} from "@atomic/core/react";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
@@ -66,6 +74,10 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	const trackerDay = isTrackerDay(habit, day);
 	const dayLine = useTrackerDayLine(trackerDay ? habit : undefined, day);
 	const isToday = day === today;
+	// Mornings after a logged bedtime (Annex K §1.8.7): today's row asks for last night's
+	// wake-up time; the ring opens that night's entry (`openTracker`).
+	const wakePrompt = useSleepWakePrompt(trackerDay && isToday ? habit : undefined);
+	const trackerLine = wakePrompt ? t.t("tracker.sleep.addWake") : trackerDay ? dayLine : null;
 	// Pace toward this month's goal ("+3 pages/day wins October"), today only (spec §5.2).
 	// Count habits only, like the row's "+1" (D11): for a once-a-day habit "+1 time/day" would
 	// ask for doubling every day, when a few extra reps anywhere in the month do it.
@@ -81,7 +93,9 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	};
 
 	const onRingPress = () => {
-		if (isBreak) {
+		// A plain break habit's ring opens its actions ("I slipped", note…); a slip tracker's
+		// opens the composer straight away, as on web (`logger.tap` → `openTracker`).
+		if (isBreak && !trackerDay) {
 			openActions();
 			return;
 		}
@@ -90,7 +104,7 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	};
 
 	const secondary = (() => {
-		if (trackerDay && dayLine) return dayLine;
+		if (trackerLine) return trackerLine;
 		if (isBreak) {
 			if (count === 0) return streakLabel(habit, streak, t);
 			return isToday ? t.t("habit.slipped") : t.t("habit.slippedDay");
@@ -108,16 +122,32 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 		if (target > 1) return progressLabel(shown, count, t);
 		return item.identity ? text.identity(item.identity, "statement") : null;
 	})();
+	// Only the two-minute version is italic, never a tracker's line.
 	const italic =
+		!trackerLine &&
 		!isBreak &&
 		count === 0 &&
 		Boolean(habit.twoMinute) &&
 		habit.schedule.type !== "weekly" &&
 		state !== "skipped";
 
+	const tracker = trackerDay ? knownTracker(habit) : null;
+	// Annex K §4.3: a tracker's ring opens a sheet, so its name says what the day holds or
+	// what the tap does: "{name}, {dayLine ?? action}". A line that only repeats the name
+	// ("Plan tomorrow, Plan tomorrow") is left out.
+	const trackerRingLine = tracker
+		? (trackerLine ?? trackerActionLabel(tracker.type, t, tracker))
+		: null;
 	const ringLabel = [
 		name,
-		isBreak ? streakLabel(habit, streak, t) : progressLabel(shown, count, t),
+		tracker
+			? trackerRingLine &&
+				trackerRingLine.trim().toLocaleLowerCase() !== name.trim().toLocaleLowerCase()
+				? trackerRingLine
+				: null
+			: isBreak
+				? streakLabel(habit, streak, t)
+				: progressLabel(shown, count, t),
 		state === "skipped" ? t.t("habit.skipped") : null,
 	]
 		.filter(Boolean)
@@ -173,7 +203,8 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 								variant="small"
 								tone={isBreak && count > 0 ? "danger" : "muted"}
 								italic={italic}
-								numberOfLines={1}
+								// The morning's "How did you sleep? Add your wake-up time" is a call to act: let it wrap.
+								numberOfLines={wakePrompt ? 2 : 1}
 							>
 								{secondary}
 							</Text>

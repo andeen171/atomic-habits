@@ -42,7 +42,10 @@ export function blueprintLines(habit: Habit, t: Translator): BlueprintLine[] {
 		add(1, t.t("blueprint.intentionLocation", { habit: name, location: habit.cueLocation }));
 	}
 	if (habit.stackAfter) {
-		add(1, t.t("blueprint.stack", { stack: inSentence(habit.stackAfter), habit: name }));
+		add(
+			1,
+			t.t("blueprint.stack", { stack: inSentence(withoutAfterI(habit.stackAfter)), habit: name }),
+		);
 	}
 	if (habit.environment) add(1, t.t("blueprint.environment", { environment: habit.environment }));
 	if (habit.bundle)
@@ -56,6 +59,14 @@ export function blueprintLines(habit: Habit, t: Translator): BlueprintLine[] {
 /** "I get to read" typed into the field shouldn't read "I get to I get to read". */
 function withoutGetTo(value: string): string {
 	return value.replace(/^\s*(i get to|eu tenho a oportunidade de)\s+/i, "");
+}
+
+/**
+ * The habit-stacking field shows an "After I…" prefix, so people type
+ * "After I brush my teeth"; that shouldn't read "After I after I brush my teeth".
+ */
+export function withoutAfterI(value: string): string {
+	return value.replace(/^\s*(after i|depois de)\b[\s,…]+/i, "") || value;
 }
 
 export function identityLine(identity: Identity | undefined, t: Translator): string | null {
@@ -311,7 +322,7 @@ export function slotTitle(slot: BlueprintSlot, t: Translator): string {
 		return t.t("blueprint.slot.cueTimeValue", { time: value });
 	}
 	if (slot.concept === "blueprint.concept.stackAfter") {
-		return t.t("blueprint.slot.stackAfterValue", { stack: inSentence(value) });
+		return t.t("blueprint.slot.stackAfterValue", { stack: inSentence(withoutAfterI(value)) });
 	}
 	if (slot.concept === "blueprint.concept.why") {
 		return t.t("blueprint.slot.whyValue", { why: inSentence(withoutGetTo(value)) });

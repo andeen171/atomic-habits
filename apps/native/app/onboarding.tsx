@@ -2,19 +2,27 @@ import { CompoundChart, CompoundLegend } from "@/components/charts/compound-char
 import { identityTemplateFor } from "@/components/editor/fields";
 import { Check, ChevronLeft, PenLine } from "@/components/icons";
 import { Logo } from "@/components/logo";
+import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { TrackerBadge } from "@/components/trackers/tracker-badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { Text } from "@/components/ui/text";
 import { TextField } from "@/components/ui/text-field";
+import { useAuthSheet } from "@/lib/account";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
+import { syncController } from "@/lib/sync";
 import { makeStyles, useTheme } from "@/lib/theme";
-import { type HabitTemplate, type IdentityTemplate, identityTemplates } from "@atomic/core";
-import { useActions } from "@atomic/core/react";
-import { type ReactNode, useMemo, useState } from "react";
+import {
+	type HabitTemplate,
+	type IdentityTemplate,
+	hasAnyData,
+	identityTemplates,
+} from "@atomic/core";
+import { useActions, useAtomic, useSyncState } from "@atomic/core/react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
 import Animated, { FadeIn, FadeInRight, FadeOutLeft } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,6 +47,27 @@ export default function OnboardingScreen() {
 	const [writingCustom, setWritingCustom] = useState(false);
 	const [habitPicks, setHabitPicks] = useState<string[] | null>(null);
 	const templates = useMemo(() => identityTemplates(t.locale), [t.locale]);
+	// The same check as Today's "Explore with sample data": the sample replaces everything.
+	const hasData = useAtomic((s) => hasAnyData(s.data));
+	const [confirmDemo, setConfirmDemo] = useState(false);
+	const openAuth = useAuthSheet((s) => s.openAuth);
+	const signedIn = useSyncState(syncController).user !== null;
+	const wasSignedIn = useRef(signedIn);
+	const scrollRef = useRef<ScrollView>(null);
+
+	// A second device signs in from the welcome step: once signed in (after the merge
+	// question, when this device has data), the account's data is on its way, so
+	// onboarding is done (as on web).
+	useEffect(() => {
+		if (signedIn && !wasSignedIn.current) actions.updateSettings({ onboarded: true });
+		wasSignedIn.current = signedIn;
+	}, [signedIn, actions]);
+
+	const explore = () => {
+		haptics.success();
+		actions.loadDemoData(t.locale);
+		actions.updateSettings({ displayName: name.trim() });
+	};
 
 	const pickedTemplates = useMemo(
 		() => templates.filter((identity) => picked.includes(identity.key)),
@@ -103,14 +132,20 @@ export default function OnboardingScreen() {
 		actions.updateSettings({ displayName: name.trim(), onboarded: true });
 	};
 
+	// Every step starts at its top: picking identities low on the list would otherwise
+	// open the next step scrolled past its title.
+	const goTo = (target: number) => {
+		scrollRef.current?.scrollTo({ y: 0, animated: false });
+		setStep(target);
+	};
 	const next = () => {
 		haptics.selection();
 		if (step === STEPS - 1) finish(true);
-		else setStep((s) => s + 1);
+		else goTo(step + 1);
 	};
 	const back = () => {
 		haptics.selection();
-		setStep((s) => Math.max(0, s - 1));
+		goTo(Math.max(0, step - 1));
 	};
 
 	const toggleIdentity = (identity: IdentityTemplate) => {
@@ -186,6 +221,7 @@ export default function OnboardingScreen() {
 			</View>
 
 			<ScrollView
+				ref={scrollRef}
 				contentContainerStyle={styles.content}
 				keyboardShouldPersistTaps="handled"
 				showsVerticalScrollIndicator={false}
@@ -305,20 +341,42 @@ export default function OnboardingScreen() {
 			<View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 4 }]}>
 				<Button label={primaryLabel} size="lg" onPress={next} fullWidth testID="onboarding-next" />
 				{step === 0 ? (
-					<Button
-						label={t.t("onboarding.explore")}
-						variant="ghost"
-						size="lg"
-						fullWidth
-						onPress={() => {
-							haptics.success();
-							actions.loadDemoData(t.locale);
-							actions.updateSettings({ displayName: name.trim() });
-						}}
-						testID="onboarding-explore"
-					/>
+					<>
+						<Button
+							label={t.t("onboarding.explore")}
+							variant="ghost"
+							size="lg"
+							fullWidth
+							onPress={() => (hasData ? setConfirmDemo(true) : explore())}
+							testID="onboarding-explore"
+						/>
+						<View style={styles.haveAccount}>
+							<Text variant="small" tone="muted">
+								{t.t("account.haveAccount")}
+							</Text>
+							<PressableScale
+								onPress={() => openAuth("signIn")}
+								hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+								accessibilityRole="button"
+								style={styles.signIn}
+								testID="onboarding-sign-in"
+							>
+								<Text variant="small" weight="semibold" tone="accent">
+									{t.t("settings.signIn")}
+								</Text>
+							</PressableScale>
+						</View>
+					</>
 				) : null}
 			</View>
+			<ConfirmSheet
+				open={confirmDemo}
+				title={t.t("settings.demo")}
+				body={t.t("settings.demoConfirm")}
+				confirmLabel={t.t("common.confirm")}
+				onClose={() => setConfirmDemo(false)}
+				onConfirm={explore}
+			/>
 		</KeyboardAvoidingView>
 	);
 }
@@ -618,4 +676,12 @@ const useStyles = makeStyles((t) => ({
 		marginBottom: 12,
 	},
 	footer: { paddingHorizontal: 24, paddingTop: 8, gap: 4 },
+	haveAccount: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		alignItems: "center",
+		justifyContent: "center",
+		columnGap: 6,
+	},
+	signIn: { minHeight: 36, justifyContent: "center" },
 }));

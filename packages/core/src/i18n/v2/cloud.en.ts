@@ -33,7 +33,8 @@ export const cloudEn = {
 	"sync.backupPhotos": "Back up photos",
 	"sync.backupPhotosHint":
 		"Keeps the photos of your entries in your account, so your other devices can show them.",
-	"sync.photosNotInBackups": "Backups don't include photos. Sign in to sync to keep them safe.",
+	"sync.photosNotInBackups":
+		"Backups don't include photos. Sign in to sync them and keep them safe.",
 	// Photo backup state (`SyncControllerState.blobs`, D23).
 	"sync.photosWaiting.one": "{count} photo waiting to be backed up",
 	"sync.photosWaiting.other": "{count} photos waiting to be backed up",

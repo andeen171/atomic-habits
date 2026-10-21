@@ -4,6 +4,7 @@ import { erasureHash, readErasures } from "../account/erasures";
 import type { BlobStorage } from "../blobs/storage";
 import type { Database } from "../db";
 import { migrationsFolder } from "../db/migrate";
+import { SYNC_EPOCH_SIZE, nextEpochSeq } from "../sync/service";
 
 /**
  * After restoring a database (or photo storage) from a backup
@@ -17,6 +18,15 @@ import { migrationsFolder } from "../db/migrate";
  *   that version instead.
  * - `cursorsBehind`: users whose `sync_cursor.seq` is below their highest
  *   record `seq` (new writes would collide). Fix: raise it.
+ * - Sync epochs (`fix` only, every run): every account's cursor moves to a
+ *   new epoch (`nextEpochSeq`), past the restore point. Devices that synced
+ *   before the restore start over on their next sync (pull answers
+ *   `reset`): they upload everything they hold, so changes made after the
+ *   restore point come back from any device that still has them, and they
+ *   pull everything again. Without it a device whose cursor is past the
+ *   restore point would skip the changes others make after the restore, and
+ *   its own changes since the restore point would never be pushed again.
+ *   `fixed.epochs` counts the accounts moved.
  * - `bytesDrift`: users whose `sync_cursor.bytes` differs from the sum of
  *   their documents (the sync quota). Fix: recompute.
  * - `missingObjects`: `blob` rows whose photo object is gone (photo storage
@@ -45,7 +55,14 @@ export interface RestoreReport {
 	missingObjects: number | null;
 	/** Null without an erasure log (remote database). */
 	erasedAccounts: number | null;
-	fixed: { cursors: number; bytes: number; blobRows: number; erasedAccounts: number };
+	fixed: {
+		cursors: number;
+		bytes: number;
+		blobRows: number;
+		erasedAccounts: number;
+		/** Accounts whose sync cursor moved to a new epoch (every account, with `fix`). */
+		epochs: number;
+	};
 	/** Problems left after the run (empty: the copy is ready to serve). */
 	problems: string[];
 }
@@ -61,6 +78,16 @@ WHERE c.seq IS NULL OR c.seq < x.top`;
 const FIX_CURSORS = `INSERT INTO sync_cursor (user_id, seq, bytes)
 SELECT r.user_id, max(r.seq), 0 FROM sync_record r GROUP BY r.user_id
 ON CONFLICT (user_id) DO UPDATE SET seq = excluded.seq WHERE sync_cursor.seq < excluded.seq`;
+
+/** Every account gets a cursor row, so a device of an account without one is reset too. */
+const ENSURE_CURSORS = `INSERT INTO sync_cursor (user_id, seq, bytes)
+SELECT id, 0, 0 FROM user WHERE true
+ON CONFLICT (user_id) DO NOTHING`;
+
+const TOP_CURSOR = "SELECT coalesce(max(seq), 0) AS n FROM sync_cursor";
+
+/** Moves every cursor to the start of the next epoch, at least `:floor` (`nextEpochSeq`). */
+const NEXT_EPOCH = "UPDATE sync_cursor SET seq = max((seq / :size + 1) * :size, :floor)";
 
 const BYTES_DRIFT = `SELECT count(*) AS n FROM sync_cursor c
 LEFT JOIN (
@@ -107,10 +134,12 @@ export async function restoreCheck(
 		concurrency?: number;
 		/** The erasure log of a local database (`erasureLogPath`); null or absent: no check. */
 		erasureLog?: string | null;
+		/** The clock for the new sync epoch (tests). */
+		now?: number;
 	},
 ): Promise<RestoreReport> {
 	const problems: string[] = [];
-	const fixed = { cursors: 0, bytes: 0, blobRows: 0, erasedAccounts: 0 };
+	const fixed = { cursors: 0, bytes: 0, blobRows: 0, erasedAccounts: 0, epochs: 0 };
 
 	let integrity: RestoreReport["integrity"] = "skipped";
 	if (options.local) {
@@ -185,6 +214,17 @@ export async function restoreCheck(
 	}
 	if (cursorsBehind)
 		problems.push(`${cursorsBehind} sync cursors are behind their records (--fix)`);
+
+	if (options.fix && !cursorsBehind) {
+		await db.$client.execute(ENSURE_CURSORS);
+		// One epoch for every account: past the highest cursor, so past any account's.
+		const floor = nextEpochSeq(await count(db, TOP_CURSOR), options.now ?? Date.now());
+		const moved = await db.$client.execute({
+			sql: NEXT_EPOCH,
+			args: { ":size": SYNC_EPOCH_SIZE, ":floor": floor },
+		});
+		fixed.epochs = moved.rowsAffected;
+	}
 
 	let bytesDrift = await count(db, BYTES_DRIFT);
 	if (bytesDrift && options.fix) {

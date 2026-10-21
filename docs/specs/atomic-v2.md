@@ -754,7 +754,7 @@ export function normalizeTrackerChange(current: Habit | null, next: Habit, ctx: 
 
 **`trackers/measure.ts` and `trackers/reconcile.ts` (new; F, then T4):** Annex K §3.2 with the renames: `dayCountFor`, `TrackerEntryIndex` (fields `byHabit`, `byHabitDay`, `recordDays`), `buildTrackerEntryIndex`, `HabitDay`, `reconcilePlan`, `pairsForHabit`.
 - **Amends K (reconciliation):**
-  - Pairs come only from applied tracker entries (their old and new `habitId:date`) and from applied habits whose `tracker.{type,enabled,since}` changed (their entry days ≥ `trackerStart`). Applied logs never produce pairs, including logs that arrive in push `conflicts`.
+  - Pairs come only from applied tracker entries (their old and new `habitId:date`) and from applied habits whose `tracker.{type,enabled,since}` changed (their entry days ≥ `trackerStart`). Applied logs never produce pairs, including logs that arrive in push `conflicts`. (Phase 3: also when how the tracker counts a day changed, `trackerCountKey`: `measure` or `aggregate`; see Implementation notes.)
   - `reconcilePlan` skips a pair when any of its entries has an unknown type or the habit's tracker is foreign.
   - Reconciliation runs: inside local entry actions (same commit, origin `"local"`); once after a completed pull (§2.7 step 7); after import; and on app start and day change for days in `[today − 35, today]` (catches v1 toggles).
 
@@ -1098,7 +1098,7 @@ Annex C §6 is adopted, with the changes below. F makes one change in Phase 1A: 
 - **Sync quota (New).**
   - Inside the push transaction, `sync_cursor.bytes` is adjusted by each accepted record's size delta (`serializedBytes`).
   - A record that would take the user over `limits.syncBytes` is rejected with `quota`, and the client keeps it pending.
-  - Tombstones are always accepted.
+  - Tombstones are bounded too, because a tombstone keeps the full entity: a tombstone may take the user up to `syncBytes` plus 1 MiB (`TOMBSTONE_SLACK_BYTES`), and deleting a stored live document is always accepted when it grows by at most 256 bytes (the `deletedAt` stamp), so a user over quota (after a downgrade) can still delete. Any other tombstone past that is refused with `quota` and stays pending. Deleting doesn't free quota (no compaction in v2).
   - The client shows `sync.quotaFull` and the meter `sync.storageMeter`.
 - **Google link guard (New).** `auth.test.ts` checks whether 1.7.10 links a Google sign-in to an existing user with the same unverified email. If it does, `databaseHooks.account.create.before` (provider `google`) does the following when the target user has `emailVerified = false` and a `credential` account:
   1. delete that credential account
@@ -2171,7 +2171,7 @@ Amendments to annexes are marked **A**. Numbers 1–48 keep their previous meani
 51. **New:** `validateWireRecord` lives in core and is shared by the server and the tests. F switches the server to it in Phase 1A.
 52. **New:** the core root entry is React-free. Hooks are exported from `@atomic/core/react` only, and a test enforces it.
 53. **New:** replace-importing a v1 backup replaces only the v1 collections. Import validates per record and keeps unknown fields.
-54. **New:** per-user sync storage quota with a keep-pending `quota` code; tombstones are always accepted; push is limited to 60 per minute per user.
+54. **New:** per-user sync storage quota with a keep-pending `quota` code; tombstones are bounded (up to the quota plus 1 MiB; deleting a stored live document is always accepted); push is limited to 60 per minute per user, pull to 120.
 55. **New:** auth hardening: sessions revoked on password reset, no-referrer and no-store on token pages, token-free access logs, reset/verification rate limits, a 10-minute `freshAge`, and Google re-auth before deleting a password-less account.
 56. **New:** commits carry an origin (`local` / `remote` / `derived`). Celebrations and haptics react only to local commits.
 57. **New:** pending keys are recorded only while signed in (`SyncMeta.tracking`). Sign-in always marks everything pending.
@@ -2213,3 +2213,75 @@ Every other point from both critiques is applied above. Only these parts are rej
 - **Engineering 12 (floor change):** redefining the after-completion due date is unnecessary. Annex T's floor already takes the maximum over all live logs; only the history listing, count semantics and the e2e test are added.
 - **Engineering 13 (scan alternative):** scanning `items[].taskId` is replaced by the critique's own alternative, `Task.sourceEntryId`, which survives concurrent edits of the plan entry.
 - **Engineering 31 (who creates worktrees):** agents creating worktrees themselves is replaced by the orchestrator creating them, because track agents never branch on their own.
+
+## Implementation notes
+
+Deliberate departures from the text above, as built in Phases 1–3. Each one was reported by the agent that made it; the product owner can revert any of them.
+
+**Copy**
+
+- pt-BR `month.paceHint` reads "+{amount}/dia garante {month}" and `insights.monthsWon` reads "Meses conquistados" (§7 has "vence" / "Meses vencidos", which also read as "expires" / "expired"). `test/content.test.ts` pins the new values.
+- `monthAmount` counts times for habits without a unit ("1 time ahead of pace", "11 / 15 times"), not a bare number.
+- The break-habit month strip is headed "Clean months" (`month.cleanMonths`), not "Months won". The level-up card shows its evidence once, then the Goldilocks rule (`levelUp.edge`), instead of repeating the numbers.
+- Blueprint slot titles start with a capital ("In bed"), because template text is written to fit a sentence.
+- Journal: `contractText` uses split keys (`journal.contract.text*`) so empty lines are left out; the pt-BR `journal.prompt.recovery.hide` and `journal.nudge.slip.body` differ from Annex J so they don't repeat "deixa".
+- The sidebar sync indicator says "Retrying sync soon" (`sync.retryingShort`) while failed rounds retry on their own; the v1 "Sync paused" label is kept only for an ended session.
+- A photo tracker with `photoRequired: false` (the meal log) is logged with "Add photo or note" (`tracker.type.photo.actionOptional`).
+- Device labels are language-neutral ("Atomic Web · Chrome (macOS)"), because every device in the account sees the same list.
+
+**Rules**
+
+- Pace hint (§5.2): Today rows show `month.paceHint` only for count habits (daily goal above 1), the same rule as the visible "+1" (D11). For a once-a-day habit "+1 time/day" asks the user to double the habit every day; the month-behind card still covers those habits in the last 7 days.
+- `monthGoal` capacity: a habit whose tracker is measured in days or by a deadline (`!canExceedTarget`) can credit at most its target on a day, so `maxPerDay` is the target and a month that can't be made up is `outOfReach`, never a "behind" pace of 2/day.
+- LWW ties (D45): when a pulled version has the same `updatedAt` as a local copy that is still pending, the client compares the wire forms (the stored `data` plus envelope, before `upgradeRecord` and the schema), exactly as the server does, so both sides always pick the same winner. A tie with nothing pending takes the server's copy; a version that normalizes to the local record changes nothing.
+- Recovery from corrupt storage: the recovery is recorded in the sync meta (`SyncMeta.recovering`), so every session stays `partial` (derived writes and pushes held) until the re-pull completes. A corrupt slice stays listed in `meta.slices` and is backed up once. `meta.slices` and `meta.settings` (which survives a v2 → v1 → v2 downgrade) are additions to the meta content.
+- Sorting tie-breaks use plain code-unit order instead of `localeCompare`, so web and Hermes sort the same.
+- `localizedText` tries the phrasebook before the stopword guess (short phrases such as "Renovar a academia" are misread by the guess). The phrasebook also holds the sample data's own text (`demoPhrasePairs`: the push-ups habit, task titles, plan lines, scorecard labels), so sample data loaded in one language reads in the other. Journal and tracker entry text (notes, answers, captions) is never translated, so sample data keeps the language it was loaded in there.
+- Sample data follows D12: demo habits have `emojiAuto: true` and wear their identity's icon (📚 Read). Demo plan lines never repeat a task that Today lists beside them.
+- Onboarding (§5.1): the welcome step has "Already use Atomic on another device? Sign in" (`account.haveAccount`; not in the artifact build). Signing in there finishes onboarding. "Explore with sample data" asks first (`settings.demoConfirm`) when the device already holds data, the same check as Today's button.
+- Editor goal (Annex K §4.1, both apps): hidden for trackers measured in days or by a deadline; for sum trackers it reads "Daily goal · {unit}" and the free unit input goes away.
+- A tracker ring's accessible name is "{name}, {dayLine ?? action}" (Annex K §4.3); a line that only repeats the name is left out ("Plan tomorrow"). In the morning after a logged bedtime, today's sleep row reads "How did you sleep? Add your wake-up time" (§1.8.7).
+- Signed out, on a device that keeps photos, the Data and Account sections say JSON backups leave photos out (`sync.photosNotInBackups`).
+- Compound chart (§5.5): from about 600 days the 10× and 40× ticks give way so labels keep 16px apart, and doubling ticks (80×, 160×…) label the top of long charts.
+- The blueprint board switches to 4 columns on its own width (2×2 beside the sidebar at 1024px).
+- Auto color: a template applied without an identity keeps the template's color. Onboarding starter cards show the identity's icon (what the habit gets, D12), not the template emoji.
+- Picking an AI suggestion replaces the field through the host; there is no app-level undo for it (Ctrl+Z undoes accepted typing completions).
+- Changing how a tracker counts a day without changing its type (reading pages ↔ minutes, session minutes ↔ sessions, writing words ↔ entries, a measure's sum ↔ last; `trackerCountKey`) restarts it like a type switch (Annex K §1.5): `since` becomes today, earlier days keep the counts they were logged with, and both settings screens say so (`tracker.settings.recountHint`). A synced change that kept `since` (an older build) recounts every entry day, so history never mixes two units.
+- Logging actions read a tombstoned log (a replace import, sample data loaded again, a deletion from another device) as no log: a toggle, "+1", skip or note starts that day afresh. A toggle marks a day done against that day's goal (`targetOn`, goal history), not the current one.
+- Editing a reading session without a time (a backfilled day) keeps its place among the day's sessions (its `createdAt`), so its pages are measured from the bookmark before it, not from a later session.
+- Undo of "{tracker} is on" puts back the habit's tracker, goal and unit as they were (`restoreTrackerSetup`): a habit that had no tracker has none again, not a disabled one. Native's "You finished {book} · Undo" puts the book back as it was and removes the new session (or restores the edited one).
+- A session timer whose habit is deleted, archived or switched to a simple check-off (on any device) is dropped on that device, with its bell, so it never blocks another habit's timer. A writing page started on the pad moves its device draft under the entry's own key when the pad closes, so a later new page never shows (or saves again) a page that was deleted since.
+
+**Server**
+
+- AI translate `max_tokens` is min(1024, ⌈chars/2⌉ + 64 + 10 × items); the extra term pays for each item's JSON wrapper.
+- llama.cpp runs with `-n 1024`, not `-n 512` (D31), because a translation may ask for up to 1024 tokens.
+- AI failures after the model was asked are refunded only up to the plan's daily limit per user and UTC day (§4.5 says "refunds on upstream failure"); failures before the model is asked are always refunded.
+- An account with a password must send it to delete itself even on a fresh session (Annex C's "confirmation by password").
+- `AI_TIMEOUT_MS` and `AI_TRANSLATE_TIMEOUT_MS` above 240 s (`AI_MAX_TIMEOUT_MS`) are a fatal config error: an AI call is silent while the model works, and Bun closes a silent request after 255 s.
+- A POST to `/api/auth/*` with a body that isn't `application/json` gets 415 `UNSUPPORTED_MEDIA_TYPE` (the Stripe webhook and empty bodies excepted). Better Auth read other bodies as a stream or a form, lost the password, and fell back to `freshAge`, so a wrong password could delete an account.
+- A third of `EMAIL_DAILY_CAP` is kept for password resets: verification emails stop at two thirds, so a wave of junk sign-ups can't use up the emails a locked-out owner needs.
+- The Google link guard reclaims any account whose email is unverified (§4.5 says one with `emailVerified=false` *and a credential account*), and the account's synced data and photos are kept; sessions, other sign-in methods, export links and the AI consent are removed. With email off every password account is unverified, and the likeliest reclaim is the owner on a new phone, for whom the server copy may be the only backup. **Product to confirm.**
+- Google sign-in accepts only addresses Google verified (`email_verified`), for sign-up as well as linking; a password reset of an unverified account also removes every sign-in method other than the new password, because the reset proves the mailbox, not an earlier Google link.
+- Hourly maintenance also prunes expired sessions (with their device label and IP) and expired verification tokens (`auth.prune`), beyond §4.5's maintenance list.
+- Restores (§4.7, deploy/README.md §8): `restore-check --fix`, which every `restore.sh` runs, moves every account's sync cursor to a new sync epoch (2^24 sequence numbers each, numbered by the minute of the restore), and a pull with a cursor from an older epoch answers `reset`. Every device that synced before the restore starts over: it uploads everything it holds, so changes made after the restore point come back from any device that still has them, and pulls everything again. Without it, a device whose cursor was past the restore point skipped whatever others wrote at sequence numbers it had already seen, and its own lost changes were never pushed again.
+- Slow links: the client's request timeout grows with the body (60 s plus 1 s per 32 KB). A push that still times out is split in halves (down to one record's 64 KiB) and later batches stay that small; a pull page that times out is asked again with `limit` 64, then 16, 4, 1. A photo upload that times out is skipped for the round, so the others still go up.
+- Per-user limits beyond §4.3: `sync.pull` 120 per minute (a backlog pages through 4 MiB at a time, well within it), `blobs.missing` 300, `billing.*` 10 and `ai.setConsent` 30 per minute. A pull page stops after 4 MiB of stored documents and is planned from their stored sizes first, so a 1000-record limit loads only the documents it returns.
+- The in-memory rate limiter keeps at most 100,000 keys per scope and drops the oldest past that (a fresh window, never a stricter one); a hit costs the same however many keys are live, so a client rotating addresses can't slow every request down.
+- Billing answers 409 `already-subscribed` for a `past_due` user (a new checkout would charge twice once Stripe's retry succeeds; "Update your card" is in the portal) and for a trialing user on the same interval.
+- SQLite runs with `secure_delete` on every connection: an erased account's text is zeroed in the file, so whole-file copies taken after the erasure (Litestream snapshots, volume images) don't hold it. Databases written before this need a one-off `VACUUM` (deploy/README.md §7).
+- Docker Compose gives the server an allow-list of the variables it reads instead of the whole `.env`, so the Litestream keys (write access to the backups) never reach the API process.
+- The "Confirm your email" email warns, before its button, not to confirm an account you didn't create: confirming hands it to whoever signed up. Past that click the link guard can't tell a squatter's verified account from the owner's, and a later Google sign-in links into it with the squatter's password and sessions intact. **Product to decide:** (a) on the first Google link into a password account, revoke every other session and export link and tell the owner the account also has a password (with a way to remove it); or (b) refuse automatic Google linking into a password account and send the owner to "Forgot password", which proves the mailbox and revokes every session.
+
+**Platform idioms (native)**
+
+- The row's "+1" sits at the trailing end of the row, not over the ring, for a 44pt target. `RepeatChip` sits beside the priority flags instead of `DateChips.trailing`, which pushed it off-screen at 390pt.
+- Day notes open the journal's own `DayNoteSheet`; "+ Evidence" opens a one-line save sheet like web's inline field; journal kind and habit options are buttons, not radios, because picking one moves on (web too).
+- The TrackerPanel header doesn't repeat the log card's main action. Cloud banners float over the top of the screen (at most two).
+
+**Known limitations**
+
+- The month-win toast lands in front of the toast of the write that crossed the goal, so that write's Undo is reached by expanding the toast stack.
+- Deleting a document doesn't free sync quota (a tombstone keeps the full entity); `sync.quotaFull` doesn't suggest deleting.
+- **Not verified yet (§8.3 T6, §4.7):** `docker compose --profile ai --profile tls up` has never booted, and the Caddy, Litestream and llama.cpp containers have never run: the agents' environment has no Docker daemon, so the deploy package is checked statically (`docker compose config`, `deploy.test.ts`). The restore drill (deploy/README.md §9) and the uptime check (§6) are still open. On a host with Docker, follow deploy/README.md §12, then run the drill once and record it.
+- **Release builds don't bake the official URL yet (§4.7):** it waits for the domain. The Android and desktop workflows read the repository variable `ATOMIC_SERVER_URL`; Cloudflare Pages (`VITE_SERVER_URL`) and `apps/native/eas.json` (`EXPO_PUBLIC_SERVER_URL`) are set by hand then (deploy/README.md §5).

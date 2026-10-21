@@ -44,7 +44,7 @@ export const trackersPtBR: Record<keyof typeof trackersEn, string> = {
 	"tracker.photosOff": "Fotos não estão disponíveis nesta versão.",
 	"tracker.photoUnsupported": "Este formato de foto não é aceito aqui. Tente um JPEG ou PNG.",
 	"tracker.backupPhotosNote":
-		"Backups não incluem fotos. Entre na sincronização para mantê-las seguras.",
+		"Os backups não incluem fotos. Entre na sua conta para sincronizá-las e mantê-las seguras.",
 	"tracker.onTime": "No horário",
 	"tracker.lateBy": "{minutes} min atrasado",
 	"tracker.headline.month": "{value} este mês",
@@ -223,6 +223,8 @@ export const trackersPtBR: Record<keyof typeof trackersEn, string> = {
 	"tracker.reading.minutes": "Minutos",
 	"tracker.reading.quote": "Um trecho para guardar",
 	"tracker.reading.needAmount": "Registre páginas ou minutos",
+	"tracker.reading.pageBehind":
+		"Você já estava nesta página ou além dela. Informe a página em que está agora ou quantas páginas leu.",
 	"tracker.reading.finishedPrompt": "Terminou {title}? 🎉",
 	"tracker.reading.shelf": "Sua estante",
 	"tracker.reading.readingNow": "Lendo agora",
@@ -661,6 +663,8 @@ export const trackersPtBR: Record<keyof typeof trackersEn, string> = {
 	"tracker.settings.photoRequired": "A foto é obrigatória",
 	"tracker.settings.switchHint":
 		"Trocar de registro recomeça hoje. Os registros já feitos ficam guardados.",
+	"tracker.settings.recountHint":
+		"Contar de outro jeito recomeça hoje. Os dias anteriores mantêm as contagens que tinham.",
 	"tracker.or": "ou",
 	"tracker.saveFailed": "Não foi possível salvar este registro. Confira o dia e tente de novo.",
 	"tracker.entryGone": "Este registro foi apagado.",

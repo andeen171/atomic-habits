@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	BLUEPRINT_FIELDS,
 	blueprintCompleteness,
+	blueprintLines,
 	blueprintPatch,
 	blueprintSlotSpecs,
 	blueprintSlots,
@@ -90,6 +91,22 @@ describe("blueprint slots", () => {
 			(s) => s.field === "cueLocation",
 		);
 		expect(place && slotTitle(place, enT)).toBe("In bed");
+	});
+
+	test("a habit stack typed with its “After I” prefix doesn't read it twice", () => {
+		const stackOf = (stackAfter: string) =>
+			blueprintSlots(habit({ stackAfter })).find((s) => s.field === "stackAfter") as ReturnType<
+				typeof blueprintSlots
+			>[number];
+		expect(slotTitle(stackOf("After I brush my teeth"), enT)).toBe("After I brush my teeth");
+		expect(slotTitle(stackOf("after I… pour my coffee"), enT)).toBe("After I pour my coffee");
+		expect(slotTitle(stackOf("Depois de escovar os dentes"), ptT)).toBe(
+			"Depois de escovar os dentes",
+		);
+		const line = blueprintLines(habit({ stackAfter: "After I brush my teeth" }), enT).find(
+			(l) => l.law === 1,
+		);
+		expect(line?.text.startsWith("After I brush my teeth,")).toBe(true);
 	});
 
 	test("law headings use inverse names for break habits", () => {

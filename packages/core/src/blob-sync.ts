@@ -8,7 +8,7 @@ import {
 	sha256Hex,
 	uploadableBlobs,
 } from "./attachments";
-import { RemoteError } from "./remote";
+import { RemoteError, isTimeoutError } from "./remote";
 import type { AtomicStore } from "./store";
 
 /**
@@ -26,7 +26,10 @@ import type { AtomicStore } from "./store";
  *   restored server lost are sent again.
  * - `QUOTA_EXCEEDED` stops uploads for the round (`quota: true`; the photo
  *   stays on the device). Another 413, or a 415, marks the blob unuploadable
- *   for good. A network error ends the round; the next round retries.
+ *   for good. A network error ends the round; the next round retries. A
+ *   timed-out upload (a large photo on a slow link) only skips that photo:
+ *   the others still go up, and the pass fails at its end so the next round
+ *   tries it again.
  * - **Download**: thumbnails referenced by live entries download eagerly (3
  *   at a time); originals on demand (`ensureBlob`).
  * - **Local GC** (`pruneLocalBlobs`): deletes blobs that no live entry
@@ -132,6 +135,8 @@ export async function runBlobSync(
 ): Promise<BlobSyncResult> {
 	const now = opts.now ?? Date.now();
 	const result: BlobSyncResult = { uploaded: 0, downloaded: 0, quota: false, waiting: 0 };
+	/** The first upload that timed out: thrown once the pass is done. */
+	let timedOut: unknown = null;
 	const { actions } = store.getState();
 
 	// ── Upload ──
@@ -192,6 +197,10 @@ export async function runBlobSync(
 							actions.markBlobUnuploadable(sha, reason);
 							return;
 						}
+						if (isTimeoutError(error)) {
+							timedOut ??= error;
+							return;
+						}
 						failure ??= error;
 					}
 				},
@@ -233,6 +242,7 @@ export async function runBlobSync(
 		);
 		if (failure !== null) throw failure;
 	}
+	if (timedOut !== null) throw timedOut;
 	return result;
 }
 

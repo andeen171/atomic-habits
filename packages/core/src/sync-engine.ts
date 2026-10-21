@@ -1,10 +1,12 @@
 import { COLLECTIONS, type Collection, SCHEMA_REV, collectionSchemas } from "./model";
 import { isKnownCollection } from "./persist-layout";
+import { isTimeoutError } from "./remote";
 import type { AtomicStore } from "./store";
 import {
 	KEEP_PENDING_CODES,
 	MAX_PUSH_BATCH,
 	MAX_PUSH_BYTES,
+	MAX_RECORD_BYTES,
 	type PullOutput,
 	type PushOutput,
 	type RejectedRecord,
@@ -24,7 +26,9 @@ import type { HabitDay } from "./trackers/measure";
  *    (pending keys are kept; `applyRemote` only replaces strictly newer
  *    documents, so this is idempotent).
  * 2. Push the pending keys the server accepts, in batches of at most 500
- *    records and `MAX_PUSH_BYTES` of UTF-8; a 413 halves the batch.
+ *    records and `MAX_PUSH_BYTES` of UTF-8; a 413 halves the batch, and so
+ *    does a timeout (a slow link; later batches stay that small, and pull
+ *    pages get smaller after a timed-out page).
  * 3. Sort out rejections: keep-pending codes stay pending, `invalid` stays
  *    pending only while the server's revision is older and the record is
  *    valid here, the rest is dropped. Every rejection is logged in
@@ -299,23 +303,66 @@ function applyInto(store: AtomicStore, round: Round, records: readonly WireSyncR
 	return result.applied;
 }
 
-/** Splits records into batches of ≤ MAX_PUSH_BATCH records and ≤ MAX_PUSH_BYTES UTF-8 bytes. */
-export function pushBatches(records: readonly WireSyncRecord[]): WireSyncRecord[][] {
-	const batches: WireSyncRecord[][] = [];
-	let batch: WireSyncRecord[] = [];
+/** A record's share of a push body: its UTF-8 size and a comma. */
+const recordBytes = (record: WireSyncRecord) => serializedBytes(record) + 1;
+
+/**
+ * Where the batch that starts at `start` ends: at most `MAX_PUSH_BATCH`
+ * records and `maxBytes` UTF-8 bytes, and always at least one record.
+ */
+function batchEnd(sizes: readonly number[], start: number, maxBytes: number): number {
 	let bytes = BATCH_OVERHEAD;
-	for (const record of records) {
-		const size = serializedBytes(record) + 1;
-		if (batch.length && (batch.length >= MAX_PUSH_BATCH || bytes + size > MAX_PUSH_BYTES)) {
-			batches.push(batch);
-			batch = [];
-			bytes = BATCH_OVERHEAD;
-		}
-		batch.push(record);
+	let end = start;
+	while (end < sizes.length) {
+		const size = sizes[end] as number;
+		if (end > start && (end - start >= MAX_PUSH_BATCH || bytes + size > maxBytes)) break;
 		bytes += size;
+		end++;
 	}
-	if (batch.length) batches.push(batch);
+	return end;
+}
+
+/** Splits records into batches of ≤ MAX_PUSH_BATCH records and ≤ `maxBytes` UTF-8 bytes. */
+export function pushBatches(
+	records: readonly WireSyncRecord[],
+	maxBytes: number = MAX_PUSH_BYTES,
+): WireSyncRecord[][] {
+	const sizes = records.map(recordBytes);
+	const batches: WireSyncRecord[][] = [];
+	for (let start = 0; start < records.length; ) {
+		const end = batchEnd(sizes, start, maxBytes);
+		batches.push(records.slice(start, end));
+		start = end;
+	}
 	return batches;
+}
+
+/** The smallest push body a timeout shrinks to: one record of the largest size. */
+const MIN_PUSH_BYTES = MAX_RECORD_BYTES;
+/** The pull page size (records) after a first timed-out page; later ones divide it by 4. */
+const PULL_LIMIT_AFTER_TIMEOUT = 64;
+
+/**
+ * Request sizes a slow link managed, per store (until the app restarts): a
+ * push or pull that times out is retried smaller within the round, and
+ * later rounds start from the smaller size, so a weak uplink still makes
+ * progress instead of resending the same 4 MiB batch every round.
+ */
+interface LinkSizes {
+	pushBytes: number;
+	/** Records per pull page; undefined: the server's default. */
+	pullLimit?: number;
+}
+
+const linkByStore = new WeakMap<AtomicStore, LinkSizes>();
+
+function linkOf(store: AtomicStore): LinkSizes {
+	let link = linkByStore.get(store);
+	if (!link) {
+		link = { pushBytes: MAX_PUSH_BYTES };
+		linkByStore.set(store, link);
+	}
+	return link;
 }
 
 /** Stores whose held pushes were already logged (once per store). */
@@ -490,17 +537,36 @@ async function push(
 		});
 	};
 
-	const pushBatch = async (batch: WireSyncRecord[]): Promise<void> => {
+	const link = linkOf(store);
+
+	/** Pushes `batch` (with its records' `sizes`) in requests of at most `link.pushBytes`. */
+	const pushAll = async (batch: WireSyncRecord[], sizes: number[]): Promise<void> => {
+		for (let start = 0; start < batch.length; ) {
+			const end = batchEnd(sizes, start, link.pushBytes);
+			await pushBatch(batch.slice(start, end), sizes.slice(start, end));
+			start = end;
+		}
+	};
+
+	const pushBatch = async (batch: WireSyncRecord[], sizes: number[]): Promise<void> => {
 		let output: PushOutput;
 		try {
 			output = await timed(round, () => transport.push({ records: batch }));
 		} catch (error) {
+			if (isTimeoutError(error)) {
+				// A link too slow for this body: halve it, for the rest of the round too.
+				const bytes = sizes.reduce((sum, size) => sum + size, BATCH_OVERHEAD);
+				if (batch.length < 2 || bytes <= MIN_PUSH_BYTES) throw error;
+				link.pushBytes = Math.max(MIN_PUSH_BYTES, Math.min(link.pushBytes, Math.floor(bytes / 2)));
+				await pushAll(batch, sizes);
+				return;
+			}
 			if (statusOf(error) !== 413) throw error;
 			// Request too large for the server: halve until a single record is left.
 			if (batch.length > 1) {
 				const middle = Math.ceil(batch.length / 2);
-				await pushBatch(batch.slice(0, middle));
-				await pushBatch(batch.slice(middle));
+				await pushBatch(batch.slice(0, middle), sizes.slice(0, middle));
+				await pushBatch(batch.slice(middle), sizes.slice(middle));
 				return;
 			}
 			settle(batch, null);
@@ -512,7 +578,7 @@ async function push(
 		settle(batch, output);
 	};
 
-	for (const batch of pushBatches(records)) await pushBatch(batch);
+	await pushAll(records, records.map(recordBytes));
 
 	if (orphaned.length) {
 		const pending = { ...store.getState().sync.pending };
@@ -528,10 +594,25 @@ async function pull(
 	round: Round,
 ): Promise<"done" | "reset" | "partial"> {
 	const { actions } = store.getState();
+	const link = linkOf(store);
 	let cursor = store.getState().sync.cursor;
 	let complete = false;
 	for (let guard = 0; guard < 1000; guard++) {
-		const page: PullOutput = await timed(round, () => transport.pull({ cursor }));
+		let page: PullOutput;
+		try {
+			const limit = link.pullLimit;
+			page = await timed(round, () =>
+				transport.pull(limit === undefined ? { cursor } : { cursor, limit }),
+			);
+		} catch (error) {
+			// A page too large for a slow link: ask again for fewer records.
+			if (!isTimeoutError(error) || link.pullLimit === 1) throw error;
+			link.pullLimit =
+				link.pullLimit === undefined
+					? PULL_LIMIT_AFTER_TIMEOUT
+					: Math.max(1, Math.floor(link.pullLimit / 4));
+			continue;
+		}
 		if (page.reset) return "reset";
 		round.pulled += applyInto(store, round, page.records);
 		cursor = page.cursor;

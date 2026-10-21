@@ -132,9 +132,16 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 
 	const tracker = trackerDay ? knownTracker(habit) : null;
 	// Annex K §4.3: a tracker's ring opens a dialog, so its name says what the day holds or
-	// what the tap does: "{name}, {dayLine ?? action}".
+	// what the tap does: "{name}, {dayLine ?? action}". A line that only repeats the name
+	// ("Plan tomorrow, Plan tomorrow") is left out.
+	const trackerRingLine = tracker
+		? (trackerLine ?? trackerActionLabel(tracker.type, t, tracker))
+		: null;
 	const ringLabel = tracker
-		? `${name}, ${trackerLine ?? trackerActionLabel(tracker.type, t, tracker)}`
+		? trackerRingLine &&
+			trackerRingLine.trim().toLocaleLowerCase() !== name.trim().toLocaleLowerCase()
+			? `${name}, ${trackerRingLine}`
+			: name
 		: isBreak
 			? `${name}, ${breakStatus}`
 			: counted
@@ -266,6 +273,8 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 								<span aria-hidden="true" className="hidden sm:inline">
 									{" · "}
 								</span>
+								{/* Screen readers would otherwise run the two lines together ("breaths+1 min/day"). */}
+								<span className="sr-only">. </span>
 							</>
 						) : null}
 						{pace ? <span className="font-medium text-ink">{pace}</span> : null}

@@ -29,6 +29,7 @@ import { createOpenAICompatibleProvider } from "../src/ai/provider";
 import { createBlobStorage } from "../src/blobs/storage";
 import { loadConfig } from "../src/config";
 import { createDb } from "../src/db";
+import { SYNC_EPOCH_SIZE } from "../src/sync/service";
 import { BILLING_ENV, type FakeAi, createFakeStripe, startFakeAi } from "./fakes";
 import {
 	BASE_URL,
@@ -324,16 +325,28 @@ describe("restore check repairs", () => {
 		}
 
 		const fixed = await restoreCheck(server.db, { storage, fix: true, local: true });
-		expect(fixed.fixed).toEqual({ cursors: 1, bytes: 1, blobRows: 1, erasedAccounts: 0 });
+		expect(fixed.fixed).toEqual({
+			cursors: 1,
+			bytes: 1,
+			blobRows: 1,
+			erasedAccounts: 0,
+			epochs: 1,
+		});
 		expect(fixed.problems).toEqual([]);
 		expect((await restoreCheck(server.db, { storage, fix: false, local: true })).problems).toEqual(
 			[],
 		);
 
+		// The cursor moved past the stored records to a new sync epoch.
+		const seq = Number(
+			(await server.db.$client.execute("SELECT seq FROM sync_cursor")).rows[0]?.seq ?? 0,
+		);
+		expect(seq).toBeGreaterThan(2);
+		expect(seq % SYNC_EPOCH_SIZE).toBe(0);
 		// The next push gets a fresh sequence number (no collision with stored ones).
 		const pushed = await pushOk(server.app, owner.token, [task("c", Date.now())]);
 		expect(pushed.accepted).toBe(1);
-		expect(pushed.cursor).toBe(3);
+		expect(pushed.cursor).toBe(seq + 1);
 		// Devices now learn the lost photo is missing and upload it again.
 		const missing = await trpcData<{ missing: string[] }>(
 			await postJson(

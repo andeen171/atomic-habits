@@ -1,3 +1,4 @@
+import { trackerCaps } from "@/components/trackers/caps";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import { photoStoreAvailable } from "@/lib/blob-store";
@@ -17,7 +18,9 @@ import { Divider } from "./account-ui";
  *   signed out too, so it can be turned off before the first sign-in.
  * - "Back up photos" (D23, `settings.backupPhotos`): only signed in to a
  *   server with photo backup, on a device that can keep photos, with the
- *   backup's state underneath.
+ *   backup's state underneath. Signed out, on a device that keeps photos,
+ *   the row says they live only here (`sync.photosNotInBackups`; JSON
+ *   backups never hold photos), as on web.
  *
  * Rows for a card; `leadingDivider` draws the hairline above the first.
  * Owner: T5.
@@ -30,6 +33,7 @@ export function SyncSwitchRows({ leadingDivider }: { leadingDivider?: boolean })
 	// Offered as soon as the server backs photos up (the first pass fills in its state).
 	const photosOffered = !!sync.user && !!sync.server?.features.blobs && photoStoreAvailable();
 	const blobs = photosOffered ? sync.blobs : null;
+	const photosOnlyHere = usePhotosOnlyHere();
 
 	return (
 		<>
@@ -53,8 +57,37 @@ export function SyncSwitchRows({ leadingDivider }: { leadingDivider?: boolean })
 						testID="sync-photos"
 					/>
 				</>
+			) : photosOnlyHere ? (
+				<>
+					<Divider />
+					<NoteRow title={t.t("sync.backupPhotos")} hint={t.t("sync.photosNotInBackups")} />
+				</>
 			) : null}
 		</>
+	);
+}
+
+/**
+ * Photos this device keeps exist only here: photos are possible on this
+ * device (`trackerCaps`) and nobody is signed in to back them up. The export
+ * row and the sync switches then say JSON backups leave them out.
+ */
+export function usePhotosOnlyHere(): boolean {
+	const signedIn = useSyncState(syncController).user !== null;
+	return !signedIn && trackerCaps().photos;
+}
+
+function NoteRow({ title, hint }: { title: string; hint: string }) {
+	const styles = useStyles();
+	return (
+		<View style={styles.row} accessible testID="sync-photos-note">
+			<View style={styles.text}>
+				<Text weight="medium">{title}</Text>
+				<Text variant="small" tone="muted">
+					{hint}
+				</Text>
+			</View>
+		</View>
 	);
 }
 

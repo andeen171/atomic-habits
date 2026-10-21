@@ -28,6 +28,8 @@ export interface Toast {
 	id: number;
 	message: string;
 	tone: "default" | "success" | "danger";
+	/** A specific icon instead of the tone's (the month win's trophy). */
+	icon?: "trophy";
 	action?: ToastAction;
 	duration: number;
 }
@@ -73,13 +75,19 @@ let toastId = 0;
 
 export function showToast(
 	message: string,
-	options: { tone?: Toast["tone"]; action?: ToastAction; duration?: number } = {},
+	options: {
+		tone?: Toast["tone"];
+		icon?: Toast["icon"];
+		action?: ToastAction;
+		duration?: number;
+	} = {},
 ): number {
 	toastId += 1;
 	const toast: Toast = {
 		id: toastId,
 		message,
 		tone: options.tone ?? "default",
+		icon: options.icon,
 		action: options.action,
 		duration: options.duration ?? (options.action ? 5000 : 3200),
 	};

@@ -21,7 +21,7 @@ import { SetupTasksReview } from "@/components/editor/setup-tasks-review";
 import { BlueprintCard } from "@/components/habit/blueprint-card";
 import { HabitRing } from "@/components/habit/habit-ring";
 import { ArrowLeft, ArrowRight, BellRing, Check, X } from "@/components/icons";
-import { TrackerField } from "@/components/trackers/tracker-picker";
+import { TrackerField, draftTracker } from "@/components/trackers/tracker-picker";
 import { TrackerReviewLine } from "@/components/trackers/tracker-review-line";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -51,6 +51,7 @@ import {
 	type SetupTaskDraft,
 	type TimeOfDay,
 	type TrackerConfigInput,
+	type Translator,
 	autoHabitEmoji,
 	blueprintLines,
 	habitTemplates,
@@ -58,6 +59,8 @@ import {
 	knownTracker,
 	pruneSetupDrafts,
 	scheduleLabel,
+	trackerMeta,
+	trackerUnitWord,
 } from "@atomic/core";
 import {
 	useActions,
@@ -232,6 +235,27 @@ function resolveLook(
 const nul = (value: string) => (value.trim() ? value.trim() : null);
 
 /**
+ * How the goal field adapts to the draft's tracker (Annex K §4.1, as on web):
+ * hidden for trackers measured in days or by a deadline (their goal is 1, set
+ * by `goalFor`); for sums and entry counts the tracker owns the unit, so the
+ * label reads "Daily goal · words" and the free unit field goes away.
+ */
+function trackerGoal(
+	tracker: TrackerConfigInput | null,
+	t: Translator,
+): { hidden: boolean; label: string; trackerUnit: boolean } {
+	const label = t.t("form.target");
+	const config = draftTracker(tracker);
+	if (!config) return { hidden: false, label, trackerUnit: false };
+	const meta = trackerMeta(config);
+	const measure = meta.measure(config);
+	if (measure === "days" || measure === "threshold")
+		return { hidden: true, label, trackerUnit: true };
+	const unit = trackerUnitWord(meta.unit(config), config, t);
+	return { hidden: false, label: unit ? `${label} · ${unit}` : label, trackerUnit: true };
+}
+
+/**
  * The habit input the store receives (pass the resolved draft). An auto icon
  * is sent resolved, and the store derives it again from the saved identity.
  */
@@ -361,6 +385,7 @@ export default function HabitEditorScreen() {
 	);
 
 	const isBreak = draft.kind === "break";
+	const goal = trackerGoal(draft.tracker, t);
 	const linked = draftIdentity(draft, identities);
 	const identityStatement = linked
 		? linked.identity
@@ -777,26 +802,30 @@ export default function HabitEditorScreen() {
 				maxLength={160}
 			/>
 			<TrackerField draft={draft} update={update} />
-			<Field label={t.t("form.target")} hint={t.t("form.targetHint")}>
-				<View style={styles.goalRow}>
-					<Stepper
-						value={draft.target}
-						min={1}
-						max={10_000}
-						onChange={(v) => set("target", v)}
-						accessibilityLabel={t.t("form.target")}
-					/>
-					<SmartTextField
-						field="habit.unit"
-						value={draft.unit}
-						onChangeText={(v) => set("unit", v)}
-						placeholder={t.t("form.unitPlaceholder")}
-						accessibilityLabel={t.t("form.unit")}
-						maxLength={24}
-						containerStyle={{ flex: 1 }}
-					/>
-				</View>
-			</Field>
+			{goal.hidden ? null : (
+				<Field label={goal.label} hint={t.t("form.targetHint")}>
+					<View style={styles.goalRow}>
+						<Stepper
+							value={draft.target}
+							min={1}
+							max={10_000}
+							onChange={(v) => set("target", v)}
+							accessibilityLabel={goal.label}
+						/>
+						{goal.trackerUnit ? null : (
+							<SmartTextField
+								field="habit.unit"
+								value={draft.unit}
+								onChangeText={(v) => set("unit", v)}
+								placeholder={t.t("form.unitPlaceholder")}
+								accessibilityLabel={t.t("form.unit")}
+								maxLength={24}
+								containerStyle={{ flex: 1 }}
+							/>
+						)}
+					</View>
+				</Field>
+			)}
 			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</View>
 	);

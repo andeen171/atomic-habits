@@ -90,10 +90,23 @@ function cleanOf(clean: number, elapsed: number, t: Translator): string {
 	return t.t("tracker.stat.daysOf", { count: t.number(clean), total: t.number(elapsed) });
 }
 
+/**
+ * Elapsed days for the clean count, by the month card's rule (`cleanMonth`):
+ * today counts once it has a slip; a clean today isn't over yet. Otherwise the
+ * panel said "21 of 21" beside the month card's "20 of 20 days clean".
+ */
+function cleanElapsed(ctx: SummaryContext<Config>, slips: readonly TrackerEntry[]): number {
+	const elapsed = elapsedDays(ctx);
+	const { period, today } = ctx;
+	const todayCounted = elapsed > 0 && today >= period.from && today <= period.to;
+	if (!todayCounted || slips.some((slip) => slip.date === today)) return elapsed;
+	return elapsed - 1;
+}
+
 function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	const { config, t, period } = ctx;
 	const slips = inPeriod(ctx, "slip");
-	const elapsed = elapsedDays(ctx);
+	const elapsed = cleanElapsed(ctx, slips);
 	const clean = Math.max(0, elapsed - daysOf(slips).size);
 	// A clean period is the goal, not a gap: it still shows its clean days (kept when empty).
 	if (!slips.length) {
@@ -286,7 +299,7 @@ export const slipDef: TrackerDef<Config> = {
 		const slips = inPeriod(ctx, "slip");
 		const sentence = slips.length ? costSentence(ctx.config, slips, "month", ctx.t) : null;
 		if (sentence) return sentence;
-		const elapsed = elapsedDays(ctx);
+		const elapsed = cleanElapsed(ctx, slips);
 		if (elapsed <= 0) return null;
 		const clean = Math.max(0, elapsed - daysOf(slips).size);
 		return ctx.t.t("tracker.slip.headline", {

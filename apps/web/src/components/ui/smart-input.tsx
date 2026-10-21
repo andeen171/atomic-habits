@@ -250,7 +250,13 @@ function SmartField({
 		(onChange as ((event: ChangeEvent<FieldElement>) => void) | undefined)?.(event);
 	};
 
-	const onWrapperFocus = () => setFocused(true);
+	const onWrapperFocus = () => {
+		if (focused) return;
+		setFocused(true);
+		// A prefilled field ("Make it a task", an edit) waits for a keystroke: otherwise Tab,
+		// pressed to move on, would accept a suggestion the person never asked for.
+		if (fieldRef.current?.value) setDismissed(true);
+	};
 	const onWrapperBlur = (event: FocusEvent<HTMLDivElement>) => {
 		const next = event.relatedTarget as Node | null;
 		if (next && wrapperRef.current?.contains(next)) return;

@@ -427,6 +427,8 @@ function ProgressBlock({
 				max={block.max}
 				tone={progressTone[block.tone]}
 				color={block.tone === "default" ? toneOf(habit.color).fill : undefined}
+				// The card is the bar's usual track colour: a stronger track keeps "spent of budget" readable.
+				style={{ backgroundColor: colors.borderStrong }}
 				accessibilityLabel={block.title}
 				valueText={[block.formatted, headline, ...rest].filter(Boolean).join(" · ")}
 			/>

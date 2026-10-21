@@ -43,7 +43,8 @@ function layout(options: {
 	body: string;
 	cta: string;
 	url: string;
-	note?: string;
+	/** Shown before the button, so it is read before anyone clicks. */
+	warning?: string;
 	fallback: string;
 	footer: string;
 }): RenderedEmail {
@@ -56,26 +57,31 @@ function layout(options: {
 		`margin:0;padding:24px 12px;background:${P.bg};color:${P.text};font-family:${FONT}`,
 	)}"><div style="${raw(
 		`max-width:480px;margin:0 auto;background:${P.surface};border:1px solid ${P.border};border-radius:16px;padding:28px 24px`,
-	)}">${p("Atomic", `font-weight:700;color:${P.accentText}`)}${p(options.body)}${button}${p(
-		options.fallback,
-		`font-size:13px;color:${P.textMuted}`,
-	)}${p(options.url, `font-size:13px;color:${P.textMuted};word-break:break-all`)}${
-		options.note ? p(options.note, `font-size:13px;color:${P.textMuted}`) : raw("")
-	}<hr style="${raw(`border:0;border-top:1px solid ${P.border};margin:24px 0 16px`)}">${p(
+	)}">${p("Atomic", `font-weight:700;color:${P.accentText}`)}${p(options.body)}${
+		options.warning ? p(options.warning, "font-weight:600") : raw("")
+	}${button}${p(options.fallback, `font-size:13px;color:${P.textMuted}`)}${p(
+		options.url,
+		`font-size:13px;color:${P.textMuted};word-break:break-all`,
+	)}<hr style="${raw(`border:0;border-top:1px solid ${P.border};margin:24px 0 16px`)}">${p(
 		options.footer,
 		`font-size:12px;color:${P.textMuted};margin:0`,
 	)}</div></body></html>`;
 	const text = [
 		options.body,
+		...(options.warning ? [options.warning] : []),
 		`${options.cta}: ${options.url}`,
-		...(options.note ? [options.note] : []),
 		"--",
 		options.footer,
 	].join("\n\n");
 	return { subject: options.subject, html: page.html, text };
 }
 
-/** "Confirm your email": sent on sign-up and on "Resend" (when email is on). */
+/**
+ * "Confirm your email": sent on sign-up and on "Resend" (when email is on).
+ * Anyone can sign up with someone else's address, so the email says, before
+ * the button, that confirming an account you didn't create hands it to
+ * whoever did (the link guard only reclaims unverified accounts).
+ */
 export function verificationEmail(
 	locale: Locale,
 	input: { name: string; email: string; url: string },
@@ -87,7 +93,7 @@ export function verificationEmail(
 		body: t.t("email.verify.body", { name: greetingName(input.name, input.email) }),
 		cta: t.t("email.verify.cta"),
 		url: input.url,
-		note: t.t("email.verify.ignore"),
+		warning: t.t("email.verify.ignore"),
 		fallback: t.t("email.linkFallback"),
 		footer: t.t("email.footer"),
 	});

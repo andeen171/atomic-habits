@@ -7,7 +7,7 @@ import { type TaskActions, createTaskActions, legacySeriesWrites } from "./actio
 import { DEFAULT_HABIT_EMOJI, autoHabitEmoji } from "./content";
 import { type DayKey, toDayKey } from "./dates";
 import { buildDemoData } from "./demo";
-import { sameGoal } from "./habits";
+import { sameGoal, targetOn } from "./habits";
 import { type Locale, type Translator, createTranslator, resolveLocale } from "./i18n";
 import { createId } from "./ids";
 import { taskLogIndexOf, trackerEntryIndexOf } from "./indexes";
@@ -72,6 +72,7 @@ import {
 	isTrackerDay,
 	knownTracker,
 	normalizeTrackerChange,
+	trackerCountKey,
 	trackerStart,
 } from "./trackers/meta";
 import { plannedLogs, reconcilePlan, reconcileWindow } from "./trackers/reconcile";
@@ -165,6 +166,14 @@ export interface StoreInternals {
 export interface StoreActions {
 	createHabit(input: HabitInput): Habit;
 	updateHabit(id: string, patch: HabitPatch): void;
+	/**
+	 * Undo of a tracker setup saved in the app ("Tracker attached · Undo"):
+	 * the habit's tracker, target and unit go back exactly as they were (a
+	 * habit that had no tracker has none again, not a disabled one), and its
+	 * entry days follow, in one commit. Goal history rules apply as in
+	 * `updateHabit`.
+	 */
+	restoreTrackerSetup(id: string, before: Pick<Habit, "tracker" | "target" | "unit">): void;
 	archiveHabit(id: string, archived?: boolean): void;
 	deleteHabit(id: string): void;
 	restoreHabit(id: string): void;
@@ -558,11 +567,16 @@ const HABIT_TEXT_FIELDS = [
 	"why",
 ] as const;
 
-/** Tracker fields whose change re-derives a habit's entry days (spec §3.1, Amends K). */
+/**
+ * Tracker fields whose change re-derives a habit's entry days (spec §3.1,
+ * Amends K): type, enabled, since, and how it counts a day (a change of the
+ * latter moves `since` too; without it, from an older build, every entry day
+ * is recounted so history never mixes two units).
+ */
 function trackerShape(habit: Habit | undefined): string {
 	const tracker = habit?.tracker as { type?: unknown; enabled?: unknown; since?: unknown } | null;
 	if (!tracker) return "";
-	return JSON.stringify([tracker.type, tracker.enabled, tracker.since]);
+	return JSON.stringify([tracker.type, tracker.enabled, tracker.since, trackerCountKey(tracker)]);
 }
 
 /**
@@ -1013,17 +1027,22 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 					const id = logId(habitId, date);
 					const current = get().data.logs[id];
 					const t = stamp();
-					const base: HabitLog = current ?? {
-						id,
-						habitId,
-						date,
-						count: 0,
-						skipped: false,
-						note: null,
-						createdAt: t,
-						updatedAt: t,
-						deletedAt: null,
-					};
+					// A tombstone (a replace import, or one synced from another device) reads as
+					// "no log" everywhere: a write starts that day afresh, never from its old
+					// count, skip or note. Its id, createdAt and unknown fields stay.
+					const base: HabitLog = current?.deletedAt
+						? { ...current, count: 0, skipped: false, note: null }
+						: (current ?? {
+								id,
+								habitId,
+								date,
+								count: 0,
+								skipped: false,
+								note: null,
+								createdAt: t,
+								updatedAt: t,
+								deletedAt: null,
+							});
 					const next = validated("logs", {
 						...base,
 						...changes,
@@ -1034,6 +1053,12 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						updatedAt: stamp(current),
 					});
 					if (next) put("logs", next);
+				};
+
+				/** A day's logged count as every screen reads it: a tombstoned log counts 0. */
+				const liveCount = (habitId: string, date: DayKey): number => {
+					const log = get().data.logs[logId(habitId, date)];
+					return log && !log.deletedAt ? log.count : 0;
 				};
 
 				type Doc = { id: string; updatedAt: number; deletedAt: number | null };
@@ -1121,6 +1146,62 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 				const taskLogsOf = (taskId: string): readonly TaskLog[] =>
 					taskLogIndexOf(get().data.taskLogs).get(taskId) ?? [];
 
+				/** `updateHabit`; `verbatimTracker` skips the tracker rules (`restoreTrackerSetup`). */
+				const writeHabit = (id: string, changes: HabitPatch, verbatimTracker = false) => {
+					const current = get().data.habits[id];
+					if (!current) return;
+					const sanitized = sanitizeHabit(changes);
+					const today = toDayKey(now());
+					// An input tracker config is parsed by `normalizeTrackerChange` / the schema below.
+					let candidate = {
+						...current,
+						...sanitized,
+						goalHistory: current.goalHistory ?? [],
+						updatedAt: stamp(current),
+					} as Habit;
+					// Tracker changes (and kind changes, which can drop a tracker) follow Annex K §1.5;
+					// an undo puts back the setup it saved as it was.
+					if (
+						!verbatimTracker &&
+						("tracker" in sanitized || ("kind" in sanitized && candidate.tracker != null))
+					) {
+						candidate = normalizeTrackerChange(current, candidate, {
+							today,
+							t: internals.translator(),
+						});
+					}
+					// Past days keep the goal they were logged against (Annex H §2.3).
+					if (!sameGoal(current, candidate) && today > current.startDate) {
+						candidate.goalHistory = nextGoalHistory(current, candidate, today);
+					}
+					if (
+						candidate.emojiAuto === true &&
+						(sanitized.emojiAuto === true || "identityId" in sanitized || "kind" in sanitized)
+					) {
+						candidate.emoji = autoHabitEmoji(candidate.kind, identityEmoji(candidate.identityId));
+					}
+					if (current.lang == null && HABIT_TEXT_FIELDS.some((key) => key in sanitized)) {
+						candidate.lang = locale();
+					}
+					const next = habitSchema.safeParse(candidate);
+					if (!next.success) {
+						console.warn("[atomic] Ignored invalid habit update", next.error.issues);
+						return;
+					}
+					const habit = { ...candidate, ...next.data } as Habit;
+					// A tracker attached, switched, re-enabled or detached: its entry days
+					// from the (new) start follow their entries, in the same commit.
+					let logs: HabitLog[] = [];
+					if (trackerShape(current) !== trackerShape(habit)) {
+						const { data } = get();
+						const view = { ...data, habits: { ...data.habits, [id]: habit } };
+						const pairs = pairsForHabit(view, id, trackerEntryIndexOf(data.trackerEntries));
+						const { superseded } = get().sync;
+						logs = plannedLogs(view, reconcilePlan(view, pairs, { superseded }), stamp);
+					}
+					commit({ habits: [habit], logs });
+				};
+
 				const storeActions: StoreActions = {
 					createHabit(input) {
 						const t = stamp();
@@ -1151,54 +1232,14 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						return habit;
 					},
 					updateHabit(id, changes) {
-						const current = get().data.habits[id];
-						if (!current) return;
-						const sanitized = sanitizeHabit(changes);
-						const today = toDayKey(now());
-						// An input tracker config is parsed by `normalizeTrackerChange` / the schema below.
-						let candidate = {
-							...current,
-							...sanitized,
-							goalHistory: current.goalHistory ?? [],
-							updatedAt: stamp(current),
-						} as Habit;
-						// Tracker changes (and kind changes, which can drop a tracker) follow Annex K §1.5.
-						if ("tracker" in sanitized || ("kind" in sanitized && candidate.tracker != null)) {
-							candidate = normalizeTrackerChange(current, candidate, {
-								today,
-								t: internals.translator(),
-							});
-						}
-						// Past days keep the goal they were logged against (Annex H §2.3).
-						if (!sameGoal(current, candidate) && today > current.startDate) {
-							candidate.goalHistory = nextGoalHistory(current, candidate, today);
-						}
-						if (
-							candidate.emojiAuto === true &&
-							(sanitized.emojiAuto === true || "identityId" in sanitized || "kind" in sanitized)
-						) {
-							candidate.emoji = autoHabitEmoji(candidate.kind, identityEmoji(candidate.identityId));
-						}
-						if (current.lang == null && HABIT_TEXT_FIELDS.some((key) => key in sanitized)) {
-							candidate.lang = locale();
-						}
-						const next = habitSchema.safeParse(candidate);
-						if (!next.success) {
-							console.warn("[atomic] Ignored invalid habit update", next.error.issues);
-							return;
-						}
-						const habit = { ...candidate, ...next.data } as Habit;
-						// A tracker attached, switched, re-enabled or detached: its entry days
-						// from the (new) start follow their entries, in the same commit.
-						let logs: HabitLog[] = [];
-						if (trackerShape(current) !== trackerShape(habit)) {
-							const { data } = get();
-							const view = { ...data, habits: { ...data.habits, [id]: habit } };
-							const pairs = pairsForHabit(view, id, trackerEntryIndexOf(data.trackerEntries));
-							const { superseded } = get().sync;
-							logs = plannedLogs(view, reconcilePlan(view, pairs, { superseded }), stamp);
-						}
-						commit({ habits: [habit], logs });
+						writeHabit(id, changes);
+					},
+					restoreTrackerSetup(id, before) {
+						writeHabit(
+							id,
+							{ tracker: before.tracker ?? null, target: before.target, unit: before.unit },
+							true,
+						);
 					},
 					archiveHabit(id, archived = true) {
 						patch("habits", id, { archivedAt: archived ? now() : null });
@@ -1291,17 +1332,18 @@ export function createAtomicStore(options: CreateStoreOptions = {}): AtomicStore
 						);
 					},
 					increment(habitId, date, delta = 1) {
-						const current = get().data.logs[logId(habitId, date)]?.count ?? 0;
-						actions.setCount(habitId, date, current + delta);
+						actions.setCount(habitId, date, liveCount(habitId, date) + delta);
 					},
 					toggleHabit(habitId, date) {
 						const habit = get().data.habits[habitId];
 						if (!habit) return;
-						const current = get().data.logs[logId(habitId, date)]?.count ?? 0;
+						const current = liveCount(habitId, date);
 						if (habit.kind === "break") {
 							actions.setCount(habitId, date, current > 0 ? 0 : 1);
 						} else {
-							actions.setCount(habitId, date, current >= habit.target ? 0 : habit.target);
+							// That day's goal (Annex H §2.3): a past day keeps the goal it had.
+							const target = targetOn(habit, date);
+							actions.setCount(habitId, date, current >= target ? 0 : target);
 						}
 					},
 					setSkipped(habitId, date, skipped) {

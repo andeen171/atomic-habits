@@ -114,8 +114,11 @@ function MonthLine({ habit }: { habit: Habit }) {
 	const { t } = useT();
 	const month = useMonthGoal(habit);
 	const shown = useDisplayHabit(habit);
-	const headline = useTrackerHeadline(habit);
+	const trackerHeadline = useTrackerHeadline(habit);
 	const showMonth = !!month && (month.kind === "break" || month.goal > 0);
+	// A break habit's month line already counts its clean days; the slip tracker's own
+	// headline ("Clean 21 of 21 days", today included) would repeat it with another number.
+	const headline = month?.kind === "break" && showMonth ? null : trackerHeadline;
 	if (!showMonth && !headline) return null;
 	const dot = !month
 		? ""

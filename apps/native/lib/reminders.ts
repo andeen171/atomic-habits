@@ -1,5 +1,5 @@
 import { type DayKey, type Habit, type Translator, inSentence } from "@atomic/core";
-import { useAtomic, useI18n } from "@atomic/core/react";
+import { useAtomic, useI18n, useText } from "@atomic/core/react";
 import { palettes } from "@atomic/core/theme";
 import * as Notifications from "expo-notifications";
 import { type Href, router } from "expo-router";
@@ -154,6 +154,15 @@ export interface ExtraReminders {
 
 const NO_EXTRA: ExtraReminders = { review: [], tasks: [] };
 
+/**
+ * A habit's text as the app shows it (`useText().habit`: template text
+ * through the phrasebook, or an AI translation), so a reminder reads
+ * "Ler 10 páginas" in Portuguese like the row it opens (spec §6).
+ */
+export type HabitText = (habit: Habit, field: "name" | "twoMinute") => string;
+
+const storedText: HabitText = (habit, field) => habit[field] ?? "";
+
 /** Task reminders allowed after `habitCount` habit notifications (D40). */
 export function taskReminderCap(habitCount: number): number {
 	return Math.max(0, Math.min(TASK_CAP, TOTAL_CAP - habitCount - 1));
@@ -203,6 +212,7 @@ export async function syncReminders(
 	enabled: boolean,
 	t: Translator,
 	extra: ExtraReminders = NO_EXTRA,
+	text: HabitText = storedText,
 ) {
 	if (isWeb) return;
 	configureHandler();
@@ -216,11 +226,13 @@ export async function syncReminders(
 		const cue = habit.cueTime ? parseCue(habit.cueTime) : null;
 		if (!cue) continue;
 		const route: NotificationRoute = { pathname: "/habit/[id]", params: { id: habit.id } };
+		const twoMinute = habit.twoMinute ? text(habit, "twoMinute") : "";
 		const content: Notifications.NotificationContentInput = {
-			title: t.t("notify.title", { emoji: habit.emoji, habit: inSentence(habit.name) }),
-			body: habit.twoMinute
-				? t.t("notify.bodyTwoMinute", { twoMinute: habit.twoMinute })
-				: t.t("notify.bodyDefault"),
+			title: t.t("notify.title", {
+				emoji: habit.emoji,
+				habit: inSentence(text(habit, "name") || habit.name),
+			}),
+			body: twoMinute ? t.t("notify.bodyTwoMinute", { twoMinute }) : t.t("notify.bodyDefault"),
 			data: { habitId: habit.id, route },
 			color: palettes.light.accent,
 		};
@@ -271,6 +283,7 @@ export function useReminderSync() {
 	const habits = useAtomic((s) => s.data.habits);
 	const enabled = useAtomic((s) => s.settings.remindersEnabled);
 	const t = useI18n();
+	const text = useText();
 	const review = useReviewReminders();
 	const tasks = useTaskReminders();
 	const [version, setVersion] = useState(0);
@@ -309,20 +322,28 @@ export function useReminderSync() {
 				enabled,
 				t.locale,
 				version,
-				list.map((h) => [h.id, h.name, h.emoji, h.cueTime, h.schedule, h.twoMinute]),
+				// The text as shown, so a translation arriving reschedules too.
+				list.map((h) => [
+					h.id,
+					text.habit(h, "name"),
+					h.emoji,
+					h.cueTime,
+					h.schedule,
+					h.twoMinute ? text.habit(h, "twoMinute") : null,
+				]),
 				review,
 				tasks,
 			]),
-		[enabled, t.locale, version, list, review, tasks],
+		[enabled, t.locale, version, list, review, tasks, text],
 	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the signature captures every input
 	useEffect(() => {
 		if (isWeb) return;
 		const timer = setTimeout(() => {
-			syncReminders(list, enabled, t, { review, tasks }).catch((error) =>
-				console.warn("[atomic] Could not schedule reminders", error),
-			);
+			syncReminders(list, enabled, t, { review, tasks }, (habit, field) =>
+				text.habit(habit, field),
+			).catch((error) => console.warn("[atomic] Could not schedule reminders", error));
 		}, 1200);
 		return () => clearTimeout(timer);
 	}, [signature]);

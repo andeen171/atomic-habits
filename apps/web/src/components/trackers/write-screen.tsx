@@ -189,9 +189,14 @@ function WritePad({
 	const start = useMemo(() => {
 		pruneDrafts(Date.now());
 		const key = draftKey(page?.id ?? null, habit.id, day);
-		const draft = readDraft(key);
+		let draft = readDraft(key);
 		const linkedId = page?.id ?? draft?.entryId ?? null;
 		const linked = linkedId ? store.getState().data.trackerEntries[linkedId] : undefined;
+		if (!page && draft?.entryId && linked?.deletedAt) {
+			// The page this draft belonged to was deleted since: never bring its text back.
+			dropDraft(key);
+			draft = null;
+		}
 		const entry =
 			linked && !linked.deletedAt && linked.habitId === habit.id && linked.type === "writing"
 				? linked
@@ -326,6 +331,25 @@ function WritePad({
 			commit();
 		};
 	}, [commit]);
+
+	// Leaving a page started here (in the app; a closed tab keeps the draft for the next
+	// visit): the store has it, so its device draft moves under the entry's own key. A new
+	// page started later starts blank and never shows, or saves again, this one.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: on unmount only, after the commit above.
+	useEffect(
+		() => () => {
+			if (page || !entryId.current) return;
+			const draft = readDraft(key);
+			if (draft) {
+				writeDraft(draftKey(entryId.current, habit.id, day), {
+					...draft,
+					entryId: entryId.current,
+				});
+			}
+			dropDraft(key);
+		},
+		[],
+	);
 
 	// Word count milestones for screen readers: every 50 words, and the goal.
 	const spoken = useRef(Math.floor(dayWords / 50));

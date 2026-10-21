@@ -431,7 +431,7 @@ export const ptBR: Messages = {
 	"settings.language.en": "English",
 	"settings.language.pt-BR": "Português (Brasil)",
 	"settings.preferences": "Preferências",
-	"settings.weekStartsOn": "A semana começa no",
+	"settings.weekStartsOn": "Início da semana",
 	"settings.celebrations": "Celebrações",
 	"settings.celebrationsHint": "Confete e animações ao concluir o dia.",
 	"settings.haptics": "Vibração ao tocar",

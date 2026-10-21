@@ -209,7 +209,9 @@ export function BlueprintBoard({ habit, className }: BlueprintBoardProps) {
 							<section key={law} aria-labelledby={lawId} className="min-w-0">
 								<h3
 									id={lawId}
-									className="-mx-5 sticky top-0 z-10 flex items-center gap-2 border-line/70 border-b bg-surface px-5 py-2.5 md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0"
+									// In four columns a heading may wrap to two lines ("Make it attractive ·
+									// Craving"): every heading keeps two lines' height so the slots line up.
+									className="-mx-5 sticky top-0 z-10 flex @3xl:min-h-9 items-center gap-2 border-line/70 border-b bg-surface px-5 py-2.5 md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0"
 								>
 									<LawBadge law={law} filled={lawFilled} total={lawSlots.length} />
 									<span className="min-w-0 text-small leading-snug">

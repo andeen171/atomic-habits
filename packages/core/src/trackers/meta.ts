@@ -389,11 +389,24 @@ export function trackerUnitWord(
 }
 
 /**
+ * The config fields that decide how a tracker counts its days (pages or
+ * minutes, words or entries, a sum or the last value): a change of any of
+ * them restarts the tracker like a type switch.
+ */
+export function trackerCountKey(tracker: unknown): string {
+	if (!tracker || typeof tracker !== "object") return "";
+	const { measure, aggregate } = tracker as { measure?: unknown; aggregate?: unknown };
+	return JSON.stringify([measure ?? null, aggregate ?? null]);
+}
+
+/**
  * Applies the tracker rules to a habit being created (`current` null) or
  * updated (Annex K §1.5):
  * - the config is parsed with defaults; a kind mismatch drops it;
  * - `since` is null for a new habit and today when a tracker is attached,
- *   switched or re-enabled on an existing one (history before it is kept);
+ *   switched, re-enabled or made to count its days another way (reading
+ *   pages → minutes, a measure's sum → last) on an existing one: history
+ *   before it keeps the counts it was logged with;
  * - `days` and `threshold` measures force the target to 1;
  * - detaching (`enabled: false`, or a null tracker replacing an active one,
  *   which keeps the config) turns a large summed target (> 50) into a plain
@@ -426,7 +439,8 @@ export function normalizeTrackerChange(
 
 	const enabled = config.enabled !== false;
 	const sameType = before !== null && before.type === config.type;
-	const attached = enabled && (!wasActive || !sameType);
+	const recounted = sameType && trackerCountKey(before) !== trackerCountKey(config);
+	const attached = enabled && (!wasActive || !sameType || recounted);
 	if (current === null) config = { ...config, since: null };
 	else if (attached) config = { ...config, since: ctx.today };
 	else if (sameType && before) config = { ...config, since: before.since ?? null };

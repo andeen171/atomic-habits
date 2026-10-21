@@ -5,7 +5,8 @@ export const serverPtBR: Record<keyof typeof serverEn, string> = {
 	"email.verify.body":
 		"Oi, {name}! Confirme que este é o seu e-mail para sempre conseguir recuperar sua conta.",
 	"email.verify.cta": "Confirmar e-mail",
-	"email.verify.ignore": "Se você não criou uma conta no Atomic, pode ignorar este e-mail.",
+	"email.verify.ignore":
+		"Não criou uma conta no Atomic? Não confirme: alguém pode ter usado seu endereço, e a confirmação daria a essa pessoa uma conta em seu nome. É só ignorar este e-mail.",
 	"email.reset.subject": "Redefina sua senha do Atomic",
 	"email.reset.body":
 		"Alguém pediu para redefinir a senha de {email}. O link expira em 1 hora. Se não foi você, ignore este e-mail.",

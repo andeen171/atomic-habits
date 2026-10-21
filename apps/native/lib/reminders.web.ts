@@ -37,6 +37,9 @@ export interface ExtraReminders {
 	tasks: readonly PlannedReminder[];
 }
 
+/** A habit's text as the app shows it (see `reminders.ts`). */
+export type HabitText = (habit: Habit, field: "name" | "twoMinute") => string;
+
 export function taskReminderCap(habitCount: number): number {
 	return Math.max(0, Math.min(24, 60 - habitCount - 1));
 }
@@ -46,6 +49,7 @@ export async function syncReminders(
 	_enabled: boolean,
 	_t: Translator,
 	_extra?: ExtraReminders,
+	_text?: HabitText,
 ) {}
 
 export function useReminderSync() {}

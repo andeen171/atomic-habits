@@ -22,31 +22,51 @@ const CONNECTION_METHODS = [
 ] as const;
 
 /**
- * Gives every connection of a local libSQL client a busy timeout.
+ * The per-connection settings of a local SQLite file:
  *
- * SQLite's default is 0: a write that meets another process's lock fails at
- * once. `@libsql/client` opens its file connections without one and has no
- * option for it, and it swaps connections: `transaction()` hands the
- * current connection to the transaction and opens a new one on next use,
- * so a one-off `PRAGMA busy_timeout` would be lost after the first
- * interactive transaction.
+ * - `busy_timeout`: SQLite's default is 0, so a write that meets another
+ *   process's lock (Litestream's checkpoints, the operator scripts) would
+ *   fail at once with SQLITE_BUSY.
+ * - `secure_delete`: deleted rows and freed pages are overwritten with
+ *   zeros. Without it an erased account's documents, email and name stay
+ *   readable in free pages of the live file, and so in any whole-file copy
+ *   taken after the erasure (a Litestream snapshot, a volume image, a `cp`
+ *   of /data) until SQLite happens to reuse those pages (LGPD erasure; the
+ *   horizon in deploy/README.md assumes it). The WAL frames written after a
+ *   delete carry the zeros too.
+ */
+export function connectionPragmas(busyTimeoutMs = BUSY_TIMEOUT_MS): string[] {
+	return [
+		`PRAGMA busy_timeout = ${Math.max(0, Math.floor(busyTimeoutMs))}`,
+		"PRAGMA secure_delete = ON",
+	];
+}
+
+/**
+ * Applies `connectionPragmas` to every connection of a local libSQL client.
  *
- * The pragma is therefore issued before each call, on the connection that
+ * `@libsql/client` opens its file connections with SQLite's defaults and has
+ * no option for either setting, and it swaps connections: `transaction()`
+ * hands the current connection to the transaction and opens a new one on
+ * next use, so a one-off `PRAGMA` would be lost after the first interactive
+ * transaction.
+ *
+ * The pragmas are therefore issued before each call, on the connection that
  * call will use: the local client runs statements synchronously, so the
- * pragma and the call's own first statement (its `BEGIN`, for a batch or a
+ * pragmas and the call's own first statement (its `BEGIN`, for a batch or a
  * transaction) run back to back on one connection, with nothing in between.
- * Cost: one in-process statement per call.
+ * Cost: two in-process statements per call.
  *
- * The local client is synchronous, so a wait holds the event loop for its
- * duration (other processes keep their locks for milliseconds). For the same
- * reason this process must never hold an interactive write transaction
+ * The local client is synchronous, so a busy wait holds the event loop for
+ * its duration (other processes keep their locks for milliseconds). For the
+ * same reason this process must never hold an interactive write transaction
  * across an `await`: another request's write would then wait for a lock that
  * only this event loop can release, and fail after the timeout. The server
  * writes with `batch` (one synchronous transaction) and single statements;
  * Better Auth's drizzle adapter uses transactions on MySQL only.
  */
-export function withBusyTimeout(client: Client, ms = BUSY_TIMEOUT_MS): Client {
-	const pragma = `PRAGMA busy_timeout = ${Math.max(0, Math.floor(ms))}`;
+export function withConnectionPragmas(client: Client, busyTimeoutMs = BUSY_TIMEOUT_MS): Client {
+	const pragmas = connectionPragmas(busyTimeoutMs);
 	const execute = client.execute.bind(client);
 	for (const name of CONNECTION_METHODS) {
 		const original = (client[name] as (...args: unknown[]) => Promise<unknown>).bind(client);
@@ -54,8 +74,8 @@ export function withBusyTimeout(client: Client, ms = BUSY_TIMEOUT_MS): Client {
 			configurable: true,
 			writable: true,
 			value: (...args: unknown[]) => {
-				// Both start now, in this order: the pragma runs before the call's first statement.
-				const ready = execute(pragma).catch(() => undefined);
+				// All start now, in this order: the pragmas run before the call's first statement.
+				const ready = Promise.all(pragmas.map((pragma) => execute(pragma).catch(() => undefined)));
 				const result = original(...args);
 				return Promise.all([ready, result]).then(([, value]) => value);
 			},
@@ -73,14 +93,15 @@ export function isLocalFileUrl(url: string): boolean {
  * libSQL client: a local SQLite file (`file:./local.db`, the default) or a
  * remote Turso/libSQL database (`libsql://…` + `DATABASE_AUTH_TOKEN`).
  * One per server; tests build one per suite. Local files get a busy
- * timeout (`withBusyTimeout`).
+ * timeout and secure delete on every connection (`withConnectionPragmas`).
+ * A remote libSQL server applies its own storage settings.
  */
 export function createDb(config: Pick<Config, "databaseUrl" | "databaseAuthToken">): Database {
 	const client = createClient({
 		url: config.databaseUrl,
 		authToken: config.databaseAuthToken ?? undefined,
 	});
-	return drizzle(isLocalFileUrl(config.databaseUrl) ? withBusyTimeout(client) : client, {
+	return drizzle(isLocalFileUrl(config.databaseUrl) ? withConnectionPragmas(client) : client, {
 		schema,
 	});
 }

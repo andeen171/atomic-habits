@@ -2,7 +2,7 @@ import { announce } from "@/lib/announce";
 import { primeBell } from "@/lib/bell";
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
-import { getTimer, timerStore, useTimerState } from "@/lib/timer-store";
+import { canTime, getTimer, timerStore, useTimerState } from "@/lib/timer-store";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -150,8 +150,11 @@ function TimerBody({
 	const reducedMotion = useReducedMotion();
 	const timer = useTimerState();
 	const mine = timer?.habitId === habit.id ? timer : null;
-	const other = timer && !mine ? timer : null;
-	const otherHabit = useHabit(other?.habitId);
+	const otherTimer = timer && !mine ? timer : null;
+	const otherHabit = useHabit(otherTimer?.habitId);
+	// Another habit's timer blocks this one only while it can be finished there (a stale
+	// one is dropped by `TimerBell`); Start is never greyed out without saying why.
+	const other = otherTimer && canTime(otherHabit) ? otherTimer : null;
 	const view = useTimerView(mine);
 	const day = dayParam ?? today;
 	const name = text.habit(habit, "name");
@@ -222,7 +225,9 @@ function TimerBody({
 	}, [timeUp, mine, t]);
 
 	const start = () => {
-		if (timer) return;
+		if (other) return;
+		// A stale timer of another habit (its habit gone or no longer timed) gives way.
+		if (timer && !mine) timerStore.clear();
 		primeBell();
 		const preset = mode === "countdown" ? minutes * 60 : null;
 		if (timerStore.start(habit.id, day, preset, label)) {
@@ -269,9 +274,11 @@ function TimerBody({
 			today,
 			t,
 		);
-		const message = t("tracker.session.saved", { duration: t.formatDuration(seconds) });
+		const duration = t.formatDuration(seconds);
+		const message = t("tracker.session.saved", { duration });
 		toast(message, {
-			description: line ?? name,
+			// The first session of the day makes the day line repeat the title ("1 min").
+			description: line && line !== duration ? line : name,
 			action: { label: t("common.undo"), onClick: () => actions.deleteTrackerEntry(saved.id) },
 		});
 		announce(message);

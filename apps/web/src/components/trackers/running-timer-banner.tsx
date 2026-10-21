@@ -1,6 +1,6 @@
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
-import { useTimerState } from "@/lib/timer-store";
+import { canTime, useTimerState } from "@/lib/timer-store";
 import { cn } from "@/lib/utils";
 import type { TimerState } from "@atomic/core";
 import { useHabit, useText, useTimerView } from "@atomic/core/react";
@@ -12,13 +12,13 @@ import { buttonVariants } from "../ui/button";
 /**
  * The running tracker timer on this device, if any (`lib/timer-store.ts`,
  * localStorage `TIMER_STORAGE_KEY`). Today offers the `timer` card when it
- * is non-null (`planTodayCards`). A timer whose habit is gone doesn't count.
- * Owner: T4.
+ * is non-null (`planTodayCards`). A timer whose habit is gone, archived or
+ * no longer timed (`canTime`) doesn't count. Owner: T4.
  */
 export function useRunningTimer(): TimerState | null {
 	const timer = useTimerState();
 	const habit = useHabit(timer?.habitId);
-	return timer && habit && !habit.deletedAt ? timer : null;
+	return timer && canTime(habit) ? timer : null;
 }
 
 /**

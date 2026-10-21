@@ -1,9 +1,22 @@
 # Atomic sync server
 
-Optional, self-hosted sync for Atomic. The apps work fully offline; point them at this server
-(**Settings → Sync**) to keep a phone, a laptop and the web app on the same data.
+The server behind Atomic Cloud, and the one you can host yourself. The apps work fully offline;
+signed in, they sync with Atomic Cloud by default, or with this server when you enter its URL under
+**Advanced · self-hosting** in the sign-in dialog, to keep a phone, a laptop and the web app on the
+same data.
 
 Bun + Hono + tRPC + Better Auth + Drizzle on libSQL (a local SQLite file or Turso).
+
+See also, on the [documentation site](https://atomic-habits-docs.vercel.app) (English and
+Portuguese):
+
+- [Self-hosting](https://atomic-habits-docs.vercel.app/guides/self-hosting/): the overview of this
+  page and the zero-cost recipe in [`deploy/`](../../deploy/README.md).
+- [Sync protocol](https://atomic-habits-docs.vercel.app/development/sync/): the `meta` handshake,
+  push and pull, rejection codes, the tie rule and compatibility between versions.
+- [Privacy](https://atomic-habits-docs.vercel.app/reference/privacy/): what the server stores, for
+  how long, LGPD roles and the AI policy.
+- [Account, sync and AI](https://atomic-habits-docs.vercel.app/guides/account/): what users see.
 
 ## Run locally
 
@@ -54,7 +67,7 @@ working directory automatically; the variables below are the complete list. Size
 | --- | --- | --- |
 | `NODE_ENV` | `development` | `production` turns on the startup refusals above, JSON logs and Better Auth's own rate limits; `test` is for the test suite |
 | `PORT` | `3000` | HTTP port |
-| `DATABASE_URL` | `file:./local.db` | `file:<path>` for a SQLite file (WAL mode; every connection waits up to 5 s for another process's write lock, e.g. Litestream's checkpoints or the scripts, instead of failing with `SQLITE_BUSY`), or `libsql://<db>-<org>.turso.io` |
+| `DATABASE_URL` | `file:./local.db` | `file:<path>` for a SQLite file (WAL mode; every connection waits up to 5 s for another process's write lock, e.g. Litestream's checkpoints or the scripts, instead of failing with `SQLITE_BUSY`, and zeroes what it deletes with `secure_delete`, so an erased account leaves nothing in the file), or `libsql://<db>-<org>.turso.io` |
 | `DATABASE_AUTH_TOKEN` | | Turso / remote libSQL token |
 | `BETTER_AUTH_SECRET` | random per run | **Required in production.** Signs session tokens; `openssl rand -base64 32`. Changing it signs everyone out |
 | `BETTER_AUTH_URL` | inferred per request | The public URL, e.g. `https://sync.example.com`. Required when email or billing is on (links in emails, Stripe return URLs) |
@@ -225,7 +238,7 @@ token, 60 scrapes a minute per IP):
 | `atomic_ai_requests_total`, `atomic_ai_latency_ms` (histogram) | `kind` (suggest kind or `translate`), `outcome` | Every AI call after the router's checks (`ok`, `quota`, `busy`, `timeout`, `failed`, `aborted`…) |
 | `atomic_ai_tokens_out_total` | | Model output tokens |
 | `atomic_blob_bytes_uploaded_total` | | Bytes of accepted photo uploads |
-| `atomic_rate_limited_total` | `scope` (`sync.push`, `meta`, `ai.suggest`, `blobs.put`, `pages`, `email.recipient`, `auth`, `metrics`…) | Refusals by a rate limit or throttle |
+| `atomic_rate_limited_total` | `scope` (`sync.push`, `sync.pull`, `meta`, `ai.suggest`, `blobs.put`, `pages`, `email.recipient`, `auth`, `metrics`…) | Refusals by a rate limit or throttle |
 | `atomic_billing_webhooks_total` | `type` | Verified Stripe events |
 | `atomic_maintenance_steps_total` | `step`, `outcome` | Maintenance steps (below) |
 | `atomic_users`, `atomic_pro_users` | | Gauges, counted in SQL and cached 5 minutes |
@@ -293,7 +306,7 @@ Clients use `createRemoteClient` from `@atomic/core`, which speaks this wire for
 | `PUT /blobs/<sha256>` | Photo backup: the raw bytes of one JPEG or WebP → 201 `{ sha256, size, mime, created }` (200 when already stored). 120 per minute per user. Refusals below |
 | `GET /blobs/<sha256>` | Photo backup: the user's own blob (404 for any other), immutable and privately cacheable |
 | `POST /trpc/sync.push` | Body `{ records }` (≤ 500) → `{"result":{"data":{ accepted, cursor, rejected, conflicts, serverTime }}}`. 60 per minute per user (429 with `Retry-After`) |
-| `GET /trpc/sync.pull?input={"cursor":0,"limit":500}` | → `{"result":{"data":{ records, cursor, hasMore, serverTime }}}` (limit ≤ 1000) |
+| `GET /trpc/sync.pull?input={"cursor":0,"limit":500}` | → `{"result":{"data":{ records, cursor, hasMore, serverTime }}}` (limit ≤ 1000; a page stops after 4 MiB of documents, planned from the stored sizes so only the returned documents are read). 120 per minute per user (429 with `Retry-After`) |
 | `GET /trpc/me`, `GET /trpc/healthCheck` | Current user / public health check |
 
 tRPC is called over plain HTTP: no batching and no transformer. Calls without a valid token get
@@ -322,8 +335,10 @@ native apps are not affected.
 - **Email** (`EMAIL_PROVIDER=resend`): a verification email on sign-up (`/api/auth/verify-email`
   lands on `/account/verified`) and password reset through `/account/reset-password`, a
   server-rendered form. A reset ends every session and every export link of the account and marks
-  the address verified (for an address never verified before, the AI consent is cleared too:
-  it was given before anyone proved the address). At most 3 emails per recipient per hour and
+  the address verified (for an address never verified before, the AI consent and every sign-in
+  method other than the new password are removed too: they were granted before anyone proved the
+  address). The confirmation email says, before its button, not to confirm an account you didn't
+  create. At most 3 emails per recipient per hour and
   `EMAIL_DAILY_CAP` per UTC day, of which verification emails may use two thirds: the last third
   is kept for password resets, so junk sign-ups can delay verification to the next day but never
   block a reset. A throttled request still answers 200, logs `email.capped` and counts in
@@ -338,7 +353,8 @@ native apps are not affected.
   counts as verified. Synced data and photos stay: with email off every password account is
   unverified, and the likeliest reclaimer is the owner on a new phone, for whom the server copy
   is the only backup; whoever held the account before can no longer read any of it. An address
-  Google didn't verify never links.
+  Google didn't verify (`email_verified` not true) is refused outright (401): it neither creates
+  an account nor links to one.
 - **Deleting an account** cancels any Stripe subscription (a failure aborts with 502 and deletes
   nothing), deletes the Stripe customer, every photo object and every row of the user (the
   database cascades from `user`). It needs the password, or for a password-less account a Google
@@ -535,8 +551,12 @@ variables keeps photos in `./blobs`):
   records, …) fails as a whole with HTTP 400. Unknown fields from newer clients are kept.
 - **Sync quota.** Each user may store up to their plan's `LIMIT_*_SYNC_MB` of documents (UTF-8
   JSON). A write that would grow the total past it is refused with `quota`; edits that don't grow
-  it and deletions (tombstones) are always accepted. Usage is kept exact in
-  `sync_cursor.bytes` by database triggers.
+  it are always accepted. Deletions keep the whole document (no compaction in v2), so deleting
+  doesn't free quota, and tombstones are bounded too: they may go 1 MiB past the limit
+  (`TOMBSTONE_SLACK_BYTES`), and deleting a live document always works when it grows the
+  document by at most 256 bytes (the `deletedAt` stamp). Other tombstones past the slack are
+  refused with `quota` and stay pending. Usage is kept exact in `sync_cursor.bytes` by database
+  triggers.
 - Users never see or overwrite each other's documents.
 
 ## Layout

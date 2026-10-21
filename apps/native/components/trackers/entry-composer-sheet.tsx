@@ -22,6 +22,7 @@ import {
 	formToData,
 	isEntryType,
 	knownTracker,
+	normalizeTrackerEntry,
 	parseDecimalInput,
 	suggestCategory,
 	trackerDayLine,
@@ -147,6 +148,7 @@ interface ComposerSheetProps {
 
 function ComposerSheet({ target, open, round, onAgain }: ComposerSheetProps) {
 	const t = useT();
+	const text = useText();
 	const habit = useHabit(target.habitId);
 	const tracker = useTracker(habit);
 	const entry = useTrackerEntry(target.entryId);
@@ -175,10 +177,13 @@ function ComposerSheet({ target, open, round, onAgain }: ComposerSheetProps) {
 	);
 
 	if (!habit || !tracker || !tracker.active || habit.archivedAt) {
-		return notice(habit?.name ?? t.t("tracker.entry"), t.t("tracker.readOnly"));
+		return notice(
+			habit ? text.habit(habit, "name") : t.t("tracker.entry"),
+			t.t("tracker.readOnly"),
+		);
 	}
 	if (target.entryId && (!entry || entry.deletedAt)) {
-		return notice(habit.name, t.t("tracker.entryGone"));
+		return notice(text.habit(habit, "name"), t.t("tracker.entryGone"));
 	}
 	const type: EntryType =
 		entry && isEntryType(entry.type)
@@ -312,22 +317,29 @@ function ComposerForm({
 		return reached && (toPage !== null || pages > 0) ? book : null;
 	})();
 
-	const patch = (next: Partial<FormState>) => setForm({ ...current, ...next });
+	// Updates merge into the latest state, so a late callback (a photo that took seconds to
+	// prepare) never puts back what the fields held when it started. One for an earlier
+	// opening (another round, another entry) is dropped.
+	const update = (next: (form: FormState) => FormState) =>
+		setForm((prev) => (prev.key === formKey ? next(prev) : prev));
+	const patch = (next: Partial<FormState>) => update((prev) => ({ ...prev, ...next }));
 
-	const setValue = (spec: FieldSpec, value: FormValue) => {
-		const nextValues = { ...values, [spec.key]: value };
-		// The category follows the note until the user picks one (Annex K §1.8.1).
-		if (isExpense && spec.key === "note" && !current.categoryTouched && typeof value === "string") {
-			const suggested = suggestCategory(value, index, habit.id);
-			if (suggested) nextValues.category = suggested;
-		}
-		const { [spec.key]: _, ...restErrors } = errors;
-		patch({
-			values: nextValues,
-			errors: errors[spec.key] ? restErrors : errors,
-			categoryTouched: current.categoryTouched || (isExpense && spec.key === "category"),
+	const setValue = (spec: FieldSpec, value: FormValue) =>
+		update((prev) => {
+			const nextValues = { ...prev.values, [spec.key]: value };
+			// The category follows the note until the user picks one (Annex K §1.8.1).
+			if (isExpense && spec.key === "note" && !prev.categoryTouched && typeof value === "string") {
+				const suggested = suggestCategory(value, index, habit.id);
+				if (suggested) nextValues.category = suggested;
+			}
+			const { [spec.key]: _, ...restErrors } = prev.errors;
+			return {
+				...prev,
+				values: nextValues,
+				errors: prev.errors[spec.key] ? restErrors : prev.errors,
+				categoryTouched: prev.categoryTouched || (isExpense && spec.key === "category"),
+			};
 		});
-	};
 
 	const dayLineAfter = () => {
 		const latest = store.getState();
@@ -343,8 +355,15 @@ function ComposerForm({
 
 	const afterSave = (saved: TrackerEntry, again: boolean) => {
 		haptics.light();
-		if (finishing && current.markFinished) {
-			actions.updateTrackerEntry(finishing.id, {
+		const finished = finishing && current.markFinished ? finishing : null;
+		// What "You finished … · Undo" puts back: the book as it was, and the entry as it was
+		// (an edit) or no entry (a new one).
+		const bookBefore = finished
+			? store.getState().data.trackerEntries[finished.id]?.data
+			: undefined;
+		const entryBefore = entry?.data;
+		if (finished) {
+			actions.updateTrackerEntry(finished.id, {
 				data: { status: "finished", finishedOn: target.day },
 			});
 			haptics.success();
@@ -362,10 +381,24 @@ function ComposerForm({
 						}),
 				},
 			});
-		} else if (finishing && current.markFinished) {
-			showToast(t.t("tracker.reading.finishedToast", { title: finishing.title }), {
+		} else if (finished) {
+			showToast(t.t("tracker.reading.finishedToast", { title: finished.title }), {
 				tone: "success",
-				action: { label: t.t("common.undo"), onPress: () => actions.deleteTrackerEntry(saved.id) },
+				action: {
+					label: t.t("common.undo"),
+					onPress: () => {
+						if (bookBefore) {
+							actions.updateTrackerEntry(finished.id, {
+								data: {
+									status: bookBefore.status ?? "reading",
+									finishedOn: bookBefore.finishedOn ?? null,
+								},
+							});
+						}
+						if (entryBefore) actions.updateTrackerEntry(saved.id, { data: entryBefore });
+						else actions.deleteTrackerEntry(saved.id);
+					},
+				},
 			});
 		} else if (editing) {
 			showToast(line ? `${t.t("common.saved")} · ${line}` : t.t("common.saved"), {
@@ -392,6 +425,35 @@ function ComposerForm({
 				showMore: current.showMore || (!!firstBad && more.includes(firstBad)),
 			});
 			return;
+		}
+		// "I'm on page" at or before the book's bookmark reads 0 pages, which the store
+		// refuses: say so on the field instead of a generic "couldn't save".
+		if (type === "reading" && typeof result.data.toPage === "number") {
+			const config = knownTracker(habit);
+			const draft = config
+				? normalizeTrackerEntry(
+						{
+							id: entry?.id,
+							habitId: habit.id,
+							date: entry?.date ?? target.day,
+							type,
+							at: entry?.at ?? entryMoment(target.day, today, Date.now()),
+							data: { ...(entry?.data ?? {}), ...result.data },
+						},
+						{
+							config,
+							entries: store.getState().data.trackerEntries,
+							// An edited session keeps its place among the day's sessions (as the store does).
+							now: entry ? (entry.at ?? entry.createdAt) : Date.now(),
+						},
+					)
+				: null;
+			const minutes = draft?.data.minutes;
+			if (draft?.data.pages === 0 && !(typeof minutes === "number" && minutes > 0)) {
+				haptics.warning();
+				patch({ errors: { ...errors, toPage: t.t("tracker.reading.pageBehind") } });
+				return;
+			}
 		}
 		const saved = entry
 			? actions.updateTrackerEntry(entry.id, { data: result.data })
@@ -551,7 +613,7 @@ function ComposerForm({
 						<PressableScale
 							onPress={() => {
 								haptics.selection();
-								patch({ showMore: !current.showMore });
+								update((prev) => ({ ...prev, showMore: !prev.showMore }));
 							}}
 							accessibilityRole="button"
 							accessibilityState={{ expanded: current.showMore }}
@@ -604,7 +666,7 @@ function ComposerForm({
 					habit={habit}
 					open={bookOpen}
 					onClose={() => setBookOpen(false)}
-					onSaved={(id) => patch({ values: { ...values, bookId: id } })}
+					onSaved={(id) => update((prev) => ({ ...prev, values: { ...prev.values, bookId: id } }))}
 				/>
 			) : null}
 		</Sheet>

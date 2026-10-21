@@ -596,9 +596,13 @@ describe("slip (Annex K §1.8.10)", () => {
 
 	test("without slips the headline counts clean days", () => {
 		const h = habit({ type: "slip" }, { kind: "break" });
+		// Like the month card ("19 of 19 days clean"): a clean today isn't over yet.
 		const clean = block(summarize(h, []), "clean", "stats").items.find((i) => i.id === "clean");
-		expect(clean).toMatchObject({ value: "20 of 20", tone: "good" });
-		expect(trackerHeadline(h, indexOf([]), TODAY, en)).toBe("Clean 20 of 20 days this month");
+		expect(clean).toMatchObject({ value: "19 of 19", tone: "good" });
+		expect(trackerHeadline(h, indexOf([]), TODAY, en)).toBe("Clean 19 of 19 days this month");
+		// A slip today counts today.
+		const today = [entry(TODAY, "slip", { cue: null })];
+		expect(statOf(summarize(h, today), "clean")?.value).toBe("19 of 20");
 	});
 });
 

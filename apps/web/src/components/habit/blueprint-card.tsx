@@ -61,8 +61,8 @@ export function BlueprintCard({
 							</span>
 							<div className="min-w-0 flex-1 pt-0.5">
 								<p className="font-medium text-ink text-small">
-									{t(isBreak ? `law.${law}.inverse` : `law.${law}.name`)}
-									<span className="ml-2 font-normal text-ink-subtle text-tiny uppercase tracking-wider">
+									{t(isBreak ? `law.${law}.inverse` : `law.${law}.name`)}{" "}
+									<span className="ml-1 font-normal text-ink-subtle text-tiny uppercase tracking-wider">
 										{t(`law.${law}.stage`)}
 									</span>
 								</p>

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { Database } from "../db";
 import { account, session, user } from "../db/schema";
 import { decodeJwtPayload } from "../lib/google";
@@ -10,6 +10,10 @@ import { revokeExportLinks } from "./export";
  * that reached the mailbox) for an account whose email was never verified.
  * Whatever was granted on the account's behalf before that proof is undone:
  *
+ * - every sign-in method other than the password (a Google link made
+ *   before the proof is not the owner's: the reset proves the mailbox, not
+ *   that link). The password is the one just set (reset) or already gone
+ *   (Google reclaim, which deletes every method first);
  * - outstanding export links (bearer URLs that need no session, so whoever
  *   created them could otherwise download the account as it is later);
  * - the AI consent (D67: consent is the owner's, given after proof).
@@ -21,6 +25,9 @@ import { revokeExportLinks } from "./export";
  * longer read any of it: sessions, password and links are gone.
  */
 export async function forgetUnprovenGrants(db: Database, userId: string): Promise<void> {
+	await db
+		.delete(account)
+		.where(and(eq(account.userId, userId), ne(account.providerId, "credential")));
 	await revokeExportLinks(db, userId);
 	await db
 		.update(user)
@@ -47,6 +54,8 @@ export async function forgetUnprovenGrants(db: Database, userId: string): Promis
  * Linking to an existing account at all requires a Google-verified email
  * (`email_verified` in the ID token): `trustedProviders: ["google"]` would
  * otherwise link a Google account whose address Google never checked.
+ * `createAuth`'s `verifyIdToken` already refuses such tokens, for sign-up
+ * too; the check here is defense in depth.
  *
  * Runs as `databaseHooks.account.create.before`. A new user's first account
  * (sign-up through Google) passes untouched. Returning false makes Better

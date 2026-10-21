@@ -336,7 +336,9 @@ export function createTrackerActions(internals: StoreInternals): TrackerActions 
 					at: patch.at !== undefined ? patch.at : current.at,
 					data: merged,
 				},
-				{ config, entries: data().trackerEntries, now: internals.now() },
+				// A session without a time (backfilled) keeps its place among the day's
+				// sessions: its own moment, not the edit's (Annex K §1.8.2 bookmark).
+				{ config, entries: data().trackerEntries, now: current.at ?? current.createdAt },
 			);
 			if (photoMissing(config, type, draft.data)) return refuse("a photo is required");
 			const entry = entryFrom({ ...draft, id }, current);

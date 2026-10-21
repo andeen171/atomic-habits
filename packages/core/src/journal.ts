@@ -1,5 +1,5 @@
 import { type JournalInput, type JournalPatch, sanitizeJournalAnswers } from "./actions/journal";
-import { scheduleLabel } from "./blueprint";
+import { scheduleLabel, withoutAfterI } from "./blueprint";
 import { type DayKey, type Weekday, addDays, minDay, orderedWeekdays, toDayKey } from "./dates";
 import { type MessageKey, type Translator, inSentence } from "./i18n";
 import {
@@ -621,7 +621,8 @@ export function intentionSentence(
 	const when = answers.when?.trim();
 	const where = answers.where?.trim();
 	const after = answers.after?.trim();
-	if (after) return t.t("blueprint.stack", { stack: inSentence(after), habit: name });
+	if (after)
+		return t.t("blueprint.stack", { stack: inSentence(withoutAfterI(after)), habit: name });
 	if (when && where)
 		return t.t("blueprint.intention", { habit: name, time: when, location: where });
 	if (when) return t.t("blueprint.intentionTime", { habit: name, time: when });

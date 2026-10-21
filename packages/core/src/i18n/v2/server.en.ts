@@ -8,7 +8,8 @@ export const serverEn = {
 	"email.verify.body":
 		"Hi {name}, confirm this is your email so you can always recover your account.",
 	"email.verify.cta": "Confirm email",
-	"email.verify.ignore": "If you didn't create an Atomic account, you can ignore this email.",
+	"email.verify.ignore":
+		"Didn't create an Atomic account? Don't confirm: someone may have used your address, and confirming would hand them an account in your name. Just ignore this email.",
 	"email.reset.subject": "Reset your Atomic password",
 	"email.reset.body":
 		"Someone asked to reset the password for {email}. The link expires in 1 hour. If it wasn't you, ignore this email.",

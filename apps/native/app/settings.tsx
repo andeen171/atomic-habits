@@ -1,5 +1,6 @@
 import { AccountSummary } from "@/components/account/account-summary";
 import { AiSettingsSection } from "@/components/account/ai-settings-section";
+import { usePhotosOnlyHere } from "@/components/account/sync-rows";
 import { TypingSettingsRows } from "@/components/account/typing-settings-rows";
 import {
 	BellRing,
@@ -36,7 +37,7 @@ import {
 	type ThemeSetting,
 	capitalize,
 } from "@atomic/core";
-import { useActions, useAtomic, useSettings } from "@atomic/core/react";
+import { useActions, useAtomic, useSettings, useSyncState } from "@atomic/core/react";
 import Constants from "expo-constants";
 import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
@@ -55,6 +56,9 @@ export default function SettingsScreen() {
 	const [confirm, setConfirm] = useState<"demo" | "reset" | null>(null);
 	const [lawsOpen, setLawsOpen] = useState(false);
 	const version = Constants.expoConfig?.version ?? "1.0.0";
+	// Signed in, the account keeps a copy too (Annex C §4); JSON backups leave photos out (D23).
+	const signedIn = useSyncState(syncController).user !== null;
+	const photosOnlyHere = usePhotosOnlyHere();
 
 	const onReminders = async (value: boolean) => {
 		if (value && isNative && !(await requestNotifications())) {
@@ -258,12 +262,13 @@ export default function SettingsScreen() {
 
 			<SectionLabel>{t.t("settings.data")}</SectionLabel>
 			<Text variant="small" tone="muted" style={styles.note}>
-				{t.t("settings.dataHint")}
+				{signedIn ? t.t("sync.dataHintSignedIn") : t.t("settings.dataHint")}
 			</Text>
 			<ListGroup style={styles.block}>
 				<ListRow
 					icon={Download}
 					title={t.t("settings.export")}
+					subtitle={photosOnlyHere ? t.t("sync.photosNotInBackups") : undefined}
 					chevron
 					onPress={() => void onExport()}
 					testID="settings-export"

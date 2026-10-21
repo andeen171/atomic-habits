@@ -5,7 +5,7 @@ import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
-import { useTimerState } from "@/lib/timer-store";
+import { canTime, useTimerState } from "@/lib/timer-store";
 import type { TimerState } from "@atomic/core";
 import { useHabit, useText, useTimerView } from "@atomic/core/react";
 import { router } from "expo-router";
@@ -15,12 +15,12 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanim
 /**
  * The running session timer on this device (Annex K §5.2, `lib/timer-store.ts`),
  * or null. Today adds the `timer` card when it is set. A timer whose habit
- * is gone doesn't count. Owner: T4.
+ * is gone, archived or no longer timed (`canTime`) doesn't count. Owner: T4.
  */
 export function useRunningTimer(): TimerState | null {
 	const timer = useTimerState();
 	const habit = useHabit(timer?.habitId);
-	return timer && habit && !habit.deletedAt ? timer : null;
+	return timer && canTime(habit) ? timer : null;
 }
 
 /**

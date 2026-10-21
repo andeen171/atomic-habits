@@ -3,6 +3,7 @@ import type { sharedEn } from "./shared.en";
 export const sharedPtBR: Record<keyof typeof sharedEn, string> = {
 	"nav.journal": "Diário",
 	"nav.account": "Conta",
+	"nav.withCount": "{label}, {count} a fazer",
 
 	"cue.time": "Um horário",
 	"cue.location": "Um lugar",

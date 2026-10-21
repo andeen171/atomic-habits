@@ -28,7 +28,10 @@ Files here:
 | `backup.sh` | Nightly snapshot of the database (and photos on disk), optional off-site copy |
 | `restore.sh` | Restore from Litestream (latest or a point in time) or from a snapshot, then check and start |
 
-Server variables are documented in [`apps/server/README.md`](../apps/server/README.md).
+Server variables are documented in [`apps/server/README.md`](../apps/server/README.md). The
+[self-hosting guide](https://atomic-habits-docs.vercel.app/guides/self-hosting/) summarizes this
+recipe, and the [privacy reference](https://atomic-habits-docs.vercel.app/reference/privacy/) lists
+what the server stores and for how long (a starting point for the page at `PRIVACY_URL`).
 
 ---
 
@@ -105,6 +108,11 @@ key and `EMAIL_FROM`, `AI_API_KEY`, the R2 keys for photos (`S3_*`) and for Lite
 when all of its variables are set, and the server refuses to start (naming the missing ones) when a
 feature is half-configured. Billing needs email.
 
+Each container gets only what it uses: the server receives the variables listed under
+`server: environment:` in `docker-compose.yml` (an allow-list of what `apps/server` reads), so the
+Litestream keys, which can overwrite or delete the backups, never reach the API process. If a
+server upgrade adds a variable, list it there too (`deploy.test.ts` fails until you do).
+
 Turso instead of the SQLite file: set `DATABASE_URL=libsql://…` and `DATABASE_AUTH_TOKEN`, and
 drop `backup` from `COMPOSE_PROFILES` (Turso has its own point-in-time restore). `backup.sh` and
 `restore.sh` work on the local file only; with Turso the snapshot step stops with a pointer to
@@ -133,10 +141,15 @@ the model and JSON output work, and the latency to set `AI_TIMEOUT_MS` from (p95
 
 ## 5. Point the apps at it
 
-Release builds bake the official URL in (spec §4.7):
+Release builds bake the official URL in (spec §4.7). Until it is set, a release build has no
+"Atomic Cloud" default and asks for a server URL:
 
-- web (Cloudflare Pages): `VITE_SERVER_URL=https://sync.example.com`;
-- native (EAS / local release build): `EXPO_PUBLIC_SERVER_URL=https://sync.example.com`.
+- GitHub: the repository variable `ATOMIC_SERVER_URL=https://sync.example.com` (*Settings →
+  Secrets and variables → Actions → Variables*). The Android and desktop workflows pass it as
+  `EXPO_PUBLIC_SERVER_URL` and `VITE_SERVER_URL`;
+- web (Cloudflare Pages build settings): `VITE_SERVER_URL=https://sync.example.com`;
+- native through EAS: `EXPO_PUBLIC_SERVER_URL` in the `production` and `preview` profiles' `env`
+  in `apps/native/eas.json`.
 
 Users can still choose another server under *Account → Advanced*.
 
@@ -198,6 +211,20 @@ privacy page (`PRIVACY_URL`):
 Keep it that way: no object versioning on `BACKUP_COPY_TO` or the buckets, or a lifecycle rule
 that expires old versions within the same window. Don't copy snapshots anywhere else.
 
+The table holds because the live file keeps nothing of a deleted account: the server sets
+`PRAGMA secure_delete = ON` on every connection, so SQLite overwrites deleted rows and freed
+pages with zeros, and the WAL frames Litestream ships after a deletion carry the zeros. Without
+it the text stays in free pages of `atomic.db`, and in any whole-file copy taken later (a
+Litestream snapshot, a volume image, a `cp` of `/data`), until SQLite reuses those pages. A
+database file written by a server version from before this setting may still hold such pages;
+run a one-off `VACUUM` on it once (after `./backup.sh`, at a quiet hour; it rewrites the whole
+file, so Litestream uploads a full copy):
+
+```bash
+docker compose exec server bun -e 'import { createClient } from "@libsql/client";
+const db = createClient({ url: process.env.DATABASE_URL }); await db.execute("VACUUM"); db.close();'
+```
+
 A restore to a point before a deletion brings that account back. The server records each
 deletion as the SHA-256 of the user id in `/data/atomic.db.erased` (next to the database, on the
 volume; never inside the database, so a restore can't roll it back), and `restore-check --fix`,
@@ -226,9 +253,12 @@ What `restore-check.ts` verifies (counts only, never content): SQLite integrity;
 (fewer than this server ships is fine, more means the backup came from a newer server version:
 deploy that version); sync cursors and per-user usage totals (repaired with `--fix`); that
 every photo row still has its object (rows without one are dropped with `--fix`); and that no
-deleted account came back with the backup (deleted again with `--fix`, from the erasure log). Sessions
-created after the restore point are gone: those devices sign in again, and their local data
-syncs back up (the apps keep everything offline).
+deleted account came back with the backup (deleted again with `--fix`, from the erasure log).
+`--fix` also moves every account's sync cursor past the restore point, so every device starts its
+sync over on its next round: it uploads everything it holds (changes made after the restore point
+come back from whichever device still has them) and pulls everything again. Sessions created after
+the restore point are gone: those devices sign in again, which uploads their local data too (the
+apps keep everything offline).
 
 ## 9. Restore drill (owner; once before launch, then every 3 months)
 

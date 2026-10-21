@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BUSY_TIMEOUT_MS, createDb, isLocalFileUrl } from "../src/db";
 import {
 	type AuthBody,
+	BASE_URL,
+	bearer,
 	createTestServer,
 	postJson,
 	pushOk,
@@ -97,11 +100,86 @@ describe("busy timeout", () => {
 		db.$client.close();
 	});
 
+	test("every connection also zeroes what it deletes (secure_delete)", async () => {
+		const db = createDb({
+			databaseUrl: `file:${join(scratchDir(), "t.db")}`,
+			databaseAuthToken: null,
+		});
+		const secure = async () =>
+			Number((await db.$client.execute("PRAGMA secure_delete")).rows[0]?.[0]);
+		expect(await secure()).toBe(1);
+		const tx = await db.$client.transaction("write");
+		expect(Number((await tx.execute("PRAGMA secure_delete")).rows[0]?.[0])).toBe(1);
+		await tx.commit();
+		expect(await secure()).toBe(1);
+		const [batch] = await db.$client.batch(["PRAGMA secure_delete"], "read");
+		expect(Number(batch?.rows[0]?.[0])).toBe(1);
+		db.$client.close();
+	});
+
 	test("only local files are wrapped", () => {
 		expect(isLocalFileUrl("file:./local.db")).toBe(true);
 		expect(isLocalFileUrl("file:/data/atomic.db")).toBe(true);
 		expect(isLocalFileUrl("file::memory:")).toBe(false);
 		expect(isLocalFileUrl("libsql://atomic-org.turso.io")).toBe(false);
 		expect(isLocalFileUrl("http://127.0.0.1:8080")).toBe(false);
+	});
+});
+
+/** Occurrences of `needle` in a file's bytes. */
+function occurrences(file: string, needle: string): number {
+	const bytes = readFileSync(file);
+	let count = 0;
+	for (let at = bytes.indexOf(needle); at !== -1; at = bytes.indexOf(needle, at + 1)) count++;
+	return count;
+}
+
+describe("erasure leaves nothing in the file (LGPD)", () => {
+	test("a deleted account's documents, email and name are gone from the database file", async () => {
+		// Regression: the rows were deleted but their pages were only freed, so
+		// the live file (and any whole-file copy of it) still held the text.
+		const server = await createTestServer();
+		const file = server.config.databaseUrl.slice("file:".length);
+		const marker = `SECRET-DIARY-${crypto.randomUUID()}`;
+		const name = `Erase${crypto.randomUUID().slice(0, 8)}`;
+		const { token, email, password } = await signUp(server.app, name);
+		const now = Date.now();
+		const pushed = await pushOk(
+			server.app,
+			token,
+			Array.from({ length: 80 }, (_, i) =>
+				task(`d${i}`, now, { title: `${marker} ${i}`, notes: `${marker} ${"lorem ".repeat(150)}` }),
+			),
+		);
+		expect(pushed.accepted).toBe(80);
+		await server.db.$client.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+		expect(occurrences(file, marker)).toBeGreaterThan(0);
+
+		const deleted = await postJson(
+			server.app,
+			"/api/auth/delete-user",
+			{ password },
+			bearer(token),
+		);
+		expect(deleted.status).toBe(200);
+		// Someone else keeps using the server, then the WAL is checkpointed (Litestream does it every few seconds).
+		const other = await signUp(server.app, "Other");
+		await pushOk(server.app, other.token, [task("x", Date.now())]);
+		await server.db.$client.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+
+		for (const path of [file, `${file}-wal`]) {
+			let present = true;
+			try {
+				readFileSync(path);
+			} catch {
+				present = false;
+			}
+			if (!present) continue;
+			expect(occurrences(path, marker)).toBe(0);
+			expect(occurrences(path, email)).toBe(0);
+			expect(occurrences(path, name)).toBe(0);
+		}
+		const still = await server.app.request(`${BASE_URL}/trpc/me`, { headers: bearer(token) });
+		expect(still.status).toBe(401);
 	});
 });

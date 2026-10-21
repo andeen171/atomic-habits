@@ -1,3 +1,4 @@
+import { displayHabit } from "@/components/habit/display-habit";
 import { BellRing, Check, Pause, Play, Plus, RotateCcw, Square, Wind } from "@/components/icons";
 import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { Button } from "@/components/ui/button";
@@ -12,8 +13,8 @@ import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
 import { useNotificationPermission } from "@/lib/reminders";
 import { fonts, makeStyles, useTheme } from "@/lib/theme";
-import { scheduleTimerBell } from "@/lib/timer-notify";
-import { getTimer, timerStore, useTimerState } from "@/lib/timer-store";
+import { cancelTimerBell, scheduleTimerBell } from "@/lib/timer-notify";
+import { canTime, getTimer, timerStore, useTimerState } from "@/lib/timer-store";
 import { showToast, ui } from "@/lib/ui-store";
 import {
 	type DayKey,
@@ -143,8 +144,11 @@ function TimerBody({
 	const { permission, request } = useNotificationPermission();
 	const timer = useTimerState();
 	const mine = timer?.habitId === habit.id ? timer : null;
-	const other = timer && !mine ? timer : null;
-	const otherHabit = useHabit(other?.habitId);
+	const otherTimer = timer && !mine ? timer : null;
+	const otherHabit = useHabit(otherTimer?.habitId);
+	// Another habit's timer blocks this one only while it can be finished there (a stale
+	// one is dropped by the timer watcher); Start is never greyed out without saying why.
+	const other = otherTimer && canTime(otherHabit) ? otherTimer : null;
 	const view = useTimerView(mine);
 	const day = dayParam ?? today;
 	const name = text.habit(habit, "name");
@@ -187,7 +191,12 @@ function TimerBody({
 	}, [timeUp, mine, t]);
 
 	const start = () => {
-		if (timer) return;
+		if (other) return;
+		// A stale timer of another habit (its habit gone or no longer timed) gives way.
+		if (timer && !mine) {
+			void cancelTimerBell(timer.habitId);
+			timerStore.clear();
+		}
 		const preset = mode === "countdown" ? minutes * 60 : null;
 		if (timerStore.start(habit.id, day, preset, label)) {
 			haptics.medium();
@@ -257,7 +266,8 @@ function TimerBody({
 	const allowBell = async () => {
 		const granted = await request();
 		const state = getTimer();
-		if (granted && state && state.habitId === habit.id) void scheduleTimerBell(state, habit, t);
+		if (granted && state && state.habitId === habit.id)
+			void scheduleTimerBell(state, displayHabit(habit, text), t);
 	};
 
 	// The ring: a countdown empties; a stopwatch sweeps once a minute; time's up closes it in the accent.

@@ -36,7 +36,7 @@ export function useMonthCelebration(): void {
 			// so both stay on screen and its Undo stays reachable.
 			setTimeout(() => {
 				haptics.success();
-				showToast(`${title}\n${body}`, { tone: "success", duration: 7000 });
+				showToast(`${title}\n${body}`, { tone: "success", icon: "trophy", duration: 7000 });
 				celebrateIn(habit.color);
 			}, 150);
 		});

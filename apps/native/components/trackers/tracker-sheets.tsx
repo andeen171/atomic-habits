@@ -1,8 +1,9 @@
+import { displayHabit } from "@/components/habit/display-habit";
 import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { cancelTimerBell, scheduleTimerBell, timerBellScheduled } from "@/lib/timer-notify";
-import { getTimer, timerStore, useTimerState } from "@/lib/timer-store";
+import { canTime, getTimer, timerStore, useTimerState } from "@/lib/timer-store";
 import { showToast } from "@/lib/ui-store";
 import {
 	type TrackerConfig,
@@ -103,21 +104,43 @@ function TimerWatcher() {
 	pathRef.current = pathname;
 	const scheduled = useRef<string | null>(null);
 
+	// A timer whose habit was deleted, archived or switched to a simple check-off (here or
+	// on another device) can't be saved any more: drop it and its bell, so it never blocks
+	// the timer of another habit. Only once the store has loaded everything.
+	useEffect(() => {
+		if (!timer) return;
+		const sweep = () => {
+			const state = getTimer();
+			const { hydrated, partial, data } = store.getState();
+			if (!state || !hydrated || partial) return;
+			if (canTime(data.habits[state.habitId])) return;
+			void cancelTimerBell(state.habitId);
+			timerStore.clear();
+		};
+		sweep();
+		return store.subscribe(sweep);
+	}, [timer, store]);
+
 	// The background bell follows the timer: scheduled while a countdown runs.
 	useEffect(() => {
 		const previous = scheduled.current;
 		const habit = timer ? store.getState().data.habits[timer.habitId] : undefined;
 		const counting =
-			!!timer && !!habit && isTimerRunning(timer) && timer.presetSec !== null && !timer.overtime;
+			!!timer &&
+			canTime(habit) &&
+			isTimerRunning(timer) &&
+			timer.presetSec !== null &&
+			!timer.overtime;
 		if (previous && (!counting || previous !== timer?.habitId)) {
 			void cancelTimerBell(previous);
 			scheduled.current = null;
 		}
 		if (counting && timer && habit) {
 			scheduled.current = timer.habitId;
-			void scheduleTimerBell(timer, habit, t);
+			// The habit's name as the app shows it ("Ler 10 páginas"), like habit reminders.
+			void scheduleTimerBell(timer, displayHabit(habit, text), t);
 		}
-	}, [timer, store, t]);
+	}, [timer, store, t, text]);
 
 	// Time's up in the foreground: settle at the preset, buzz, and say so away from the screen.
 	useEffect(() => {
@@ -131,7 +154,7 @@ function TimerWatcher() {
 			timerStore.settleTimeUp();
 			if (late || !claimBell(state.startedAt)) return;
 			const habit = store.getState().data.habits[state.habitId];
-			if (!habit) return;
+			if (!habit || !canTime(habit)) return;
 			haptics.success();
 			const onTimer = pathRef.current === "/habit/timer";
 			if (onTimer || systemBell) return;

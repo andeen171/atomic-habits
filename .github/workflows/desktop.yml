@@ -67,6 +67,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The official sync server baked into the release (spec §4.7): the
+          # repository variable ATOMIC_SERVER_URL. Unset, the app asks for a URL.
+          VITE_SERVER_URL: ${{ vars.ATOMIC_SERVER_URL }}
         with:
           projectPath: apps/web
           tauriScript: bunx tauri

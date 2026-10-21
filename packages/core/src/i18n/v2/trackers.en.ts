@@ -50,7 +50,8 @@ export const trackersEn = {
 	"tracker.photoElsewhere": "On another device",
 	"tracker.photosOff": "Photos aren't available in this version.",
 	"tracker.photoUnsupported": "This photo format isn't supported here. Try a JPEG or PNG.",
-	"tracker.backupPhotosNote": "Backups don't include photos. Sign in to sync to keep them safe.",
+	"tracker.backupPhotosNote":
+		"Backups don't include photos. Sign in to sync them and keep them safe.",
 	"tracker.onTime": "On time",
 	"tracker.lateBy": "{minutes} min late",
 	"tracker.headline.month": "{value} this month",
@@ -224,6 +225,8 @@ export const trackersEn = {
 	"tracker.reading.minutes": "Minutes",
 	"tracker.reading.quote": "A line worth keeping",
 	"tracker.reading.needAmount": "Log pages or minutes",
+	"tracker.reading.pageBehind":
+		"You were already on this page or past it. Enter the page you're on now, or the pages you read.",
 	"tracker.reading.finishedPrompt": "Finished {title}? 🎉",
 	"tracker.reading.shelf": "Your shelf",
 	"tracker.reading.readingNow": "Reading now",
@@ -659,6 +662,8 @@ export const trackersEn = {
 	"tracker.settings.photoRequired": "A photo is required",
 	"tracker.settings.switchHint":
 		"Switching trackers starts fresh today. Entries you already logged are kept.",
+	"tracker.settings.recountHint":
+		"Counting another way starts fresh today. Earlier days keep the counts they had.",
 	"tracker.or": "or",
 	"tracker.saveFailed": "Couldn't save this entry. Check the day and try again.",
 	"tracker.entryGone": "This entry was deleted.",

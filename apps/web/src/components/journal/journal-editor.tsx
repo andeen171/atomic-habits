@@ -1,6 +1,5 @@
 import { focusHeading } from "@/lib/focus";
 import { useT } from "@/lib/messages";
-import { isArtifactBuild } from "@/lib/runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 import {
@@ -576,9 +575,10 @@ export function JournalEditor({ entryId, initial, onChangeHabit }: JournalEditor
 	// screen (e.g. "Break this habit"), this history entry is rewritten to the
 	// entry's own URL first, so Back returns to what they wrote rather than to
 	// a blank editor. Rewriting it earlier would remount the editor mid-typing.
+	// The artifact build's memory history takes the same guard.
 	const createdId = initial && !entryId ? editor.entryId : null;
 	useBlocker({
-		disabled: !createdId || isArtifactBuild,
+		disabled: !createdId,
 		enableBeforeUnload: false,
 		shouldBlockFn: ({ action, next }) => {
 			if (action !== "PUSH" || !createdId) return false;
