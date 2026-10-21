@@ -84,17 +84,17 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 			};
 		}
 	}
-	const captions = ctx.caps.photos
-		? []
-		: entries
-				.filter((e) => str(e.data.caption))
-				.slice(0, 10)
-				.map((e) => ({
-					id: e.id,
-					entryId: e.id,
-					primary: firstLine(str(e.data.caption), 120) as string,
-					secondary: t.formatDayShort(e.date),
-				}));
+	// Captions without a photo to carry them (a meal log, or any entry where photos are off);
+	// a photo's caption shows with it in the gallery and the viewer.
+	const captions = entries
+		.filter((e) => str(e.data.caption) && !(ctx.caps.photos && photosOf(e).length > 0))
+		.slice(0, 6)
+		.map((e) => ({
+			id: e.id,
+			entryId: e.id,
+			primary: firstLine(str(e.data.caption), 120) as string,
+			secondary: t.formatDayShort(e.date),
+		}));
 	const memories = onThisDay(ofType(ctx.all, "photo"), ctx.today).map(({ entry, ago }) => ({
 		id: `otd:${entry.id}`,
 		entryId: entry.id,

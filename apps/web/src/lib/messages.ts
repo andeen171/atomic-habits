@@ -47,6 +47,8 @@ const en = {
 	"insights.dailyHint": "Share of due habits completed each day.",
 	"insights.journey": "Day {count}",
 	"insights.strongestHint": "Strength grows with consistency and fades slowly when you miss.",
+	"insights.compoundHypothetical":
+		"Over {days}, improving 1% a day compounds to {better}×. Staying the same keeps you at 1×. Slipping 1% a day shrinks you to {worse}×.",
 	"sync.synced": "Synced",
 	"sync.error": "Sync paused",
 	"settings.fourLaws": "The four laws of behavior change",
@@ -132,6 +134,8 @@ const ptBR: Record<AppMessageKey, string> = {
 	"insights.journey": "Dia {count}",
 	"insights.strongestHint":
 		"A força cresce com a consistência e diminui devagar quando você falha.",
+	"insights.compoundHypothetical":
+		"Em {days}, melhorar 1% ao dia acumula {better}×. Ficar igual mantém você em 1×. Piorar 1% ao dia encolhe para {worse}×.",
 	"sync.synced": "Sincronizado",
 	"sync.error": "Sincronização pausada",
 	"settings.fourLaws": "As quatro leis da mudança de comportamento",

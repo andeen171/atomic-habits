@@ -9,7 +9,7 @@ import {
 	isTrackerDay,
 	targetOn,
 } from "@atomic/core";
-import { useActions, useAtomic, useToday } from "@atomic/core/react";
+import { useActions, useAtomic, useText, useToday } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	Ellipsis,
@@ -59,6 +59,7 @@ export function HabitActionsMenu({
 	triggerClassName,
 }: HabitActionsMenuProps) {
 	const { t, at } = useT();
+	const text = useText();
 	const actions = useActions();
 	const navigate = useNavigate();
 	const openNote = useUI((s) => s.openNoteDialog);
@@ -82,7 +83,7 @@ export function HabitActionsMenu({
 				<MenuTrigger asChild>
 					{trigger ?? (
 						<IconButton
-							label={at("common.moreFor", { name: habit.name })}
+							label={at("common.moreFor", { name: text.habit(habit, "name") })}
 							size="sm"
 							tooltip={false}
 							className={triggerClassName}

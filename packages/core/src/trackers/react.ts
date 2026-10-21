@@ -260,15 +260,24 @@ export function useEntryForm(
 	const photos = caps.photos;
 	return useMemo(() => {
 		if (!habit) return { specs: [], initial: {} };
+		// One wake-up, bedtime or plan per day: a form opened without an entry starts from
+		// the day's existing one, so saving updates it instead of replacing it (a plan
+		// would otherwise drop its open tasks).
+		const config = knownTracker(habit);
+		const unique =
+			!entryId && type !== "none" && config && trackerDef(config.type)?.uniquePerDay.includes(type)
+				? (index.byHabitDay.get(habit.id)?.get(day) ?? []).find((e) => e.type === type)
+				: undefined;
+		const current = entry && !entry.deletedAt ? entry : (unique ?? null);
 		const ctx: EntryFormContext = {
 			t,
 			index,
 			date: day,
 			today,
 			caps: { photos },
-			entryId: entryId ?? null,
+			entryId: current?.id ?? entryId ?? null,
 		};
-		return entryFormValues(habit, type, ctx, entry && !entry.deletedAt ? entry : null);
+		return entryFormValues(habit, type, ctx, current);
 	}, [habit, type, day, entryId, entry, index, today, t, photos]);
 }
 

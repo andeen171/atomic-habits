@@ -216,7 +216,14 @@ export interface EntryLineContext<C extends TrackerConfig = TrackerConfig> {
 }
 
 /** Blocks that describe the tracker rather than the period; kept when the period is empty. */
-const PERSISTENT_BLOCKS: ReadonlySet<string> = new Set(["shelf", "circle", "plan", "onThisDay"]);
+const PERSISTENT_BLOCKS: ReadonlySet<string> = new Set([
+	"shelf",
+	"circle",
+	"plan",
+	"onThisDay",
+	// A slip-free period's clean days (`slip`).
+	"clean",
+]);
 
 interface Resolved {
 	config: TrackerConfig;

@@ -210,6 +210,12 @@ describe("content v2 (Annex H §1.2, spec §3.1)", () => {
 			new Map(habitTemplates(locale).map((h) => [h.key, h]));
 		const saved = { ...FEATURES };
 		try {
+			// v2:T4 — the shipped flags are on (4A, 4B); this case starts from all off.
+			Object.assign(FEATURES, {
+				templateTrackers: false,
+				trackerPhaseB: false,
+				trackerPhotos: false,
+			});
 			const off = byKey("en");
 			expect([...off.values()].every((h) => h.tracker === null)).toBe(true);
 			expect(off.get("read")?.requires).toBe("templateTrackers");

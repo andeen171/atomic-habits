@@ -46,10 +46,17 @@ interface Draft {
 	title: string;
 	project: string;
 	savedAt: number;
+	/** The entry this draft was last committed to (a page started here gets one on its first commit). */
+	entryId: string | null;
 }
 
+const DRAFT_PREFIX = "atomic-habits:draft:";
+/** Drafts nobody came back to are cleared after a month. */
+const DRAFT_MAX_AGE_MS = 30 * 86_400_000;
+
+/** `atomic-habits:draft:<entryId | new:habitId:day>`: fixed for the life of the pad. */
 const draftKey = (entryId: string | null, habitId: string, day: DayKey) =>
-	`atomic-habits:draft:${entryId ?? `new:${habitId}:${day}`}`;
+	`${DRAFT_PREFIX}${entryId ?? `new:${habitId}:${day}`}`;
 
 function readDraft(key: string): Draft | null {
 	try {
@@ -62,6 +69,7 @@ function readDraft(key: string): Draft | null {
 			title: typeof value.title === "string" ? value.title : "",
 			project: typeof value.project === "string" ? value.project : "",
 			savedAt: typeof value.savedAt === "number" ? value.savedAt : 0,
+			entryId: typeof value.entryId === "string" ? value.entryId : null,
 		};
 	} catch {
 		return null;
@@ -82,6 +90,20 @@ function dropDraft(key: string): void {
 		localStorage.removeItem(key);
 	} catch {
 		// Nothing to clean up.
+	}
+}
+
+/** Removes drafts older than a month (pages abandoned without Done). */
+function pruneDrafts(now: number): void {
+	try {
+		for (let i = localStorage.length - 1; i >= 0; i--) {
+			const key = localStorage.key(i);
+			if (!key?.startsWith(DRAFT_PREFIX)) continue;
+			const draft = readDraft(key);
+			if (!draft || now - draft.savedAt > DRAFT_MAX_AGE_MS) localStorage.removeItem(key);
+		}
+	} catch {
+		// Storage unavailable: nothing to prune.
 	}
 }
 
@@ -160,31 +182,45 @@ function WritePad({
 	const style = useHabitStyle(habit.color);
 	const dayEntries = useDayTrackerEntries(habit.id, day);
 
-	// The page as stored, and what's on screen (a newer device draft wins). Snapshot once per page.
+	// One device draft per pad, under a key that never changes while it is open. A new page
+	// remembers the entry its first commit created, so a reload (or a killed tab) continues
+	// that entry, and rebuilds it from the draft if the store never got to save it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the pad starts from a snapshot.
-	const initial = useMemo(() => {
-		const stored: Draft = {
-			text: typeof page?.data.text === "string" ? page.data.text : "",
-			title: typeof page?.data.title === "string" ? page.data.title : "",
-			project:
-				typeof page?.data.project === "string"
-					? page.data.project
-					: (recentValues(index, habit.id, "writing", "project", 1, today)[0] ?? ""),
-			savedAt: page?.updatedAt ?? 0,
+	const start = useMemo(() => {
+		pruneDrafts(Date.now());
+		const key = draftKey(page?.id ?? null, habit.id, day);
+		const draft = readDraft(key);
+		const linkedId = page?.id ?? draft?.entryId ?? null;
+		const linked = linkedId ? store.getState().data.trackerEntries[linkedId] : undefined;
+		const entry =
+			linked && !linked.deletedAt && linked.habitId === habit.id && linked.type === "writing"
+				? linked
+				: null;
+		const saved = {
+			text: typeof entry?.data.text === "string" ? entry.data.text : "",
+			title: typeof entry?.data.title === "string" ? entry.data.title : "",
+			project: typeof entry?.data.project === "string" ? entry.data.project : "",
 		};
-		const draft = readDraft(draftKey(page?.id ?? null, habit.id, day));
-		return draft && draft.savedAt > stored.savedAt ? draft : stored;
+		const fresh = {
+			...saved,
+			project:
+				entry || saved.project
+					? saved.project
+					: (recentValues(index, habit.id, "writing", "project", 1, today)[0] ?? ""),
+		};
+		const shown =
+			draft && draft.savedAt > (entry?.updatedAt ?? 0)
+				? { text: draft.text, title: draft.title, project: draft.project }
+				: fresh;
+		return { key, entryId: entry?.id ?? null, saved, shown };
 	}, []);
-	const [body, setBody] = useState(initial.text);
-	const [title, setTitle] = useState(initial.title);
-	const [project, setProject] = useState(initial.project);
+	const key = start.key;
+	const [body, setBody] = useState(start.shown.text);
+	const [title, setTitle] = useState(start.shown.title);
+	const [project, setProject] = useState(start.shown.project);
 	const [status, setStatus] = useState<"idle" | "draft" | "saved" | "error">("idle");
-	const entryId = useRef<string | null>(page?.id ?? null);
-	const committed = useRef({
-		text: typeof page?.data.text === "string" ? page.data.text : "",
-		title: typeof page?.data.title === "string" ? page.data.title : "",
-		project: typeof page?.data.project === "string" ? page.data.project : "",
-	});
+	const entryId = useRef<string | null>(start.entryId);
+	const committed = useRef(start.saved);
 	const latest = useRef({ body, title, project });
 	latest.current = { body, title, project };
 	const textRef = useRef<HTMLTextAreaElement>(null);
@@ -201,7 +237,11 @@ function WritePad({
 		[index, habit.id, today],
 	);
 
-	/** Writes the page to the store when it changed; true when it is safe to drop the draft. */
+	/**
+	 * Writes the page to the store when it changed; true when the store has it. The device
+	 * draft stays (linked to the entry) until Done: on a hide or unload the store may not get
+	 * to write to disk before the page goes away.
+	 */
 	const commit = useCallback((): boolean => {
 		const current = latest.current;
 		const data = {
@@ -217,7 +257,6 @@ function WritePad({
 		) {
 			return true;
 		}
-		const key = draftKey(entryId.current, habit.id, day);
 		if (entryId.current) {
 			const saved = actions.updateTrackerEntry(entryId.current, { data });
 			if (!saved) return false;
@@ -238,9 +277,15 @@ function WritePad({
 			title: data.title ?? "",
 			project: data.project ?? "",
 		};
-		dropDraft(key);
+		writeDraft(key, {
+			text: current.body,
+			title: current.title,
+			project: current.project,
+			savedAt: Date.now(),
+			entryId: entryId.current,
+		});
 		return true;
-	}, [actions, habit.id, day, today]);
+	}, [actions, habit.id, day, today, key]);
 
 	// Device draft a second after typing stops.
 	useEffect(() => {
@@ -248,18 +293,20 @@ function WritePad({
 			body !== committed.current.text ||
 			title !== committed.current.title ||
 			project !== committed.current.project;
-		if (!changed) return;
+		// A blank new page leaves nothing on the device.
+		if (!changed || (!entryId.current && !body.trim() && !title.trim())) return;
 		const id = setTimeout(() => {
-			const ok = writeDraft(draftKey(entryId.current, habit.id, day), {
+			const ok = writeDraft(key, {
 				text: body,
 				title,
 				project,
 				savedAt: Date.now(),
+				entryId: entryId.current,
 			});
 			setStatus(ok ? "draft" : "error");
 		}, DRAFT_DELAY_MS);
 		return () => clearTimeout(id);
-	}, [body, title, project, habit.id, day]);
+	}, [body, title, project, key]);
 
 	// The page itself: every minute, when the app is hidden, and on leaving.
 	useEffect(() => {
@@ -306,6 +353,8 @@ function WritePad({
 			toast.error(t("tracker.saveFailed"));
 			return;
 		}
+		// Leaving through Done: the app keeps running and saves the store, so the draft can go.
+		dropDraft(key);
 		if (entryId.current) {
 			const state = store.getState();
 			const line = trackerDayLine(
@@ -325,12 +374,28 @@ function WritePad({
 			toast.error(t("tracker.saveFailed"));
 			return;
 		}
-		void navigate({
-			to: "/habits/$habitId/write",
-			params: { habitId: habit.id },
-			search: day === today ? {} : { day },
-			replace: true,
-		});
+		// A blank page for the same day and project. The URL may already be the
+		// new-page one (a page started here), so reset in place rather than rely
+		// on a remount.
+		const keep = latest.current.project;
+		const blank = { text: "", title: "", project: keep, savedAt: Date.now(), entryId: null };
+		entryId.current = null;
+		committed.current = { text: "", title: "", project: keep };
+		setBody("");
+		setTitle("");
+		setStatus("idle");
+		textRef.current?.focus();
+		// The full page is in the store; the next one starts blank, here or after the remount.
+		dropDraft(key);
+		writeDraft(page ? draftKey(null, habit.id, day) : key, blank);
+		if (page) {
+			void navigate({
+				to: "/habits/$habitId/write",
+				params: { habitId: habit.id },
+				search: day === today ? {} : { day },
+				replace: true,
+			});
+		}
 	};
 
 	const progress = goal ? Math.min(1, dayWords / goal) : 0;
@@ -369,12 +434,19 @@ function WritePad({
 								/>
 							</svg>
 						) : null}
-						<span className="hidden text-ink-muted text-small tabular-nums min-[420px]:inline">
-							{countLabel}
-						</span>
-						<span className="text-ink-muted text-small tabular-nums min-[420px]:hidden">
-							{goal ? `${t.number(dayWords)}/${t.number(goal)}` : t.number(dayWords)}
-						</span>
+						{goal ? (
+							<>
+								<span className="hidden text-ink-muted text-small tabular-nums min-[420px]:inline">
+									{countLabel}
+								</span>
+								{/* Narrow screens: "214/300" next to the ring. */}
+								<span className="text-ink-muted text-small tabular-nums min-[420px]:hidden">
+									{`${t.number(dayWords)}/${t.number(goal)}`}
+								</span>
+							</>
+						) : (
+							<span className="text-ink-muted text-small tabular-nums">{countLabel}</span>
+						)}
 					</span>
 					<Button size="sm" onClick={done}>
 						<Check />

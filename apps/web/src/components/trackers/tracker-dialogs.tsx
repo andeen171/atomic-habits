@@ -1,5 +1,6 @@
 import { announce } from "@/lib/announce";
 import { playBell } from "@/lib/bell";
+import { scheduleBlobCleanup } from "@/lib/blob-store";
 import { useT } from "@/lib/messages";
 import { getTimer, timerStore, useTimerState } from "@/lib/timer-store";
 import { type TrackerConfig, knownTracker, remainingMs, trackerName } from "@atomic/core";
@@ -8,19 +9,26 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "../ui/confirm-dialog";
+import { trackerCaps } from "./caps";
+import { PhotoViewer } from "./photo-viewer";
 import { TrackerSettingsDialog } from "./tracker-settings-dialog";
 import { useTrackerUI } from "./tracker-ui";
 
 /**
- * Tracker dialogs opened from menus, and the timer's bell, mounted once next
- * to the entry composer (root). Owner: T4.
+ * Tracker dialogs opened from menus, the photo viewer, and the timer's bell,
+ * mounted once next to the entry composer (root). Owner: T4.
  */
 export function TrackerDialogsHost() {
+	// Photos nothing references any more are cleaned up at idle, at most daily (D23).
+	useEffect(() => {
+		if (trackerCaps().photos) scheduleBlobCleanup();
+	}, []);
 	return (
 		<>
 			<TrackerSettingsDialog />
 			<SwitchToSimpleDialog />
 			<TimerBell />
+			<PhotoViewer />
 		</>
 	);
 }
@@ -116,6 +124,8 @@ function TimerBell() {
 			if (!onTimer) {
 				toast(message, {
 					description: config ? trackerName(config.type, t) : undefined,
+					// An alarm for someone who is elsewhere in the app: long enough to be seen.
+					duration: 30_000,
 					action: {
 						label: t("tracker.session.backToTimer"),
 						onClick: () =>

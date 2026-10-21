@@ -195,31 +195,35 @@ export function BlueprintBoard({ habit, className }: BlueprintBoardProps) {
 				className="mx-5 mt-4 md:mx-6"
 			/>
 
-			<div className="grid grid-cols-1 gap-x-4 gap-y-2 px-5 pt-3 pb-5 md:grid-cols-2 md:gap-y-6 md:px-6 md:pt-5 md:pb-6 lg:grid-cols-4">
-				{LAWS.map((law) => {
-					const lawSlots = slots.filter((slot) => slot.law === law);
-					if (!lawSlots.length) return null;
-					const lawId = `${baseId}-law-${law}`;
-					const heading = lawHeading(law, habit.kind, t);
-					const lawFilled = lawSlots.filter((slot) => slot.value !== null).length;
-					return (
-						<section key={law} aria-labelledby={lawId} className="min-w-0">
-							<h3
-								id={lawId}
-								className="-mx-5 sticky top-0 z-10 flex items-center gap-2 border-line/70 border-b bg-surface px-5 py-2.5 md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0"
-							>
-								<LawBadge law={law} filled={lawFilled} total={lawSlots.length} />
-								<span className="min-w-0 text-small leading-snug">
-									<span className="font-semibold text-ink">{heading.name}</span>
-									<span className="text-ink-muted"> · {heading.stage}</span>
-								</span>
-							</h3>
-							<ul className="mt-2.5 flex flex-col gap-2">
-								{lawSlots.map((slot) => renderTile(slot, lawId))}
-							</ul>
-						</section>
-					);
-				})}
+			{/* Four columns once the board itself is wide enough (a container query: beside the
+			    sidebar a 1024px window leaves each law only ~150px), else 2×2 from md, stacked below. */}
+			<div className="@container">
+				<div className="grid @3xl:grid-cols-4 grid-cols-1 gap-x-4 gap-y-2 px-5 pt-3 pb-5 md:grid-cols-2 md:gap-y-6 md:px-6 md:pt-5 md:pb-6">
+					{LAWS.map((law) => {
+						const lawSlots = slots.filter((slot) => slot.law === law);
+						if (!lawSlots.length) return null;
+						const lawId = `${baseId}-law-${law}`;
+						const heading = lawHeading(law, habit.kind, t);
+						const lawFilled = lawSlots.filter((slot) => slot.value !== null).length;
+						return (
+							<section key={law} aria-labelledby={lawId} className="min-w-0">
+								<h3
+									id={lawId}
+									className="-mx-5 sticky top-0 z-10 flex items-center gap-2 border-line/70 border-b bg-surface px-5 py-2.5 md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0"
+								>
+									<LawBadge law={law} filled={lawFilled} total={lawSlots.length} />
+									<span className="min-w-0 text-small leading-snug">
+										<span className="font-semibold text-ink">{heading.name}</span>
+										<span className="text-ink-muted"> · {heading.stage}</span>
+									</span>
+								</h3>
+								<ul className="mt-2.5 flex flex-col gap-2">
+									{lawSlots.map((slot) => renderTile(slot, lawId))}
+								</ul>
+							</section>
+						);
+					})}
+				</div>
 			</div>
 
 			{identity && !identity.deletedAt ? (

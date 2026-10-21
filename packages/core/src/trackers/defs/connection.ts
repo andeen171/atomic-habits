@@ -55,7 +55,7 @@ export function circleStatus(
 	all: readonly TrackerEntry[],
 	today: string,
 	t: Translator,
-): (ListItem & { overdueBy: number })[] {
+): (ListItem & { name: string; since: number | null; overdueBy: number })[] {
 	const last = new Map<string, string>();
 	for (const entry of ofType(all, "connection")) {
 		const person = personOf(entry);
@@ -69,7 +69,7 @@ export function circleStatus(
 		const overdueBy = member.every !== null && since !== null ? since - member.every : 0;
 		const overdue = overdueBy > 0;
 		const secondary = overdue
-			? t.t("tracker.connection.overdue", { name: member.name, count: t.number(since ?? 0) })
+			? t.t("tracker.connection.overdueFor", { count: t.number(since ?? 0) })
 			: since === null
 				? t.t("tracker.connection.notYet")
 				: since === 0
@@ -80,18 +80,17 @@ export function circleStatus(
 			primary: `${member.emoji} ${member.name}`,
 			secondary,
 			...(overdue ? { tone: "warning" as const } : {}),
+			name: member.name,
 			overdueBy,
 			since,
 		};
 	});
-	return rows
-		.sort((a, b) => {
-			if (a.overdueBy > 0 !== b.overdueBy > 0) return a.overdueBy > 0 ? -1 : 1;
-			if (a.overdueBy !== b.overdueBy) return b.overdueBy - a.overdueBy;
-			if ((a.since === null) !== (b.since === null)) return a.since === null ? 1 : -1;
-			return (b.since ?? 0) - (a.since ?? 0);
-		})
-		.map(({ since: _since, ...row }) => row);
+	return rows.sort((a, b) => {
+		if (a.overdueBy > 0 !== b.overdueBy > 0) return a.overdueBy > 0 ? -1 : 1;
+		if (a.overdueBy !== b.overdueBy) return b.overdueBy - a.overdueBy;
+		if ((a.since === null) !== (b.since === null)) return a.since === null ? 1 : -1;
+		return (b.since ?? 0) - (a.since ?? 0);
+	});
 }
 
 function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
@@ -113,7 +112,7 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 			secondary: [personOf(c), t.formatDayShort(c.date)].filter(Boolean).join(" · "),
 		}));
 	const circle = circleStatus(config, ctx.all, ctx.today, t).map(
-		({ overdueBy: _o, ...row }) => row,
+		({ overdueBy: _o, name: _n, since: _s, ...row }) => row,
 	);
 	return blocks(
 		{
@@ -256,7 +255,12 @@ export const connectionDef: TrackerDef<Config> = {
 		const overdue = circleStatus(ctx.config, ctx.all, ctx.today, t).find(
 			(row) => row.overdueBy > 0,
 		);
-		if (overdue) return overdue.secondary ?? null;
+		if (overdue) {
+			return t.t("tracker.connection.overdue", {
+				name: overdue.name,
+				count: t.number(overdue.since ?? 0),
+			});
+		}
 		const count = inPeriod(ctx, "connection").length;
 		return count > 0 ? t.tp("tracker.connection.headline", count) : null;
 	},

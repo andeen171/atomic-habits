@@ -1,7 +1,4 @@
-import { EmptyState } from "@/components/empty-state";
-import { Screen } from "@/components/ui/screen";
-import { useT } from "@/lib/i18n";
-import { useHabit } from "@atomic/core/react";
+import { WriteScreen } from "@/components/trackers/write-screen";
 import { useLocalSearchParams } from "expo-router";
 
 /** Route params (Annex K §5.2). */
@@ -13,14 +10,15 @@ export type HabitWriteParams = {
 	entry?: string;
 };
 
-/** The writing pad (Annex K §5.2). Owner: T4. Phase 1B: a placeholder. */
+/** The writing pad (Annex K §5.2): live word count, device drafts, commits on leave. Owner: T4. */
 export default function HabitWriteScreen() {
-	const t = useT();
-	const { id } = useLocalSearchParams<HabitWriteParams>();
-	const habit = useHabit(id);
+	const { id, day, entry } = useLocalSearchParams<HabitWriteParams>();
+	const valid = typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : undefined;
 	return (
-		<Screen back title={habit?.name} testID="habit-write">
-			<EmptyState title={t.t("app.comingSoon")} body={t.t("app.comingSoonBody")} />
-		</Screen>
+		<WriteScreen
+			habitId={String(id ?? "")}
+			day={valid}
+			entry={typeof entry === "string" && entry ? entry : undefined}
+		/>
 	);
 }

@@ -74,7 +74,7 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 			{identity ? (
 				<Tag className="self-start">
 					<span className="font-emoji">{identity.emoji}</span>
-					<span className="truncate">{identity.statement}</span>
+					<span className="truncate">{text.identity(identity, "statement")}</span>
 				</Tag>
 			) : null}
 

@@ -37,6 +37,12 @@ export interface DemoTrackerData {
 	 * plan, D17): mostly done, a couple still open, older misses deleted.
 	 */
 	tasks: Record<string, Task>;
+	/**
+	 * Tracker habits whose config the demo fills in: the expense log gets a
+	 * monthly budget a little above its usual spending, so the budget bar and
+	 * "R$ 320 left this month" show.
+	 */
+	habits: Record<string, Habit>;
 }
 
 function mulberry32(seed: number) {
@@ -54,12 +60,47 @@ type Draft = Pick<TrackerEntry, "type" | "data"> & { id?: string; hour?: number 
 
 const COPY = {
 	en: {
-		expenseNotes: ["Coffee", "Groceries", "Bus pass", "Lunch with Ana", "Cinema", "Light bulbs"],
+		/** One per `PURCHASES` row, in the same order. */
+		expenseNotes: ["Coffee", "Groceries", "Bus fare", "Lunch with Ana", "Cinema", "Light bulbs"],
 		people: ["Mom", "Ana", "Grandma", "Leo"],
+		/** The connection log's circle: Grandma (index 2 of `people`) is overdue. */
+		circle: [
+			{ name: "Mom", emoji: "👩", every: 7 },
+			{ name: "Grandma", emoji: "👵", every: 14 },
+			{ name: "Leo", emoji: "🧑", every: 21 },
+		],
+		moments: [
+			"Talked about her garden",
+			"Planned the trip in May",
+			"Laughed at old photos",
+			"Starting a new job next week",
+		],
 		pages: ["One line about today: calm morning.", "Grateful for a long walk.", "Slept well."],
+		/** Read in this order; the one in progress at the end is "Reading now", the rest "Up next". */
 		books: [
-			{ title: "Atomic Habits", author: "James Clear", pages: 320 },
-			{ title: "Deep Work", author: "Cal Newport", pages: 296 },
+			{
+				title: "Atomic Habits",
+				author: "James Clear",
+				pages: 320,
+				quotes: [
+					"Every action you take is a vote for the type of person you wish to become.",
+					"You do not rise to the level of your goals. You fall to the level of your systems.",
+				],
+			},
+			{
+				title: "Essentialism",
+				author: "Greg McKeown",
+				pages: 272,
+				quotes: ["If you don't prioritize your life, someone else will."],
+			},
+			{ title: "Deep Work", author: "Cal Newport", pages: 296, quotes: [] },
+			{
+				title: "Mindset",
+				author: "Carol S. Dweck",
+				pages: 320,
+				quotes: ["Becoming is better than being."],
+			},
+			{ title: "The Power of Habit", author: "Charles Duhigg", pages: 371, quotes: [] },
 		],
 		priorities: [
 			"Send the project update",
@@ -74,12 +115,51 @@ const COPY = {
 		meals: ["Salad with lunch", "Broccoli and rice", "Veggie soup", "Carrots as a snack"],
 	},
 	"pt-BR": {
-		expenseNotes: ["Café", "Mercado", "Passagem", "Almoço com a Ana", "Cinema", "Lâmpadas"],
+		expenseNotes: [
+			"Café",
+			"Mercado",
+			"Passagem de ônibus",
+			"Almoço com a Ana",
+			"Cinema",
+			"Lâmpadas",
+		],
 		people: ["Mãe", "Ana", "Vó", "Léo"],
+		circle: [
+			{ name: "Mãe", emoji: "👩", every: 7 },
+			{ name: "Vó", emoji: "👵", every: 14 },
+			{ name: "Léo", emoji: "🧑", every: 21 },
+		],
+		moments: [
+			"Falamos da horta dela",
+			"Planejamos a viagem de maio",
+			"Rimos de fotos antigas",
+			"Começa num emprego novo semana que vem",
+		],
 		pages: ["Uma linha sobre hoje: manhã calma.", "Grato por uma caminhada longa.", "Dormi bem."],
 		books: [
-			{ title: "Hábitos Atômicos", author: "James Clear", pages: 320 },
-			{ title: "Trabalho Focado", author: "Cal Newport", pages: 296 },
+			{
+				title: "Hábitos Atômicos",
+				author: "James Clear",
+				pages: 320,
+				quotes: [
+					"Cada ação que você realiza é um voto no tipo de pessoa que deseja se tornar.",
+					"Você não se eleva ao nível das suas metas. Você cai ao nível dos seus sistemas.",
+				],
+			},
+			{
+				title: "Essencialismo",
+				author: "Greg McKeown",
+				pages: 272,
+				quotes: ["Se você não priorizar sua vida, outra pessoa o fará."],
+			},
+			{ title: "Trabalho Focado", author: "Cal Newport", pages: 296, quotes: [] },
+			{
+				title: "Mindset",
+				author: "Carol S. Dweck",
+				pages: 312,
+				quotes: ["Tornar-se é melhor do que ser."],
+			},
+			{ title: "O Poder do Hábito", author: "Charles Duhigg", pages: 408, quotes: [] },
 		],
 		priorities: [
 			"Enviar a atualização do projeto",
@@ -99,10 +179,24 @@ const HOUR_MS = 3_600_000;
 /** Plan tasks start after the demo's own tasks. */
 const PLAN_TASK_ORDER = 1000;
 
-const EXPENSE_CATEGORIES = ["food", "groceries", "transport", "fun", "home"] as const;
+/**
+ * Sample purchases (the notes in `COPY.expenseNotes`, same order): each one's
+ * category and a plausible price range in major units, so "Coffee" is never
+ * filed under Home or priced like the groceries.
+ */
+const PURCHASES = [
+	{ category: "food", min: 3, max: 7 },
+	{ category: "groceries", min: 25, max: 95 },
+	{ category: "transport", min: 3, max: 6 },
+	{ category: "food", min: 14, max: 38 },
+	{ category: "fun", min: 12, max: 28 },
+	{ category: "home", min: 8, max: 24 },
+] as const;
 const ACTIVITIES = ["run", "walk", "strength", "cycling", "yoga"] as const;
 const DISTANCE_ACTIVITIES: ReadonlySet<string> = new Set(["run", "walk", "cycling"]);
 const CHANNELS = ["call", "video", "visit", "message"] as const;
+/** Days since the demo's last call with Grandma (her rhythm is every 14 days). */
+const OVERDUE_DAYS = 20;
 
 /**
  * Entries for every logged day of the demo's tracker habits, plus those
@@ -196,7 +290,6 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 			return entry;
 		};
 		const books = config.type === "reading" ? shelf(start, add, copy) : null;
-		let pagesRead = 0;
 
 		const days = new Map<DayKey, HabitLog | null>();
 		for (const log of logsByHabit.get(habit.id) ?? []) {
@@ -242,10 +335,10 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 						between,
 						copy,
 						date,
+						today,
 						bookFor: (pages) => {
 							if (!books) return null;
-							pagesRead += pages;
-							return books.sessionAt(pagesRead, date);
+							return books.sessionAt(pages, date);
 						},
 					})
 				: [{ id: trackerEntryKeyId(habit.id, "none", date), type: "none", data: { note: null } }];
@@ -268,7 +361,55 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 					};
 		}
 	}
-	return { trackerEntries, logs, tasks };
+	return {
+		trackerEntries,
+		logs,
+		tasks,
+		habits: { ...demoBudgets(habits, trackerEntries, today), ...demoCircles(habits, copy) },
+	};
+}
+
+/**
+ * The expense logs' monthly budget: the last 30 days' spending, scaled to a
+ * month and rounded up to the next 100 with ~15% headroom (none without
+ * spending). Budgets are config only; they never change a day's count.
+ */
+function demoBudgets(
+	habits: readonly Habit[],
+	entries: Record<string, TrackerEntry>,
+	today: DayKey,
+): Record<string, Habit> {
+	const out: Record<string, Habit> = {};
+	const from = addDays(today, -30);
+	for (const habit of habits) {
+		const config = knownTracker(habit);
+		if (config?.type !== "expense" || config.budget !== null) continue;
+		let spent = 0;
+		for (const entry of Object.values(entries)) {
+			if (entry.habitId !== habit.id || entry.type !== "expense") continue;
+			if (entry.date < from || entry.date >= today) continue;
+			if (entry.data.currency !== config.currency) continue;
+			spent += Number(entry.data.amount) || 0;
+		}
+		if (spent <= 0) continue;
+		const budget = Math.ceil((spent * 1.15) / 10_000) * 10_000;
+		out[habit.id] = { ...habit, tracker: { ...config, budget } };
+	}
+	return out;
+}
+
+/** The connection logs' circle (people and how often to reach out), when it's empty. */
+function demoCircles(habits: readonly Habit[], copy: (typeof COPY)[Locale]): Record<string, Habit> {
+	const out: Record<string, Habit> = {};
+	for (const habit of habits) {
+		const config = knownTracker(habit);
+		if (config?.type !== "connection" || config.circle.length) continue;
+		out[habit.id] = {
+			...habit,
+			tracker: { ...config, circle: copy.circle.map((member) => ({ ...member })) },
+		};
+	}
+	return out;
 }
 
 interface DraftContext {
@@ -277,8 +418,9 @@ interface DraftContext {
 	between: (min: number, max: number) => number;
 	copy: (typeof COPY)[Locale];
 	date: DayKey;
+	today: DayKey;
 	/** Records `pages` read on `date`; the book and bookmark of that session. */
-	bookFor: (pages: number) => { bookId: string; toPage: number } | null;
+	bookFor: (pages: number) => { bookId: string; toPage: number; quote: string | null } | null;
 }
 
 /** The entries of one logged day (its count is re-derived from them). */
@@ -289,14 +431,16 @@ function dayDrafts(config: TrackerConfig, habit: Habit, count: number, ctx: Draf
 			const drafts: Draft[] = [];
 			const items = between(1, 3);
 			for (let i = 0; i < items; i++) {
+				const which = Math.floor(random() * PURCHASES.length);
+				const purchase = PURCHASES[which] ?? PURCHASES[0];
 				drafts.push({
 					type: "expense",
 					hour: between(8, 20),
 					data: {
-						amount: between(5, 90) * 100 + pick([0, 50, 90]),
+						amount: between(purchase.min, purchase.max) * 100 + pick([0, 50, 90]),
 						currency: config.currency,
-						category: pick(EXPENSE_CATEGORIES),
-						note: pick(copy.expenseNotes),
+						category: purchase.category,
+						note: copy.expenseNotes[which] ?? null,
 						photos: [],
 					},
 				});
@@ -317,7 +461,7 @@ function dayDrafts(config: TrackerConfig, habit: Habit, count: number, ctx: Draf
 						bookId: bookmark?.bookId ?? null,
 						toPage: bookmark?.toPage ?? null,
 						minutes: null,
-						quote: null,
+						quote: bookmark?.quote ?? null,
 					},
 				},
 			];
@@ -390,29 +534,43 @@ function dayDrafts(config: TrackerConfig, habit: Habit, count: number, ctx: Draf
 			let bedtime = parseTime(config.bedtime) ?? 1380;
 			if (bedtime < 300) bedtime += 1440;
 			const deadline = Math.min(2159, bedtime + config.grace);
-			const bed = Math.max(0, deadline - between(0, 40));
+			// About one night in three runs late; the alarm doesn't move, so those nights are short.
+			const late = random() < 0.32;
+			const bed = late ? deadline + between(10, 75) : Math.max(0, deadline - between(0, 40));
+			const wake = Math.min(2879, Math.max(bed + 300, 1440 + 390 + between(0, 40)));
+			// Last night waits for its wake-up time ("How did you sleep?" in the morning).
+			const open = !config.trackWake || ctx.date === addDays(ctx.today, -1);
 			return [
 				{
 					id: trackerEntryKeyId(habit.id, "sleep", ctx.date),
 					type: "sleep",
-					data: { bed, wake: bed + between(400, 500), deadline, quality: between(3, 5) },
+					data: {
+						bed,
+						wake: open ? null : wake,
+						deadline,
+						quality: open ? null : late ? between(2, 3) : between(3, 5),
+					},
 				},
 			];
 		}
-		case "connection":
+		case "connection": {
+			// Grandma's last call was a while ago, so the circle shows her as overdue.
+			const recent = ctx.date > addDays(ctx.today, -OVERDUE_DAYS);
+			const people = recent ? copy.people.filter((_, i) => i !== 2) : copy.people;
 			return [
 				{
 					type: "connection",
 					hour: between(12, 21),
 					data: {
-						person: pick(copy.people),
+						person: pick(people),
 						channel: pick(CHANNELS),
 						minutes: between(5, 45),
-						note: null,
+						note: random() < 0.45 ? pick(copy.moments) : null,
 						photos: [],
 					},
 				},
 			];
+		}
 		case "slip":
 			return Array.from({ length: count }, () => ({
 				type: "slip",
@@ -453,35 +611,57 @@ function shelf(
 	add: (date: DayKey, draft: Draft) => TrackerEntry,
 	copy: (typeof COPY)[Locale],
 ) {
-	const [first, second] = copy.books;
-	const firstBook = add(start, {
-		type: "book",
-		data: {
-			...first,
-			startPage: 0,
-			status: "reading",
-			finishedOn: null,
-			rating: null,
-			cover: null,
-		},
-	});
-	const secondBook = add(start, {
-		type: "book",
-		data: { ...second, startPage: 0, status: "next", finishedOn: null, rating: null, cover: null },
-	});
+	// The whole reading list is on the shelf from the start: the first book in
+	// progress, the rest up next. Each is finished on the day its last page is read.
+	const books = copy.books.map((book, index) =>
+		add(start, {
+			type: "book",
+			data: {
+				title: book.title,
+				author: book.author,
+				pages: book.pages,
+				startPage: 0,
+				status: index === 0 ? "reading" : "next",
+				finishedOn: null,
+				rating: null,
+				cover: null,
+			},
+		}),
+	);
+	let current = 0;
+	let page = 0;
+	let sessions = 0;
 	return {
-		sessionAt(pagesRead: number, date: DayKey): { bookId: string; toPage: number } {
-			if (pagesRead <= first.pages) {
-				if (pagesRead === first.pages) finish(firstBook, date);
-				return { bookId: firstBook.id, toPage: pagesRead };
+		/** Records a session of `pages`; its book, bookmark and (now and then) a line worth keeping. */
+		sessionAt(
+			pages: number,
+			date: DayKey,
+		): { bookId: string; toPage: number; quote: string | null } | null {
+			const book = books[current];
+			const meta = copy.books[current];
+			if (!book || !meta) return null;
+			page = Math.min(meta.pages, page + pages);
+			sessions++;
+			// A highlight on the 4th session of a book, then every 9th.
+			const quotes: readonly string[] = meta.quotes;
+			const slot =
+				sessions === 4 ? 0 : sessions > 4 && (sessions - 4) % 9 === 0 ? (sessions - 4) / 9 : -1;
+			const quote = slot >= 0 ? (quotes[slot] ?? null) : null;
+			const session = { bookId: book.id, toPage: page, quote };
+			if (page >= meta.pages) {
+				book.data = {
+					...book.data,
+					status: "finished",
+					finishedOn: date,
+					rating: current % 2 === 0 ? 5 : 4,
+				};
+				current++;
+				page = 0;
+				sessions = 0;
+				const next = books[current];
+				if (next) next.data = { ...next.data, status: "reading" };
 			}
-			if (firstBook.data.status !== "finished") finish(firstBook, date);
-			if (secondBook.data.status === "next")
-				secondBook.data = { ...secondBook.data, status: "reading" };
-			return { bookId: secondBook.id, toPage: Math.min(second.pages, pagesRead - first.pages) };
+			return session;
 		},
 	};
-	function finish(book: TrackerEntry, date: DayKey) {
-		book.data = { ...book.data, status: "finished", finishedOn: date, rating: 5 };
-	}
 }

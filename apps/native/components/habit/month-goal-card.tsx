@@ -318,7 +318,7 @@ function MonthsStrip({ habit, months }: { habit: Habit; months: MonthProgress[] 
 		<View style={styles.strip} testID="months-won-strip">
 			<View style={styles.stripHead}>
 				<Text variant="label" accessibilityRole="header">
-					{t.t("month.won")}
+					{t.t(habit.kind === "break" ? "month.cleanMonths" : "month.won")}
 				</Text>
 				{total > 0 ? (
 					<Text variant="small" tone="muted" tabular>

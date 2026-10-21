@@ -45,6 +45,17 @@ function dayPart(at: number): (typeof DAY_PARTS)[number]["id"] {
 }
 
 const cueLabel = (cue: string, t: Translator) => tk(t, `cue.${cue}`);
+
+/** The five cues of a habit (Atomic Habits ch. 4), each with a glanceable emoji. */
+export const CUE_EMOJI: Readonly<Record<(typeof CUE_TYPES)[number], string>> = {
+	time: "🕒",
+	location: "📍",
+	event: "⏮️",
+	emotion: "💭",
+	people: "👥",
+};
+const cueEmoji = (cue: string): string | undefined =>
+	(CUE_EMOJI as Readonly<Record<string, string>>)[cue];
 const costOf = (e: TrackerEntry) => num(e.data.cost) ?? 0;
 
 /** The total cost of the slips in the tracker's currency (money) or as a duration (time). */
@@ -79,6 +90,25 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 	const slips = inPeriod(ctx, "slip");
 	const elapsed = elapsedDays(ctx);
 	const clean = Math.max(0, elapsed - daysOf(slips).size);
+	// A clean period is the goal, not a gap: it still shows its clean days (kept when empty).
+	if (!slips.length) {
+		return blocks(
+			elapsed > 0 && {
+				kind: "stats",
+				id: "clean",
+				items: [
+					stat("slips", t.t("tracker.slip.slips"), t.number(0), 0),
+					stat("clean", t.t("tracker.slip.cleanDays"), t.number(clean), clean, {
+						hint: t.t("tracker.stat.daysOf", {
+							count: t.number(clean),
+							total: t.number(elapsed),
+						}),
+						tone: "good",
+					}),
+				],
+			},
+		);
+	}
 	const cost = costText(config, slips, t);
 	const cues = tally(slips, (s) => str(s.data.cue));
 	let top: string | null = null;
@@ -127,7 +157,10 @@ function summary(ctx: SummaryContext<Config>): SummaryBlock[] {
 		breakdown(
 			"cues",
 			t.t("tracker.slip.byCue"),
-			[...cues].map(([cue, value]) => ({ key: cue, label: cueLabel(cue, t), value })),
+			[...cues].map(([cue, value]) => {
+				const emoji = cueEmoji(cue);
+				return { key: cue, label: cueLabel(cue, t), value, ...(emoji ? { emoji } : {}) };
+			}),
 			(value) => t.number(value),
 		),
 		top !== null && {
@@ -172,7 +205,11 @@ export const slipDef: TrackerDef<Config> = {
 				section: "primary",
 				required: false,
 				layout: "chips",
-				options: CUE_TYPES.map((cue) => ({ value: cue, label: cueLabel(cue, t) })),
+				options: CUE_TYPES.map((cue) => ({
+					value: cue,
+					label: cueLabel(cue, t),
+					emoji: CUE_EMOJI[cue],
+				})),
 			},
 			{
 				key: "note",
@@ -228,8 +265,18 @@ export const slipDef: TrackerDef<Config> = {
 				: config.cost === "time"
 					? t.formatDuration(cost * 60)
 					: formatMoney(cost, str(entry.data.currency) ?? config.currency, t);
-		const secondary = [firstLine(str(entry.data.note)), costLabel].filter(Boolean).join(" · ");
-		return line(cue ? cueLabel(cue, t) : t.t("tracker.slip.entry"), secondary || null, entry);
+		// What happened first ("Slip" without a note), then the cue and what it cost.
+		const secondary = [
+			cue ? t.t("tracker.slip.cueLine", { cue: cueLabel(cue, t) }) : null,
+			costLabel,
+		]
+			.filter(Boolean)
+			.join(" · ");
+		return line(
+			firstLine(str(entry.data.note)) ?? t.t("tracker.slip.entry"),
+			secondary || null,
+			entry,
+		);
 	},
 
 	summary,

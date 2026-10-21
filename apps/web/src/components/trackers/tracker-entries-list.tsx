@@ -2,7 +2,14 @@ import { keepFocus } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import type { DayKey, EntryLine, Habit, TrackerEntry } from "@atomic/core";
+import {
+	type DayKey,
+	type EntryLine,
+	type Habit,
+	type TrackerEntry,
+	entryAttachments,
+	photoAlt,
+} from "@atomic/core";
 import {
 	useActions,
 	useText,
@@ -17,7 +24,10 @@ import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "../ui/menu";
+import { trackerCaps } from "./caps";
+import { PhotoThumb } from "./photo-thumb";
 import { toneText } from "./summary-blocks";
+import { useTrackerUI } from "./tracker-ui";
 
 export interface TrackerEntriesListProps {
 	habit: Habit;
@@ -220,6 +230,7 @@ export function EntryRow({
 			) : (
 				<div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-2">{body}</div>
 			)}
+			<EntryPhotos habit={habit} entry={entry} onOpen={onOpen} />
 			{canEdit ? (
 				<Menu modal={false}>
 					<MenuTrigger asChild>
@@ -244,5 +255,60 @@ export function EntryRow({
 				</Menu>
 			) : null}
 		</li>
+	);
+}
+
+/**
+ * Up to three of an entry's photos, stacked; opens the viewer on them. Not in
+ * builds without photos (the entry line already says "2 photos").
+ */
+function EntryPhotos({
+	habit,
+	entry,
+	onOpen,
+}: {
+	habit: Habit;
+	entry: TrackerEntry;
+	onOpen?(): void;
+}) {
+	const { t } = useT();
+	const openViewer = useTrackerUI((s) => s.openViewer);
+	const photos = entryAttachments(entry);
+	if (photos.length === 0 || !trackerCaps().photos) return null;
+	const caption = typeof entry.data.caption === "string" ? entry.data.caption : null;
+	const shown = photos.slice(0, 3);
+	const label = t("tracker.photo.open", {
+		index: t.number(1),
+		total: t.number(photos.length),
+	});
+	return (
+		<button
+			type="button"
+			aria-label={label}
+			onClick={() => {
+				onOpen?.();
+				openViewer({
+					mode: "photos",
+					habitId: habit.id,
+					index: 0,
+					photos: photos.map((ref) => ({ ref, day: entry.date, caption, entryId: entry.id })),
+				});
+			}}
+			className="flex shrink-0 items-center rounded-md p-1 transition-colors hover:bg-hover"
+		>
+			{shown.map((ref, i) => (
+				<PhotoThumb
+					key={ref.hash}
+					photo={ref}
+					alt={photoAlt(ref, entry, t)}
+					size={36}
+					className={cn(
+						"rounded-[7px] ring-2 ring-surface",
+						i > 0 && "-ml-3",
+						i === 0 ? "z-[3]" : i === 1 ? "z-[2]" : "z-[1]",
+					)}
+				/>
+			))}
+		</button>
 	);
 }

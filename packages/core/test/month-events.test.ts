@@ -319,7 +319,9 @@ describe("month copy", () => {
 		expect(monthAmount(tracked, 1, enT)).toBe("1 page");
 		expect(monthAmount(tracked, 6600, ptT)).toBe("6.600 páginas");
 		expect(monthAmount(habit({ unit: "glasses" }), 1200, enT)).toBe("1,200 glasses");
-		expect(monthAmount(habit(), 31, enT)).toBe("31");
+		// No unit: times ("31 times", "1 vez").
+		expect(monthAmount(habit(), 31, enT)).toBe("31 times");
+		expect(monthAmount(habit(), 1, ptT)).toBe("1 vez");
 		// Switched to simple check-off: the habit's own unit.
 		const off = habit({
 			unit: "pp",
@@ -388,7 +390,9 @@ describe("month copy", () => {
 
 	test("monthPaceHint: the extra reps a day that still win a behind month", () => {
 		expect(monthPaceHint(workedExample(), reading, TODAY, enT)).toBe("+2 pages/day wins October");
-		expect(monthPaceHint(workedExample(), reading, TODAY, ptT)).toBe("+2 pages/dia vence outubro");
+		expect(monthPaceHint(workedExample(), reading, TODAY, ptT)).toBe(
+			"+2 pages/dia garante outubro",
+		);
 		const onTrack = buildGoal(reading, span(october(1), october(19), 10));
 		expect(monthPaceHint(onTrack, reading, TODAY, enT)).toBeNull();
 		// Trackers whose extra reps mean nothing (days, threshold) get no hint.
@@ -422,6 +426,7 @@ describe("month copy", () => {
 		if (!s) throw new Error("expected a suggestion");
 		expect(levelUpCopy(s, h, enT)).toEqual({
 			body: "In September you went past your daily goal on 24 of 30 days. Motivation peaks at the edge of your ability — raise the bar a little.",
+			why: "Motivation peaks at the edge of your ability — raise the bar a little.",
 			evidence: "You beat 10 pages on 24 of 30 days in September.",
 			action: "Raise to 12 pages",
 			accepted: "New daily goal: 12 pages.",
@@ -445,6 +450,7 @@ describe("month copy", () => {
 		if (!f) throw new Error("expected a frequency suggestion");
 		expect(levelUpCopy(f, gym, enT)).toEqual({
 			body: "In September you beat your weekly quota in 3 of 4 weeks. Add one more day?",
+			why: "Motivation peaks at the edge of your ability — raise the bar a little.",
 			evidence: "You did more than 3 sessions in 3 of 4 weeks.",
 			action: "Make it 4× a week",
 			accepted: "New goal: 4× a week.",

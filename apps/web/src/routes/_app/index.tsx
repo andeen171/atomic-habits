@@ -26,6 +26,7 @@ import {
 	TIMES_OF_DAY,
 	type TodayCardKind,
 	greetingKey,
+	hasAnyData,
 	isDayKey,
 	isLevelUpBannerDay,
 	planTodayCards,
@@ -268,6 +269,9 @@ function NoActiveHabits() {
 	const actions = useActions();
 	const locale = useLocale();
 	const archived = useHabits({ archived: true });
+	// "Explore" replaces everything, so it is offered only on a blank slate
+	// (spec §5.1): tasks, identities or journal entries of the user's own stay safe.
+	const hasData = useAtomic((s) => hasAnyData(s.data));
 
 	if (archived.length) {
 		return (
@@ -310,9 +314,11 @@ function NoActiveHabits() {
 					</Button>
 				}
 				secondary={
-					<Button variant="link" size="sm" onClick={() => actions.loadDemoData(locale)}>
-						{t("onboarding.explore")}
-					</Button>
+					hasData ? undefined : (
+						<Button variant="link" size="sm" onClick={() => actions.loadDemoData(locale)}>
+							{t("onboarding.explore")}
+						</Button>
+					)
 				}
 			/>
 		</div>

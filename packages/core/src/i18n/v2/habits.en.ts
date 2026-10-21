@@ -35,6 +35,7 @@ export const habitsEn = {
 	"month.extraRepHint": "Counts toward this month's goal",
 	"month.cleanDays": "{count} of {total} days clean",
 	"month.cleanMonth": "Clean month",
+	"month.cleanMonths": "Clean months",
 	"month.slips.one": "{count} slip",
 	"month.slips.other": "{count} slips",
 	"month.chartLabel": "{month}: {progress}, {status}",
@@ -56,6 +57,7 @@ export const habitsEn = {
 	"levelUp.bodyFrequency":
 		"In {month} you beat your weekly quota in {above} of {total} weeks. Add one more day?",
 	"levelUp.evidence": "You beat {target} on {above} of {owed} days in {month}.",
+	"levelUp.edge": "Motivation peaks at the edge of your ability — raise the bar a little.",
 	"levelUp.evidenceWeekly": "You did more than {times} sessions in {weeks} of {total} weeks.",
 	"levelUp.raiseTo": "Raise to {count}",
 	"levelUp.raiseToUnit": "Raise to {count} {unit}",

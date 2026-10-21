@@ -320,7 +320,8 @@ export function breakdown(
 	format: (value: number) => string,
 ): SummaryBlock | null {
 	const kept = items.filter((item) => item.value > 0);
-	if (!kept.length) return null;
+	// Nothing to break down: no items, or only the unlabelled bucket ("No topic").
+	if (!kept.length || kept.every((item) => item.key === "none")) return null;
 	const total = kept.reduce((acc, item) => acc + item.value, 0);
 	// Plain code-unit order on ties: identical on web and Hermes (no `Intl`).
 	const sorted = [...kept].sort(

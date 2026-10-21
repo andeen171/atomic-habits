@@ -1,10 +1,13 @@
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
-import type { Habit, ShelfBook, SummaryBlock } from "@atomic/core";
+import { type Habit, type ShelfBook, type SummaryBlock, attachmentRefSchema } from "@atomic/core";
+import { useTrackerEntry } from "@atomic/core/react";
 import { BookOpen, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ProgressBar } from "../ui/progress-bar";
 import { BookDialog } from "./book-dialog";
+import { trackerCaps } from "./caps";
+import { PhotoThumb } from "./photo-thumb";
 
 type ShelfBlock = Extract<SummaryBlock, { kind: "shelf" }>;
 
@@ -143,12 +146,7 @@ function ReadingCard({
 			className="flex w-full flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 transition-colors hover:border-line-strong"
 		>
 			<span className="flex items-start gap-2.5">
-				<span
-					aria-hidden="true"
-					className="grid h-10 w-8 shrink-0 place-items-center rounded-sm bg-(--habit-soft) font-emoji text-sm"
-				>
-					📖
-				</span>
+				<BookCover id={book.id} />
 				<span className="min-w-0 flex-1">
 					<span className="line-clamp-2 block break-words font-medium text-ink text-small">
 						{book.title}
@@ -235,5 +233,26 @@ function FinishedRow({
 				</span>
 			) : null}
 		</Wrapper>
+	);
+}
+
+/** The book's cover photo, or 📖 when it has none (or this build has no photos). */
+function BookCover({ id }: { id: string }) {
+	const entry = useTrackerEntry(id);
+	const parsed = attachmentRefSchema.safeParse(entry?.data.cover);
+	if (parsed.success && trackerCaps().photos) {
+		return (
+			<span aria-hidden="true" className="w-8 shrink-0">
+				<PhotoThumb photo={parsed.data} alt="" ratio="2 / 3" className="rounded-sm" />
+			</span>
+		);
+	}
+	return (
+		<span
+			aria-hidden="true"
+			className="grid h-10 w-8 shrink-0 place-items-center rounded-sm bg-(--habit-soft) font-emoji text-sm"
+		>
+			📖
+		</span>
 	);
 }

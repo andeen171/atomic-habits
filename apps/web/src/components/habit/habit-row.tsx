@@ -60,7 +60,9 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 	const dayLine = useTrackerDayLine(trackerDay ? habit : undefined, day);
 	const isToday = day === today;
 	// Pace toward this month's goal ("+3 pages/day wins October"), today only (spec §5.2).
-	const month = useMonthGoal(!isBreak && isToday ? habit : undefined);
+	// Count habits only, like the row's "+1" (D11): for a once-a-day habit "+1 time/day" would
+	// ask for doubling every day, when a few extra reps anywhere in the month do it.
+	const month = useMonthGoal(counted && isToday ? habit : undefined);
 	const pace = month?.kind === "build" ? monthPaceHint(month, shown, today, t) : null;
 	// The visible "+1" once the target is met (D11): count habits whose extra reps count.
 	const showExtra = counted && !trackerDay && count >= target && canExceedTarget(habit);
@@ -110,8 +112,9 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 			return counted && count > 0 ? `${progressLabel(shown, count, t)} · ${weekLabel}` : weekLabel;
 		}
 		if (counted && (count > 0 || !habit.twoMinute)) return progressLabel(shown, count, t);
-		if (count === 0 && habit.twoMinute) return <span className="italic">{habit.twoMinute}</span>;
-		return item.identity ? item.identity.statement : null;
+		if (count === 0 && habit.twoMinute)
+			return <span className="italic">{text.habit(habit, "twoMinute")}</span>;
+		return item.identity ? text.identity(item.identity, "statement") : null;
 	})();
 
 	const ringLabel = isBreak

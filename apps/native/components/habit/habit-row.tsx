@@ -67,7 +67,9 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	const dayLine = useTrackerDayLine(trackerDay ? habit : undefined, day);
 	const isToday = day === today;
 	// Pace toward this month's goal ("+3 pages/day wins October"), today only (spec §5.2).
-	const month = useMonthGoal(!isBreak && isToday ? habit : undefined);
+	// Count habits only, like the row's "+1" (D11): for a once-a-day habit "+1 time/day" would
+	// ask for doubling every day, when a few extra reps anywhere in the month do it.
+	const month = useMonthGoal(counted && isToday ? habit : undefined);
 	const pace = month?.kind === "build" ? monthPaceHint(month, shown, today, t) : null;
 	// The visible "+1" once the target is met (D11): count habits whose extra reps count.
 	const showExtra =

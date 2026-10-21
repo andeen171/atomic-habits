@@ -27,10 +27,11 @@ describe("text", () => {
 		expect(collapseSpaces("  a \n\t b  c ")).toBe("a b c");
 	});
 
-	test("feature flags start off", () => {
+	// v2:T4 — milestones 4A and 4B shipped (spec §8.3): their flags are on; photos (4C) aren't yet.
+	test("feature flags match the shipped tracker milestones", () => {
 		expect(FEATURES).toEqual({
-			templateTrackers: false,
-			trackerPhaseB: false,
+			templateTrackers: true,
+			trackerPhaseB: true,
 			trackerPhotos: false,
 		});
 	});

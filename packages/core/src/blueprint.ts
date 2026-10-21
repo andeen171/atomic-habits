@@ -2,6 +2,7 @@ import { type Weekday, orderedWeekdays } from "./dates";
 import { type MessageKey, type PluralKey, type Translator, inSentence } from "./i18n";
 import { type Habit, type HabitKind, type Identity, timeSchema } from "./model";
 import type { HabitPatch } from "./store";
+import { capitalizeFirst } from "./text";
 import { knownTracker, trackerUnitKind } from "./trackers/meta";
 
 export interface BlueprintLine {
@@ -315,7 +316,8 @@ export function slotTitle(slot: BlueprintSlot, t: Translator): string {
 	if (slot.concept === "blueprint.concept.why") {
 		return t.t("blueprint.slot.whyValue", { why: inSentence(withoutGetTo(value)) });
 	}
-	return value;
+	// A title starts with a capital, even for words written to fit a sentence ("in bed").
+	return capitalizeFirst(value);
 }
 
 /** Column header: "law · stage" (inverse law names for break habits). */

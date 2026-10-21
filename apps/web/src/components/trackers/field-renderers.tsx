@@ -1,7 +1,9 @@
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import {
+	type AttachmentRef,
 	CURRENCIES,
+	type DayKey,
 	type FieldSpec,
 	type FormValue,
 	type ShelfBook,
@@ -16,6 +18,8 @@ import { type KeyboardEvent, type ReactNode, useId, useRef, useState } from "rea
 import { Combobox } from "../ui/combobox";
 import { controlClass } from "../ui/control";
 import { Textarea } from "../ui/field";
+import { trackerCaps } from "./caps";
+import { PhotoPicker } from "./photo-field";
 
 /**
  * One renderer per composer `FieldSpec` kind (Annex K §3.4, §4.1). Core
@@ -36,6 +40,14 @@ export interface FieldRendererProps {
 	onNewBook?(): void;
 	/** Read-only (archived habit). */
 	disabled?: boolean;
+	/** Large and centred: the one number the entry is about (a number log's value). */
+	hero?: boolean;
+	/** Takes focus when the composer opens (instead of the first field). */
+	autoFocus?: boolean;
+	/** The entry's day (photo alt text). */
+	day?: DayKey;
+	/** Photos are being prepared: the composer holds Save until they're in. */
+	onBusyChange?(busy: boolean): void;
 }
 
 export function FieldRenderer(props: FieldRendererProps) {
@@ -190,7 +202,11 @@ function MoneyField({ spec, value, onChange, error, disabled }: KindProps<"money
 							placeholder={placeholder}
 							value={asText(value)}
 							onChange={(event) => onChange(event.target.value)}
-							className="w-full min-w-0 max-w-[12ch] bg-transparent text-center font-display text-[2.75rem] text-ink tabular-nums leading-none outline-none placeholder:text-ink-subtle/70"
+							// Sized to its text, so the symbol stays next to the number as one centred group.
+							style={{
+								width: `${Math.max(asText(value).length, placeholder.length) + 0.5}ch`,
+							}}
+							className="min-w-[3ch] max-w-full bg-transparent text-center font-display text-[2.75rem] text-ink tabular-nums leading-none outline-none placeholder:text-ink-subtle/70"
 						/>
 					</div>
 				)}
@@ -265,13 +281,67 @@ function QuickChips({
 	);
 }
 
-function NumberInput({ spec, value, onChange, error, disabled }: KindProps<"number">) {
+function NumberInput({
+	spec,
+	value,
+	onChange,
+	error,
+	disabled,
+	hero,
+	autoFocus,
+}: KindProps<"number">) {
 	const { t } = useT();
 	const text = asText(value);
 	const add = (amount: number) => {
 		const current = parseDecimalInput(text) ?? 0;
 		onChange(plain(Math.min(spec.max, Math.max(spec.min, current + amount)), t.locale));
 	};
+	if (hero) {
+		const placeholder = spec.placeholder ?? "0";
+		return (
+			<FieldShell
+				spec={spec}
+				error={error}
+				labelExtra={spec.unit ? <span className="sr-only"> ({spec.unit})</span> : null}
+			>
+				{(ids) => (
+					<div
+						className={cn(
+							"flex h-20 items-center justify-center gap-2.5 rounded-xl border border-line bg-sunken/60 px-4 transition-[border-color,box-shadow,background-color] duration-(--atomic-duration-fast)",
+							"focus-within:border-accent focus-within:bg-surface focus-within:ring-3 focus-within:ring-accent/15",
+							ids.invalid && "border-danger",
+						)}
+					>
+						<input
+							id={ids.id}
+							data-autofocus=""
+							type="text"
+							inputMode={spec.decimals > 0 ? "decimal" : "numeric"}
+							autoComplete="off"
+							enterKeyHint="done"
+							disabled={disabled}
+							aria-describedby={ids.describedBy}
+							aria-invalid={ids.invalid}
+							placeholder={placeholder}
+							value={text}
+							onChange={(event) => onChange(event.target.value)}
+							// Sized to its text, so the unit stays beside the number as one centred group.
+							style={{ width: `${Math.max(text.length, placeholder.length) + 0.5}ch` }}
+							className="min-w-[2ch] max-w-full bg-transparent text-center font-display text-[2.75rem] text-ink tabular-nums leading-none outline-none placeholder:text-ink-subtle/70"
+						/>
+						{spec.unit ? (
+							<span
+								aria-hidden="true"
+								className="min-w-0 shrink truncate pt-2 text-[1.125rem] text-ink-muted"
+							>
+								{spec.unit}
+							</span>
+						) : null}
+					</div>
+				)}
+			</FieldShell>
+		);
+	}
 	return (
 		<FieldShell spec={spec} error={error}>
 			{(ids) => (
@@ -285,6 +355,7 @@ function NumberInput({ spec, value, onChange, error, disabled }: KindProps<"numb
 					>
 						<input
 							id={ids.id}
+							data-autofocus={autoFocus ? "" : undefined}
 							type="text"
 							inputMode={spec.decimals > 0 ? "decimal" : "numeric"}
 							autoComplete="off"
@@ -382,7 +453,7 @@ function DurationField({ spec, value, onChange, error, disabled }: KindProps<"du
 
 // ── Clock ─────────────────────────────────────────────────────────────────
 
-function ClockField({ spec, value, onChange, error, disabled }: KindProps<"clock">) {
+function ClockField({ spec, value, onChange, error, disabled, autoFocus }: KindProps<"clock">) {
 	const { t } = useT();
 	const text = asText(value);
 	const minutes = text ? parseClockInput(text) : null;
@@ -393,6 +464,7 @@ function ClockField({ spec, value, onChange, error, disabled }: KindProps<"clock
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
 					<input
 						id={ids.id}
+						data-autofocus={autoFocus ? "" : undefined}
 						type="time"
 						disabled={disabled}
 						aria-describedby={ids.describedBy}
@@ -479,7 +551,8 @@ function RadioChips({
 			aria-describedby={describedBy}
 			className={cn(
 				layout === "grid"
-					? "grid grid-cols-2 gap-1.5 md:grid-cols-4 min-[420px]:grid-cols-3"
+					? // As many columns as fit with whole words ("Subscriptions", "Assinaturas").
+						"grid grid-cols-[repeat(auto-fill,minmax(min(100%,8.75rem),1fr))] gap-1.5"
 					: layout === "row"
 						? "grid grid-cols-5 gap-1.5"
 						: "flex flex-wrap gap-1.5",
@@ -716,6 +789,7 @@ function LongTextField({ spec, value, onChange, error, disabled }: KindProps<"lo
 
 function LinesField({ spec, value, onChange, error, disabled }: KindProps<"lines">) {
 	const { t } = useT();
+	const refs = useRef<(HTMLInputElement | null)[]>([]);
 	const lines = Array.isArray(value) ? (value as string[]) : [];
 	const rows = Math.max(spec.rows ?? spec.min, lines.length, 1);
 	const shown = Array.from({ length: Math.min(spec.max, rows) }, (_, i) => lines[i] ?? "");
@@ -723,6 +797,20 @@ function LinesField({ spec, value, onChange, error, disabled }: KindProps<"lines
 		const next = [...shown];
 		next[index] = text;
 		onChange(next);
+	};
+	const focusLine = (index: number) => requestAnimationFrame(() => refs.current[index]?.focus());
+	const addLine = () => {
+		onChange([...shown, ""]);
+		focusLine(shown.length);
+	};
+	// Enter goes on to the next line, the way a list is written; the last line saves.
+	const onKeyDown = (event: KeyboardEvent<HTMLInputElement>, index: number) => {
+		if (event.key !== "Enter" || event.metaKey || event.ctrlKey || event.nativeEvent.isComposing)
+			return;
+		if (index < shown.length - 1) {
+			event.preventDefault();
+			refs.current[index + 1]?.focus();
+		}
 	};
 	return (
 		<FieldShell spec={spec} error={error} group>
@@ -736,21 +824,27 @@ function LinesField({ spec, value, onChange, error, disabled }: KindProps<"lines
 						>
 							<span
 								aria-hidden="true"
-								className="w-4 shrink-0 text-right text-ink-subtle text-small"
+								className="w-4 shrink-0 text-right text-ink-subtle text-small tabular-nums"
 							>
 								{index + 1}
 							</span>
 							<input
+								ref={(el) => {
+									refs.current[index] = el;
+								}}
 								type="text"
+								autoComplete="off"
+								enterKeyHint={index < shown.length - 1 ? "next" : "done"}
 								aria-label={`${spec.label} ${index + 1}`}
 								aria-describedby={ids.describedBy}
 								aria-invalid={ids.invalid}
 								maxLength={spec.itemMax}
 								disabled={disabled}
-								placeholder={spec.placeholder}
+								placeholder={index === 0 ? spec.placeholder : undefined}
 								value={line}
 								onChange={(event) => set(index, event.target.value)}
-								className={cn(controlClass, "h-11")}
+								onKeyDown={(event) => onKeyDown(event, index)}
+								className={cn(controlClass, "h-11 min-w-0 flex-1")}
 							/>
 						</div>
 					))}
@@ -758,8 +852,8 @@ function LinesField({ spec, value, onChange, error, disabled }: KindProps<"lines
 						<button
 							type="button"
 							disabled={disabled}
-							onClick={() => onChange([...shown, ""])}
-							className="inline-flex h-8 items-center gap-1.5 self-start rounded-full px-2 font-medium text-accent-text text-small hover:bg-accent-soft"
+							onClick={addLine}
+							className="ml-4 inline-flex h-8 pointer-coarse:h-10 items-center gap-1.5 self-start rounded-full px-2 font-medium text-accent-text text-small hover:bg-accent-soft"
 						>
 							<Plus className="size-4" aria-hidden="true" />
 							{t("tracker.addLine")}
@@ -826,16 +920,47 @@ function BookField({
 	);
 }
 
-function PhotosField({ spec }: KindProps<"photos">) {
+function PhotosField({
+	spec,
+	value,
+	onChange,
+	error,
+	disabled,
+	day,
+	onBusyChange,
+	autoFocus,
+}: KindProps<"photos">) {
 	const { t } = useT();
+	const photos = Array.isArray(value) ? (value as AttachmentRef[]) : [];
+	// No photos in this build (the artifact): say so instead of a picker.
+	if (!trackerCaps().photos) {
+		return (
+			<div className="flex min-w-0 flex-col gap-1.5">
+				<span className="font-medium text-ink text-small">{spec.label}</span>
+				<p className="flex items-center gap-2 rounded-lg bg-sunken/70 px-3 py-2.5 text-ink-muted text-small">
+					<ImageOff className="size-4 shrink-0" aria-hidden="true" />
+					{t("tracker.photosOff")}
+				</p>
+			</div>
+		);
+	}
 	return (
-		<div className="flex min-w-0 flex-col gap-1.5">
-			<span className="font-medium text-ink text-small">{spec.label}</span>
-			<p className="flex items-center gap-2 rounded-lg bg-sunken/70 px-3 py-2.5 text-ink-muted text-small">
-				<ImageOff className="size-4 shrink-0" aria-hidden="true" />
-				{t("tracker.photosOff")}
-			</p>
-		</div>
+		<FieldShell spec={spec} error={error} group>
+			{(ids) => (
+				<PhotoPicker
+					value={photos}
+					onChange={onChange}
+					max={spec.max}
+					day={day}
+					disabled={disabled}
+					labelId={ids.labelId}
+					describedBy={ids.describedBy}
+					invalid={ids.invalid}
+					onBusyChange={onBusyChange}
+					autoFocus={autoFocus}
+				/>
+			)}
+		</FieldShell>
 	);
 }
 
@@ -845,7 +970,7 @@ export function firstFocusable(root: HTMLElement | null): HTMLElement | null {
 	return (
 		root.querySelector<HTMLElement>("[data-autofocus]") ??
 		root.querySelector<HTMLElement>(
-			'input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [role="radio"][tabindex="0"]',
+			'input:not(:disabled):not([type="file"]), textarea:not(:disabled), select:not(:disabled), [role="radio"][tabindex="0"]',
 		)
 	);
 }

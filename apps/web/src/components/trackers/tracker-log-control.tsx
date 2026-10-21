@@ -2,7 +2,7 @@ import { useT } from "@/lib/messages";
 import { useTimerState } from "@/lib/timer-store";
 import { useUI } from "@/lib/ui";
 import { useTrackerActions } from "@/lib/use-tracker-actions";
-import { type Habit, dayState, targetOn, trackerActionLabel } from "@atomic/core";
+import { type Habit, circleStatus, dayState, targetOn, trackerActionLabel } from "@atomic/core";
 import {
 	useDayTrackerEntries,
 	useHabitLogs,
@@ -12,11 +12,13 @@ import {
 	useToday,
 	useTracker,
 	useTrackerDayLine,
+	useTrackerEntries,
 } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
 import { HabitRingGraphic } from "../habit/habit-ring";
 import { Button } from "../ui/button";
 import { TRACKER_ICONS } from "./tracker-icon";
+import { openComposerWith } from "./tracker-ui";
 import { useNothingToLog } from "./use-nothing-to-log";
 
 export interface TrackerLogControlProps {
@@ -41,6 +43,9 @@ export function TrackerLogControl({ habit }: TrackerLogControlProps) {
 	const tracker = useTracker(habit);
 	const logs = useHabitLogs(habit.id);
 	const entries = useDayTrackerEntries(habit.id, today);
+	const allEntries = useTrackerEntries(
+		tracker?.config.type === "connection" ? habit.id : undefined,
+	);
 	const dayLine = useTrackerDayLine(habit, today);
 	const wakePrompt = useSleepWakePrompt(habit);
 	const timer = useTimerState();
@@ -65,6 +70,13 @@ export function TrackerLogControl({ habit }: TrackerLogControlProps) {
 		type === "writing"
 			? entries.find((e) => e.type === "writing" && typeof e.data.text === "string")
 			: undefined;
+	const todaysPlan = type === "plan" ? entries.find((e) => e.type === "plan") : undefined;
+	// The circle member most overdue for a call, while nobody's been reached today.
+	const overdue =
+		tracker.config.type === "connection" && entries.length === 0
+			? circleStatus(tracker.config, allEntries, today, t).find((row) => row.overdueBy > 0)
+			: undefined;
+	const overduePerson = overdue?.name ?? null;
 	const name = text.habit(habit, "name");
 	const caption =
 		dayLine ??
@@ -93,6 +105,13 @@ export function TrackerLogControl({ habit }: TrackerLogControlProps) {
 			};
 		}
 		if (clockEntry) return null;
+		// Tomorrow's plan is written: the action opens it again to change it.
+		if (todaysPlan) {
+			return {
+				label: t("tracker.plan.edit"),
+				run: () => openEntryComposer({ habitId: habit.id, day: today, entryId: todaysPlan.id }),
+			};
+		}
 		return { label: trackerActionLabel(type, t), run: () => openTracker(habit, today) };
 	})();
 
@@ -114,6 +133,13 @@ export function TrackerLogControl({ habit }: TrackerLogControlProps) {
 			key: "edit",
 			label: t("common.edit"),
 			run: () => openEntryComposer({ habitId: habit.id, day: today, entryId: clockEntry.id }),
+		});
+	}
+	if (overduePerson) {
+		extras.push({
+			key: "reach",
+			label: t("tracker.connection.reachOut", { name: overduePerson }),
+			run: () => openComposerWith(habit.id, today, { person: overduePerson }),
 		});
 	}
 	if (tracker.def.allowsNone && entries.length === 0) {

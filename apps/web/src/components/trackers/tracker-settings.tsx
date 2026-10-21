@@ -689,8 +689,9 @@ function ConnectionSettings({ config, set }: SettingsProps<"connection">) {
 										circle: config.circle.map((p, i) => (i === index ? { ...p, every: value } : p)),
 									})
 								}
+								prefix={t("tracker.settings.everyPrefix")}
 								suffix={t("tracker.settings.everySuffix")}
-								className="h-9 w-28"
+								className="h-9 w-36"
 							/>
 							<button
 								type="button"
@@ -736,8 +737,9 @@ function ConnectionSettings({ config, set }: SettingsProps<"connection">) {
 					max={365}
 					onChange={setEvery}
 					placeholder="14"
+					prefix={t("tracker.settings.everyPrefix")}
 					suffix={t("tracker.settings.everySuffix")}
-					className="h-10 w-28"
+					className="h-10 w-36"
 				/>
 				<button
 					type="button"
@@ -782,7 +784,11 @@ function PlanSettings({ config, set }: SettingsProps<"plan">) {
 	const { t } = useT();
 	const id = useId();
 	return (
-		<Row label={t("tracker.settings.planSize")} htmlFor={id}>
+		<Row
+			label={t("tracker.settings.planSize")}
+			hint={t("tracker.settings.planSizeHint")}
+			htmlFor={id}
+		>
 			<NumberField
 				id={id}
 				value={config.size}
@@ -802,7 +808,11 @@ function MeasureSettings({ config, set }: SettingsProps<"measure">) {
 	const decimalsId = useId();
 	return (
 		<Stack>
-			<Row label={t("tracker.settings.unit")} htmlFor={unitId}>
+			<Row
+				label={t("tracker.settings.unit")}
+				hint={t("tracker.settings.unitHint")}
+				htmlFor={unitId}
+			>
 				<input
 					id={unitId}
 					type="text"
@@ -814,6 +824,7 @@ function MeasureSettings({ config, set }: SettingsProps<"measure">) {
 			</Row>
 			<Choice
 				label={t("tracker.settings.aggregate")}
+				hint={t("tracker.settings.aggregateHint")}
 				value={config.aggregate}
 				onChange={(aggregate) => set({ aggregate })}
 				options={[
@@ -848,18 +859,32 @@ function MeasureSettings({ config, set }: SettingsProps<"measure">) {
 
 function PhotoSettings({ config, set }: SettingsProps<"photo">) {
 	const { t } = useT();
+	const id = useId();
 	return (
 		<Stack>
 			<SwitchRow
 				label={t("tracker.photo.compare")}
+				hint={t("tracker.settings.compareHint")}
 				checked={config.compare}
 				onChange={(compare) => set({ compare })}
 			/>
 			<SwitchRow
 				label={t("tracker.settings.photoRequired")}
+				hint={t("tracker.settings.photoRequiredHint")}
 				checked={config.photoRequired}
 				onChange={(photoRequired) => set({ photoRequired })}
 			/>
+			<Row label={t("tracker.settings.captionPrompt")} htmlFor={id}>
+				<input
+					id={id}
+					type="text"
+					maxLength={160}
+					value={config.prompt ?? ""}
+					placeholder={t("tracker.photo.captionPlaceholder")}
+					onChange={(event) => set({ prompt: event.target.value || null })}
+					className={cn(controlClass, "h-11")}
+				/>
+			</Row>
 		</Stack>
 	);
 }

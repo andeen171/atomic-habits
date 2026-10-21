@@ -10,6 +10,7 @@ import {
 import { identityTemplates } from "../src/content";
 import { addDays, toDayKey } from "../src/dates";
 import { FEATURES } from "../src/flags";
+import { createTranslator } from "../src/i18n";
 import {
 	type Habit,
 	type HabitLog,
@@ -22,7 +23,12 @@ import { createMemoryStorage } from "../src/storage";
 import { type AtomicStore, type CommitEvent, createAtomicStore } from "../src/store";
 import { runSync } from "../src/sync-engine";
 import { clockMinutes, countWords, formatClock, nightOf } from "../src/trackers/format";
-import { MAX_DAY_COUNT, dayCountFor, pairsForHabit } from "../src/trackers/measure";
+import {
+	MAX_DAY_COUNT,
+	buildTrackerEntryIndex,
+	dayCountFor,
+	pairsForHabit,
+} from "../src/trackers/measure";
 import { normalizeTrackerEntry } from "../src/trackers/normalize";
 import { plannedLogs, reconcilePlan, reconcileWindow } from "../src/trackers/reconcile";
 import {
@@ -34,6 +40,7 @@ import {
 	trackerConfigSchema,
 	trackerEntrySchema,
 } from "../src/trackers/schema";
+import { trackerHeadline } from "../src/trackers/summary";
 import { fakeSyncServer, wire } from "./support/sync-server";
 
 /**
@@ -871,16 +878,24 @@ describe("demo (spec §3.1, §8.1)", () => {
 		const entries = Object.values(data.trackerEntries);
 		const tracked = Object.values(data.habits).filter((h) => h.tracker != null);
 		expect(tracked.map((h) => (h.tracker as { type: string }).type).sort()).toEqual([
+			"connection",
 			"expense",
 			"measure",
 			"photo",
 			"plan",
 			"reading",
 			"session",
+			"sleep",
 			"slip",
 			"workout",
 			"writing",
 		]);
+		// The circle has someone overdue, and last night still waits for its wake-up time.
+		const call = tracked.find((h) => (h.tracker as { type: string }).type === "connection");
+		expect((call?.tracker as { circle: unknown[] }).circle.length).toBe(3);
+		const index = buildTrackerEntryIndex(data.trackerEntries);
+		const headline = trackerHeadline(call as Habit, index, TODAY, createTranslator("pt-BR"));
+		expect(headline).toMatch(/^Vó: \d+ dias sem conversar$/);
 		for (const h of tracked) expect(entries.some((e) => e.habitId === h.id)).toBe(true);
 		expect(entries.some((e) => e.type === "none")).toBe(true);
 		expect(entries.some((e) => e.type === "book" && e.data.status === "finished")).toBe(true);

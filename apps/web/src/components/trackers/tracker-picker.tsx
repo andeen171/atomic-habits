@@ -20,7 +20,7 @@ import {
 import { useHabit } from "@atomic/core/react";
 import { useParams } from "@tanstack/react-router";
 import { Check, Info } from "lucide-react";
-import { useId } from "react";
+import { useId, useRef } from "react";
 import type { HabitDraft } from "../editor/draft";
 import type { DraftUpdate } from "../editor/editor-fields";
 import { deviceRegion, trackerCaps } from "./caps";
@@ -84,6 +84,10 @@ export function TrackerField({ draft, update }: TrackerFieldProps) {
 	const stored = useHabit(params.habitId);
 	const storedConfig = stored ? knownTracker(stored) : null;
 	const storedActive = !!storedConfig && storedConfig.enabled !== false;
+	// "Simple check-off" gives back the plain goal from before a tracker was picked here, else
+	// the goal the editor opened with (a stored tracker's own; the store then applies its detach rule).
+	const plainGoal = useRef<{ target: number; unit: string } | null>(null);
+	const openedGoal = useRef({ target: draft.target, unit: draft.unit });
 	if (!options.length) return null;
 
 	const config = draftTracker(draft.tracker);
@@ -96,9 +100,12 @@ export function TrackerField({ draft, update }: TrackerFieldProps) {
 			const base = draft.tracker ?? storedConfig;
 			update({
 				tracker: stored && base ? ({ ...base, enabled: false } as TrackerConfigInput) : null,
+				...(plainGoal.current ?? openedGoal.current),
 			});
+			plainGoal.current = null;
 			return;
 		}
+		if (selected === "simple") plainGoal.current = { target: draft.target, unit: draft.unit };
 		const next =
 			draft.tracker?.type === type
 				? (draftTracker({ ...draft.tracker, enabled: true } as TrackerConfigInput) as TrackerConfig)

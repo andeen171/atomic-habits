@@ -162,7 +162,7 @@ export function LevelUpCard({
 					</Text>
 					{banner ? null : (
 						<Text variant="small" tone="muted" style={styles.line}>
-							{copy.body}
+							{copy.why}
 						</Text>
 					)}
 				</View>

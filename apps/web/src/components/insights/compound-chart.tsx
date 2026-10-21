@@ -42,14 +42,17 @@ const PAD = { top: 22, bottom: 26 };
 /** Past this end value the y axis switches to a square-root scale (spec §5.5). */
 const SQRT_FROM = 8;
 /**
- * Minimum distance between the `same` and `worse` end points; the plot grows to
- * keep it, up to MAX_H (past ~1.6 years even √ can't separate 1× from 0.99ⁿ → 0).
+ * Minimum distance between the `same` and `worse` end points (spec §5.5). The
+ * plot grows to keep it, up to MAX_H; past that (journeys of ~1.5 years and
+ * more) the 0–1× band of the scale widens just enough instead.
  */
 const SAME_GAP = 16;
 /** Minimum distance between end labels (13px text). */
 const LABEL_GAP = 15;
 const TICK_GAP = 14;
 const MAX_H = 320;
+/** Below this chart width the hover readout can't sit beside the crosshair. */
+const COMPACT_READOUT_BELOW = 420;
 
 /** 1×, 10×, 20×, 40×, then doubling for journeys past a year. */
 function tickCandidates(maxY: number): number[] {
@@ -87,17 +90,27 @@ export function CompoundChart({
 	const fmt = (v: number) => `${t.number(v, 2)}×`;
 	const sqrt = end.better > SQRT_FROM;
 	const maxY = Math.max(2, end.better * 1.08);
-	/** Height fraction (0 at the baseline, 1 at the top) of a value. */
-	const frac = (v: number) => (sqrt ? Math.sqrt(Math.max(0, v) / maxY) : Math.max(0, v) / maxY);
+	/** The axis transform: √ for long journeys, else linear (g(0) = 0, g(1) = 1). */
+	const g = (v: number) => (sqrt ? Math.sqrt(Math.max(0, v)) : Math.max(0, v));
+	const gMax = g(maxY);
+	/** Share of the 0–1× band between 1× and today's 0.99ⁿ. */
+	const lowGap = Math.max(1 - g(end.worse), 1e-6);
 
 	const W = Math.max(240, width);
+	const compactReadout = W < COMPACT_READOUT_BELOW;
 	const baseH = clamp(Math.round(W * 0.42), 170, 250);
-	const sameGap = frac(1) - frac(end.worse);
 	const H = Math.min(
 		MAX_H,
-		Math.max(baseH, Math.ceil(SAME_GAP / Math.max(sameGap, 1e-6)) + PAD.top + PAD.bottom),
+		Math.max(baseH, Math.ceil((SAME_GAP * gMax) / lowGap) + PAD.top + PAD.bottom),
 	);
 	const plotH = H - PAD.top - PAD.bottom;
+	// Height share of the 0–1× band: 1/g(maxY) is the plain scale; when even
+	// MAX_H can't keep 1× and 0.99ⁿ SAME_GAP apart, the band widens to do it and
+	// the part above 1× shares the rest (every tick stays labelled).
+	const band = Math.min(0.5, Math.max(1 / gMax, SAME_GAP / (plotH * lowGap)));
+	/** Height fraction (0 at the baseline, 1 at the top) of a value. */
+	const frac = (v: number) =>
+		v <= 1 ? band * g(v) : band + ((1 - band) * (g(v) - 1)) / (gMax - 1);
 
 	const candidates = sqrt ? tickCandidates(maxY) : [];
 	const tickText = (v: number) => `${t.number(v)}×`;
@@ -360,7 +373,29 @@ export function CompoundChart({
 				<div style={{ height: 200 }} />
 			)}
 			{sqrt ? <p className="sr-only">{t("insights.compoundScale")}</p> : null}
-			{active != null && width > 0 ? (
+			{active != null && width > 0 && compactReadout ? (
+				// Narrow charts (phones): there's no room beside the crosshair, so a
+				// one-line readout docks over the top strip, above every point.
+				<div
+					aria-hidden="true"
+					className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-3 whitespace-nowrap rounded-md border border-line bg-surface px-2.5 py-1 shadow-pop"
+				>
+					<span className="font-semibold text-ink text-tiny">
+						{at("insights.journey", { count: t.number(active) })}
+					</span>
+					<span className="flex items-center gap-3">
+						{ORDER.map((key) => (
+							<span
+								key={key}
+								className="inline-flex items-center gap-1.5 font-semibold text-ink text-tiny tabular-nums"
+							>
+								<LineSwatch series={key} />
+								{fmt(SERIES[key].rate ** active)}
+							</span>
+						))}
+					</span>
+				</div>
+			) : active != null && width > 0 ? (
 				// Beside the crosshair at the top of the plot (it never hides the point
 				// being read, and never leaves the card at the top of a tall curve).
 				<div

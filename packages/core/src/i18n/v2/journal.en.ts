@@ -61,6 +61,18 @@ export const journalEn = {
 	"journal.privacy":
 		"Your journal lives on this device and syncs to your account when you're signed in. On the server it is not end-to-end encrypted — turn off Sync journal to keep it here. It is never sent to AI.",
 	"journal.card.label": "{kind}, {date}: {preview}",
+
+	// ── Journal page: toolbar, timeline and cards ──
+	"journal.filter.allHabits": "All habits",
+	"journal.clearSearch": "Clear search",
+	"journal.results.one": "{count} entry",
+	"journal.results.other": "{count} entries",
+	"journal.showMore": "Show more",
+	"journal.pinned.more": "+{count} more",
+	"journal.pinned.less": "Show less",
+	"journal.open": "Open",
+	"journal.dayNoteShort": "Day note",
+	"journal.values.open": "Open report",
 	"journal.pickKind": "What do you want to write?",
 	"journal.pickHabit": "Which habit?",
 	"journal.needsBuildHabit": "Needs a habit you're building",
@@ -74,6 +86,31 @@ export const journalEn = {
 	"journal.group.plan": "Plan",
 	"journal.group.reflect": "Reflect",
 	"journal.group.free": "Free",
+
+	// ── Editor: links, status and form helpers ──
+	"journal.aboutToday": "About today",
+	"journal.aboutYesterday": "About yesterday",
+	"journal.dateLabel": "The day this entry is about",
+	"journal.link.identity": "Identity",
+	"journal.link.habit": "Habit",
+	"journal.pickIdentity": "Choose an identity",
+	"journal.addIdentity": "Add an identity",
+	"journal.changeHabit": "Change habit",
+	"journal.charsLeft.one": "{count} character left",
+	"journal.charsLeft.other": "{count} characters left",
+	"journal.counter": "{count} of {max} characters",
+	"journal.noEligibleHabit": "Create a habit first, then come back to write this.",
+	"journal.plan.empty":
+		"Fill in when, where or what comes right before, and your plan appears here.",
+	"journal.plan.isHabitPlan": "This is the habit's plan ✓",
+	"journal.goldilocks.now": "Daily goal is now {target} ✓",
+	"journal.review.unit.week": "Week",
+	"journal.review.unit.month": "Month",
+	"journal.review.unit.year": "Year",
+	"journal.review.period": "Period",
+	"journal.contract.length": "Contract length",
+	"journal.contract.signature": "Signature",
+	"journal.contract.outcome": "Did you keep it?",
 
 	// ── Kinds (Annex J §1.1) ──
 	"journal.kind.evidence": "Evidence",
@@ -299,6 +336,9 @@ export const journalEn = {
 	"journal.nudge.evidence.body":
 		"You cast {votes} votes for “{identity}” this week. Write one down as proof.",
 	"journal.nudge.evidence.cta": "Write evidence",
+	"journal.nudge.dismissed": "We won't ask about this one again.",
+	"journal.nudge.contract.keptToast": "Contract kept. You did what you said you would.",
+	"journal.nudge.contract.brokenToast": "Noted. A broken contract is information, not a verdict.",
 
 	// ── Today banners and the perfect-day card ──
 	"journal.nmt.plan": "Plan the comeback",

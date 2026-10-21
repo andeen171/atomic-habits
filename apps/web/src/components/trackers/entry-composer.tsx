@@ -31,8 +31,8 @@ import {
 	useTrackerEntry,
 	useTrackerEntryIndex,
 } from "@atomic/core/react";
-import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, Trash } from "lucide-react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { ChevronDown, ImageOff, LoaderCircle, Trash } from "lucide-react";
 import {
 	type FormEvent,
 	type KeyboardEvent,
@@ -52,6 +52,7 @@ import { BookDialog } from "./book-dialog";
 import { trackerCaps } from "./caps";
 import { FieldRenderer, firstFocusable } from "./field-renderers";
 import { TrackerDialogsHost } from "./tracker-dialogs";
+import { useTrackerUI } from "./tracker-ui";
 import { useNothingToLog } from "./use-nothing-to-log";
 
 /** Events from the portaled dialog must not reach a clickable host row (React bubbles through portals). */
@@ -74,6 +75,14 @@ export function EntryComposerDialog() {
 	const shown = state ?? last.current;
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [round, setRound] = useState(0);
+	// Leaving the page (Back, a link in a toast) closes the composer instead of carrying it along.
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const lastPath = useRef(pathname);
+	useEffect(() => {
+		if (lastPath.current === pathname) return;
+		lastPath.current = pathname;
+		if (useUI.getState().entryComposer) close();
+	}, [pathname, close]);
 
 	return (
 		<>
@@ -117,10 +126,24 @@ interface ComposerFormProps {
 	contentRef: RefObject<HTMLDivElement | null>;
 }
 
-function ComposerForm({ state, onDone, onAgain, refocus, contentRef }: ComposerFormProps) {
+function ComposerForm({ state: opened, onDone, onAgain, refocus, contentRef }: ComposerFormProps) {
 	const { t } = useT();
-	const habit = useHabit(state.habitId);
+	const store = useAtomicStore();
+	const habit = useHabit(opened.habitId);
 	const tracker = useTracker(habit);
+	// One wake-up, bedtime or plan per day: "Add" on a day that has one edits it, so a
+	// second save never replaces it (a plan would drop its open tasks). Resolved once,
+	// so the form doesn't turn into "Edit" while it closes after saving.
+	const [state] = useState<EntryComposerState>(() => {
+		if (opened.entryId || !tracker) return opened;
+		const type = opened.type ?? tracker.def.primaryType;
+		if (type === "none" || !tracker.def.uniquePerDay.includes(type)) return opened;
+		const existing = trackerEntryIndexOf(store.getState().data.trackerEntries)
+			.byHabitDay.get(opened.habitId)
+			?.get(opened.day)
+			?.find((e) => e.type === type);
+		return existing ? { ...opened, entryId: existing.id } : opened;
+	});
 	const entry = useTrackerEntry(state.entryId);
 
 	if (!habit || !tracker || !tracker.active || habit.archivedAt) {
@@ -197,11 +220,21 @@ function ComposerFields({
 	const markNothing = useNothingToLog();
 	const formRef = useRef<HTMLFormElement>(null);
 	const moreId = useId();
+	const editing = !!entry;
 
 	// The form starts from a snapshot: later store changes don't overwrite what the user types.
-	const [values, setValues] = useState<FormValues>(initial);
+	// A prefill for this habit ("Log a connection with Grandma") fills its fields on top.
+	const [values, setValues] = useState<FormValues>(() => {
+		const prefill = editing ? null : useTrackerUI.getState().prefill;
+		return prefill?.habitId === habit.id ? { ...initial, ...prefill.values } : initial;
+	});
+	useEffect(() => {
+		if (useTrackerUI.getState().prefill) useTrackerUI.getState().setPrefill(null);
+	}, []);
 	const [errors, setErrors] = useState<Record<string, string>>({});
 	const [categoryTouched, setCategoryTouched] = useState(!!entry);
+	// Photos still being prepared: saving now would drop them.
+	const [photosBusy, setPhotosBusy] = useState(false);
 	const [bookOpen, setBookOpen] = useState(false);
 	const [markFinished, setMarkFinished] = useState(true);
 	const primary = specs.filter((spec) => spec.section === "primary");
@@ -216,7 +249,6 @@ function ComposerFields({
 	}, [refocus, contentRef]);
 
 	const name = text.habit(habit, "name");
-	const editing = !!entry;
 	const isExpense = type === "expense";
 	const isSlip = type === "slip";
 	const liveExpenses = dayEntries.some((e) => e.type === "expense");
@@ -310,6 +342,7 @@ function ComposerFields({
 	};
 
 	const save = (again: boolean) => {
+		if (photosBusy) return;
 		const result = formToData(specs, values, t);
 		if (!result.ok) {
 			setErrors(result.errors);
@@ -379,10 +412,35 @@ function ComposerFields({
 		}
 	};
 
+	// "I'm on page": the chosen book's bookmark as the hint ("150"), so the next number is obvious.
+	const bookmark = (() => {
+		if (type !== "reading" || typeof values.bookId !== "string") return null;
+		const book = books.find((b) => b.id === values.bookId);
+		return book && book.page > 0 && book.status !== "finished" ? book.page : null;
+	})();
+	// Opened to add last night's wake-up ("How did you sleep?"): start there, not at the bedtime.
+	const wakeFirst =
+		type === "sleep" &&
+		!!entry &&
+		typeof entry.data.wake !== "number" &&
+		specs.some((s) => s.key === "wake");
+	// A photo journal starts at the camera; a meal log (photo optional) at its caption.
+	// The tracker needs a photo and this build has none (artifact): nothing to fill in.
+	const blocked = specs.length === 0 && type === "photo";
+	const photoFirst =
+		type === "photo" && primary[0]?.kind === "photos" && primary[0].required === true;
 	const field = (spec: FieldSpec) => (
 		<FieldRenderer
 			key={spec.key}
-			spec={spec}
+			hero={type === "measure" && spec.key === "value"}
+			autoFocus={(wakeFirst && spec.key === "wake") || (photoFirst && spec === primary[0])}
+			day={state.day}
+			onBusyChange={spec.kind === "photos" ? setPhotosBusy : undefined}
+			spec={
+				spec.key === "toPage" && spec.kind === "number" && bookmark !== null
+					? { ...spec, placeholder: t.number(bookmark) }
+					: spec
+			}
 			value={values[spec.key]}
 			onChange={(value) => setValue(spec, value)}
 			error={errors[spec.key]}
@@ -411,6 +469,12 @@ function ComposerFields({
 				description={description}
 			/>
 			<DialogBody className="flex flex-col gap-5">
+				{blocked ? (
+					<p className="flex items-start gap-2 rounded-lg bg-sunken/70 px-3.5 py-3 text-ink-muted text-small">
+						<ImageOff aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+						{t("tracker.photo.requiredOff")}
+					</p>
+				) : null}
 				{primary.map(field)}
 				{finishing ? (
 					<div className="flex items-center justify-between gap-3 rounded-lg bg-accent-soft px-3.5 py-3">
@@ -455,7 +519,7 @@ function ComposerFields({
 							<span className="h-px flex-1 bg-line" />
 						</div>
 						<Button variant="soft" onClick={noSpend} className="w-full">
-							{t("tracker.expense.noSpend")}
+							{state.day === today ? t("tracker.expense.noSpend") : t("tracker.expense.noSpendDay")}
 						</Button>
 					</div>
 				) : null}
@@ -473,11 +537,25 @@ function ComposerFields({
 					</Button>
 				) : null}
 				{isExpense && !editing ? (
-					<Button variant="secondary" onClick={() => save(true)}>
+					<Button variant="secondary" disabled={photosBusy} onClick={() => save(true)}>
 						{t("tracker.saveAndAdd")}
 					</Button>
 				) : null}
-				<Button type="submit">{t("tracker.save")}</Button>
+				{!blocked ? (
+					<Button type="submit" disabled={photosBusy}>
+						{photosBusy ? (
+							<LoaderCircle
+								aria-hidden="true"
+								className="animate-spin motion-reduce:animate-none"
+							/>
+						) : null}
+						{photosBusy ? t("tracker.photo.preparing") : t("tracker.save")}
+					</Button>
+				) : (
+					<Button variant="secondary" onClick={onDone}>
+						{t("common.close")}
+					</Button>
+				)}
 			</DialogFooter>
 			{type === "reading" ? (
 				<BookDialog

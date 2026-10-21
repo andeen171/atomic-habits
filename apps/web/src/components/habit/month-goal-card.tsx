@@ -236,7 +236,9 @@ function MonthsStrip({ habit, months }: { habit: Habit; months: MonthProgress[] 
 	return (
 		<div className="mt-5 border-line border-t pt-4">
 			<div className="flex items-baseline justify-between gap-3">
-				<h3 className="section-label">{t("month.won")}</h3>
+				<h3 className="section-label">
+					{t(habit.kind === "break" ? "month.cleanMonths" : "month.won")}
+				</h3>
 				{total > 0 ? (
 					<span className="text-ink-muted text-small tabular-nums">
 						{t("month.wonCount", { won: t.number(won), total: t.number(total) })}

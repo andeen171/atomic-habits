@@ -1,17 +1,42 @@
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import type { Habit, Period, StatItem, SummaryBlock, Tone } from "@atomic/core";
+import {
+	type GalleryPhoto,
+	type Habit,
+	type Period,
+	type StatItem,
+	type SummaryBlock,
+	type Tone,
+	diffDays,
+	knownTracker,
+	photoAlt,
+} from "@atomic/core";
 import { useActions, useAtomicStore, useToday, useTrackerHeadline } from "@atomic/core/react";
-import { AlertTriangle, ChevronRight, CircleCheck, ImageOff, Info } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+	AlertTriangle,
+	Check,
+	ChevronRight,
+	CircleCheck,
+	Columns2,
+	ImageOff,
+	Info,
+	Plus,
+} from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { toast } from "sonner";
+import { Button } from "../ui/button";
 import { ProgressBar, type ProgressTone } from "../ui/progress-bar";
+import { trackerCaps } from "./caps";
 import { TrackerChart } from "./charts";
+import { PhotoThumb } from "./photo-thumb";
 import { Shelf } from "./shelf";
+import { type ViewerPhoto, openComposerWith, useTrackerUI } from "./tracker-ui";
 
 /**
  * Renders a tracker summary's blocks (Annex K §3.5, §4.1): stat tiles,
- * charts, breakdowns, the expense budget, lists, notes and the reading shelf.
+ * charts, breakdowns, the expense budget, lists, notes, the reading shelf,
+ * and a photo journal's gallery and then-and-now pair.
  * Everything arrives translated and formatted from core; this only lays it
  * out. Lists and stat tones never rely on colour alone (their text says
  * "less", "over budget"…, and warnings carry an icon). Owner: T4.
@@ -25,8 +50,14 @@ export interface SummaryBlocksProps {
 }
 
 export function SummaryBlocks({ habit, blocks, period, editable }: SummaryBlocksProps) {
+	// Full-width blocks first (stats, budget, plan, shelf, then and now, the gallery), then charts.
 	const isLead = (b: SummaryBlock) =>
-		b.kind === "stats" || b.kind === "progress" || b.kind === "shelf";
+		b.kind === "plan" ||
+		b.kind === "stats" ||
+		b.kind === "progress" ||
+		b.kind === "shelf" ||
+		b.kind === "compare" ||
+		b.kind === "gallery";
 	const lead = blocks.filter(isLead);
 	const charts = blocks.filter((b) => b.kind === "chart");
 	const rest = blocks.filter((b) => !isLead(b) && b.kind !== "chart");
@@ -82,8 +113,17 @@ function Block({
 		case "plan":
 			return <PlanBlock block={block} editable={editable} />;
 		case "gallery":
+			return trackerCaps().photos ? (
+				<GalleryBlock habit={habit} block={block} />
+			) : (
+				<PhotosOffBlock title={block.title} />
+			);
 		case "compare":
-			return <PhotosOffBlock title={block.title} />;
+			return trackerCaps().photos ? (
+				<CompareBlock habit={habit} block={block} />
+			) : (
+				<PhotosOffBlock title={block.title} />
+			);
 	}
 }
 
@@ -116,19 +156,38 @@ export const toneText: Record<Tone, string> = {
 
 // ── Stats ─────────────────────────────────────────────────────────────────
 
+/** Columns by tile count, so no row ends with a lone tile (5 → 3 + 2, then one row of 5). */
+function statColumns(count: number): string {
+	if (count === 5) return "grid-cols-2 @lg:grid-cols-3 @3xl:grid-cols-5";
+	if (count === 3 || count === 6) return "grid-cols-2 @lg:grid-cols-3";
+	return "grid-cols-2 @xl:grid-cols-4";
+}
+
 function StatsBlock({ items }: { items: readonly StatItem[] }) {
 	return (
-		<dl className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3">
+		<div className="@container">
+			<StatGrid items={items} />
+		</div>
+	);
+}
+
+function StatGrid({ items }: { items: readonly StatItem[] }) {
+	return (
+		<dl className={cn("grid @xl:gap-3 gap-2.5", statColumns(items.length))}>
 			{items.map((item) => (
 				<div
 					key={item.id}
-					className="flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-3.5 py-3"
+					className="@container flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-3.5 py-3"
 				>
 					<dt className="section-label line-clamp-2 break-words">{item.label}</dt>
+					{/* Never broken mid-number ("R$ 442,5|0"): sized to the tile instead, h2 at most. */}
 					<dd
+						title={item.value}
 						className={cn(
-							"break-words font-semibold text-ink tabular-nums leading-tight",
-							item.value.length > 10 ? "text-h3" : "text-h2",
+							"overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-ink tabular-nums leading-tight",
+							item.value.length > 10
+								? "text-[length:clamp(0.9375rem,12cqi,1.0625rem)]"
+								: "text-[length:clamp(1rem,16cqi,1.375rem)]",
 						)}
 					>
 						{item.value}
@@ -260,6 +319,8 @@ function ListBlock({
 	block: Extract<SummaryBlock, { kind: "list" }>;
 	editable: boolean;
 }) {
+	const { t } = useT();
+	const today = useToday();
 	const openEntryComposer = useUI((s) => s.openEntryComposer);
 	const store = useAtomicStore();
 	const edit = (entryId: string) => {
@@ -268,6 +329,10 @@ function ListBlock({
 			openEntryComposer({ habitId: habit.id, day: entry.date, entryId });
 		}
 	};
+	// "Your circle": a person's row logs a connection with them (the nudge becomes the action).
+	const config = knownTracker(habit);
+	const circle = block.id === "circle" && config?.type === "connection" ? config.circle : null;
+	const personOf = (id: string) => circle?.[Number(id.slice(id.indexOf(":") + 1))]?.name ?? null;
 	return (
 		<BlockSection title={block.title}>
 			{block.items.length ? (
@@ -303,9 +368,23 @@ function ListBlock({
 								) : null}
 							</>
 						);
+						const person = editable && !item.entryId ? personOf(item.id) : null;
 						return (
 							<li key={item.id}>
-								{editable && item.entryId ? (
+								{person ? (
+									<button
+										type="button"
+										onClick={() => openComposerWith(habit.id, today, { person })}
+										aria-label={`${t("tracker.connection.logWith", { name: person })} · ${item.secondary ?? ""}`}
+										className="group flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-hover"
+									>
+										{content}
+										<Plus
+											aria-hidden="true"
+											className="mt-0.5 size-4 shrink-0 text-ink-subtle group-hover:text-ink"
+										/>
+									</button>
+								) : editable && item.entryId ? (
 									<button
 										type="button"
 										onClick={() => item.entryId && edit(item.entryId)}
@@ -353,36 +432,75 @@ function PlanBlock({
 	block: Extract<SummaryBlock, { kind: "plan" }>;
 	editable: boolean;
 }) {
+	const { t } = useT();
 	const actions = useActions();
+	const store = useAtomicStore();
+	const done = block.items.filter((item) => item.done).length;
+	// The plan's lines are tasks: checking one off here completes the task, with Undo.
+	const toggle = (taskId: string, wasDone: boolean) => {
+		const task = store.getState().data.tasks[taskId];
+		if (!task || task.deletedAt) {
+			toast(t("tracker.plan.taskGone"));
+			return;
+		}
+		actions.toggleTask(taskId);
+		if (!wasDone) {
+			toast(t("tasks.completed"), {
+				action: { label: t("common.undo"), onClick: () => actions.toggleTask(taskId) },
+			});
+		}
+	};
 	return (
-		<BlockSection title={block.title}>
-			<ul className="flex flex-col gap-1.5">
+		<section className="flex min-w-0 flex-col gap-3 rounded-xl bg-sunken/60 p-4 md:p-5">
+			<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+				<h3 className="section-label">{block.title}</h3>
+				<span className="text-ink-muted text-small tabular-nums">
+					{t("tracker.plan.doneOf", {
+						count: t.number(done),
+						total: t.number(block.items.length),
+					})}
+				</span>
+			</div>
+			<ul className="flex flex-col gap-1">
 				{block.items.map((item, index) => (
 					<li
 						// biome-ignore lint/suspicious/noArrayIndexKey: plan lines are ordered and may repeat.
 						key={index}
-						className="flex items-start gap-2.5 text-small"
+						className="flex items-start gap-3"
 					>
 						{item.taskId && editable ? (
-							<input
-								type="checkbox"
-								checked={item.done}
-								onChange={() => item.taskId && actions.toggleTask(item.taskId)}
+							<button
+								type="button"
+								// biome-ignore lint/a11y/useSemanticElements: styled like the task checkbox, with full ARIA state.
+								role="checkbox"
+								aria-checked={item.done}
 								aria-label={item.text}
-								className="mt-0.5 size-4 shrink-0 accent-(--accent)"
-							/>
+								onClick={() => item.taskId && toggle(item.taskId, item.done)}
+								className="-m-[11px] md:-m-[5px] grid size-11 shrink-0 place-items-center rounded-full md:size-8"
+							>
+								<span
+									className={cn(
+										"grid size-[22px] place-items-center rounded-full border-[1.5px] transition-colors duration-(--atomic-duration-fast)",
+										item.done
+											? "border-success bg-success text-surface"
+											: "border-line-strong hover:border-ink-subtle",
+									)}
+								>
+									{item.done ? <Check className="size-3.5" strokeWidth={3} /> : null}
+								</span>
+							</button>
 						) : (
 							<CircleCheck
 								aria-hidden="true"
 								className={cn(
-									"mt-0.5 size-4 shrink-0",
+									"size-[22px] shrink-0",
 									item.done ? "text-success" : "text-ink-subtle",
 								)}
 							/>
 						)}
 						<span
 							className={cn(
-								"min-w-0 break-words",
+								"min-w-0 break-words pt-px text-body",
 								item.done ? "text-ink-muted line-through" : "text-ink",
 							)}
 						>
@@ -391,6 +509,154 @@ function PlanBlock({
 					</li>
 				))}
 			</ul>
+		</section>
+	);
+}
+
+// ── Photos ────────────────────────────────────────────────────────────────
+
+/** Photos shown before "See all". */
+const GALLERY_LIMIT = 12;
+
+const viewerPhoto = (photo: GalleryPhoto): ViewerPhoto => ({
+	ref: photo.ref,
+	day: photo.day,
+	caption: photo.caption,
+	entryId: photo.entryId,
+});
+
+/** The period's photos, newest first; each opens the viewer on the whole set. */
+function GalleryBlock({
+	habit,
+	block,
+}: {
+	habit: Habit;
+	block: Extract<SummaryBlock, { kind: "gallery" }>;
+}) {
+	const { t } = useT();
+	const openViewer = useTrackerUI((s) => s.openViewer);
+	const [expanded, setExpanded] = useState(false);
+	const total = block.photos.length;
+	const shown = expanded ? block.photos : block.photos.slice(0, GALLERY_LIMIT);
+	const open = (index: number) =>
+		openViewer({
+			mode: "photos",
+			habitId: habit.id,
+			photos: block.photos.map(viewerPhoto),
+			index,
+		});
+	return (
+		<BlockSection
+			title={block.title}
+			action={
+				total > GALLERY_LIMIT ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-expanded={expanded}
+						onClick={() => setExpanded((v) => !v)}
+					>
+						{expanded ? t("tracker.showLess") : `${t("common.seeAll")} · ${t.number(total)}`}
+					</Button>
+				) : null
+			}
+		>
+			<div className="@container">
+				<ul className="grid @2xl:grid-cols-6 @md:grid-cols-4 grid-cols-3 gap-1.5">
+					{shown.map((photo, index) => {
+						const alt = photoAlt(
+							photo.ref,
+							{ date: photo.day, data: { caption: photo.caption } },
+							t,
+						);
+						const label = `${t("tracker.photo.open", {
+							index: t.number(index + 1),
+							total: t.number(total),
+						})} · ${t.formatDayShort(photo.day)}`;
+						return (
+							<li key={`${photo.entryId}:${photo.ref.hash}`}>
+								<PhotoThumb
+									photo={photo.ref}
+									alt={alt}
+									label={`${label} · ${alt}`}
+									caption={t.formatDayShort(photo.day)}
+									verbose
+									onClick={() => open(index)}
+								/>
+							</li>
+						);
+					})}
+				</ul>
+			</div>
+		</BlockSection>
+	);
+}
+
+/** Then and now (progress photo): the first photo beside the latest, with the days between. */
+function CompareBlock({
+	habit,
+	block,
+}: {
+	habit: Habit;
+	block: Extract<SummaryBlock, { kind: "compare" }>;
+}) {
+	const { t } = useT();
+	const openViewer = useTrackerUI((s) => s.openViewer);
+	const days = Math.max(0, diffDays(block.after.day, block.before.day));
+	const open = () =>
+		openViewer({
+			mode: "compare",
+			habitId: habit.id,
+			before: viewerPhoto(block.before),
+			after: viewerPhoto(block.after),
+		});
+	const pairs = [
+		["tracker.photo.then", block.before],
+		["tracker.photo.now", block.after],
+	] as const;
+	return (
+		<BlockSection
+			title={block.title}
+			action={
+				<Button variant="ghost" size="sm" onClick={open}>
+					<Columns2 />
+					{t("tracker.photo.compareAction")}
+				</Button>
+			}
+		>
+			<div className="flex flex-col gap-2.5">
+				<div className="grid max-w-md grid-cols-2 gap-2.5">
+					{pairs.map(([key, photo]) => {
+						const day = t.formatDayShort(photo.day);
+						const alt = photoAlt(
+							photo.ref,
+							{ date: photo.day, data: { caption: photo.caption } },
+							t,
+						);
+						return (
+							<figure key={key} className="flex min-w-0 flex-col gap-1.5">
+								<PhotoThumb
+									photo={photo.ref}
+									alt={alt}
+									label={`${t(key)} · ${day} · ${alt}`}
+									variant="full"
+									ratio="3 / 4"
+									verbose
+									onClick={open}
+									className="rounded-lg"
+								/>
+								<figcaption className="text-small">
+									<span className="font-semibold text-ink">{t(key)}</span>
+									<span className="text-ink-muted"> · {day}</span>
+								</figcaption>
+							</figure>
+						);
+					})}
+				</div>
+				{days > 0 ? (
+					<p className="text-ink-muted text-small">{t.tp("tracker.photo.progressDays", days)}</p>
+				) : null}
+			</div>
 		</BlockSection>
 	);
 }

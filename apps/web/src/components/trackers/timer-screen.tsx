@@ -188,6 +188,30 @@ function TimerBody({
 	const showFinish = !!mine && (finishing || timeUp);
 	useWakeLock(running && !timeUp);
 
+	// Each phase swaps its controls; when the focused one goes with them, focus the new
+	// phase's main control (Start, Pause/Resume, the note) instead of dropping to the page.
+	const phase = !mine ? "ready" : showFinish ? "finish" : "running";
+	const startRef = useRef<HTMLButtonElement>(null);
+	const toggleRef = useRef<HTMLButtonElement>(null);
+	const noteRef = useRef<HTMLTextAreaElement>(null);
+	const firstPhase = useRef(true);
+	useEffect(() => {
+		if (firstPhase.current) {
+			firstPhase.current = false;
+			return;
+		}
+		const focused = document.activeElement;
+		if (focused && focused !== document.body && focused.id !== "main" && focused.isConnected)
+			return;
+		const target =
+			phase === "ready"
+				? startRef.current
+				: phase === "running"
+					? toggleRef.current
+					: noteRef.current;
+		target?.focus({ preventScroll: true });
+	}, [phase]);
+
 	// Time's up arrives while the screen is open: say so once.
 	useEffect(() => {
 		if (!timeUp || !mine) return;
@@ -259,6 +283,18 @@ function TimerBody({
 		setNote("");
 		toast(t("tracker.session.discarded"), { description: name });
 		announce(t("tracker.session.discarded"));
+		// The confirm dialog hands focus back to "Discard", which is gone by then: once it has
+		// closed, Start takes it.
+		let tries = 0;
+		const refocus = () => {
+			if (document.querySelector('[role="alertdialog"]') && tries++ < 20) {
+				window.setTimeout(refocus, 50);
+				return;
+			}
+			const focused = document.activeElement;
+			if (!focused || focused === document.body || focused.id === "main") startRef.current?.focus();
+		};
+		window.setTimeout(refocus, 50);
 	};
 
 	// Space starts or pauses, Enter finishes, Esc goes back (the timer keeps running).
@@ -298,12 +334,14 @@ function TimerBody({
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
-	// The ring: a countdown empties; a stopwatch sweeps once a minute.
-	const progress = mine
-		? view?.remainingMs !== null && view?.remainingMs !== undefined && mine.presetSec
-			? view.remainingMs / (mine.presetSec * 1000)
-			: ((view?.elapsedMs ?? 0) % 60_000) / 60_000
-		: 1;
+	// The ring: a countdown empties; a stopwatch sweeps once a minute; time's up closes it in the accent.
+	const progress = timeUp
+		? 1
+		: mine
+			? view?.remainingMs !== null && view?.remainingMs !== undefined && mine.presetSec
+				? view.remainingMs / (mine.presetSec * 1000)
+				: ((view?.elapsedMs ?? 0) % 60_000) / 60_000
+			: 1;
 	const clock = mine
 		? (view?.clock ?? "00:00")
 		: formatTimerClock(mode === "countdown" ? minutes * 60_000 : 0);
@@ -428,6 +466,7 @@ function TimerBody({
 									: t("tracker.note")}
 						</label>
 						<Textarea
+							ref={noteRef}
 							id={noteId}
 							autoGrow
 							minRows={2}
@@ -463,12 +502,24 @@ function TimerBody({
 				<div className="flex w-full max-w-md flex-col items-center gap-4">
 					<div className="flex items-center gap-3">
 						{running ? (
-							<Button size="lg" variant="secondary" onClick={pause} className="min-w-32">
+							<Button
+								ref={toggleRef}
+								size="lg"
+								variant="secondary"
+								onClick={pause}
+								className="min-w-32"
+							>
 								<Pause />
 								{t("tracker.session.pause")}
 							</Button>
 						) : (
-							<Button size="lg" variant="secondary" onClick={resume} className="min-w-32">
+							<Button
+								ref={toggleRef}
+								size="lg"
+								variant="secondary"
+								onClick={resume}
+								className="min-w-32"
+							>
 								<Play />
 								{t("tracker.session.resume")}
 							</Button>
@@ -491,7 +542,7 @@ function TimerBody({
 					<div className="flex flex-col gap-2">
 						<ToggleGroup<"countdown" | "stopwatch">
 							type="single"
-							label={t("tracker.session.length")}
+							label={t("tracker.session.mode")}
 							value={mode}
 							onChange={(next) => next && setMode(next)}
 							options={[
@@ -557,7 +608,13 @@ function TimerBody({
 							</Button>
 						</div>
 					</div>
-					<Button size="lg" onClick={start} disabled={!!other} className="mx-auto min-w-44">
+					<Button
+						ref={startRef}
+						size="lg"
+						onClick={start}
+						disabled={!!other}
+						className="mx-auto min-w-44"
+					>
 						<Play />
 						{t("tracker.session.start")}
 					</Button>

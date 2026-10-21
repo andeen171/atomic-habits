@@ -599,8 +599,8 @@ describe("connection (Annex K §1.8.9)", () => {
 		const s = summarize(habit(config), entries);
 		const circle = block(s, "circle", "list").items;
 		expect(circle.map((c) => [c.primary, c.secondary, c.tone])).toEqual([
-			["👵 Vovó", "Vovó: 19 days since you talked", "warning"],
-			["🌻 Ana", "Ana: 5 days since you talked", "warning"],
+			["👵 Vovó", "19 days since you talked", "warning"],
+			["🌻 Ana", "5 days since you talked", "warning"],
 			["🎸 Bob", "2 days ago", undefined],
 			["🧢 Carl", "Not yet", undefined],
 		]);
@@ -816,8 +816,17 @@ describe("photo (Annex K §1.8.11, spec §2.3)", () => {
 		]);
 		expect(trackerDayLine(meals, indexOf(entries), TODAY, TODAY, en)).toBe("Broccoli and rice");
 		expect(trackerHeadline(meals, indexOf(entries), TODAY, pt)).toBe("2 dias registrados este mês");
-		// With photos on, the photo count shows only once there are photos.
+		// With photos on, the photo count shows only once there are photos; captions are still listed.
 		expect(statOf(photosOn(meals, entries), "photos")).toBeUndefined();
+		expect(block(photosOn(meals, entries), "notes", "list").items).toHaveLength(2);
+		// A caption that came with a photo shows with the photo (gallery, viewer), not in the notes.
+		const withPhoto = [
+			...entries,
+			entry("2026-10-19", "photo", { photos: [ref("f")], caption: "Soup" }),
+		];
+		expect(
+			block(photosOn(meals, withPhoto), "notes", "list").items.map((i) => i.primary),
+		).not.toContain("Soup");
 	});
 });
 

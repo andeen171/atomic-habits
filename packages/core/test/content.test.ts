@@ -297,8 +297,11 @@ describe("habits catalog (Annex H §7, spec §7)", () => {
 		expect(ptBR["blueprint.board.fillNext"]).toBe("Preencher o próximo");
 		expect(ptBR["habits.freedom"]).toBe("Liberdade");
 		expect(en["principle.eyebrow"]).toBe("From the book");
-		expect(ptBR["month.paceHint"]).toBe("+{amount}/dia vence {month}");
-		expect(ptBR["insights.monthsWon"]).toBe("Meses vencidos");
+		// QA amendment of spec §7: "vence"/"vencidos" also read as "expires"/"expired" in
+		// Portuguese, so these follow `month.catchUp` ("garantem") and `month.won` ("conquistados").
+		expect(ptBR["month.paceHint"]).toBe("+{amount}/dia garante {month}");
+		expect(ptBR["insights.monthsWon"]).toBe("Meses conquistados");
+		expect(ptBR["insights.monthsWon"]).toBe(ptBR["month.won"]);
 	});
 
 	test("concept labels of spec §5.3 in both languages", () => {

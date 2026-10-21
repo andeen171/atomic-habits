@@ -63,11 +63,12 @@ export function MonthBars({ habit, goal, className }: MonthBarsProps) {
 		status: t(`month.status.${goal.status}`),
 	});
 
-	// Day numbers every week (1, 8, 15, 22, 29); week starts for weekly habits.
+	// Day numbers every week (1, 8, 15, 22, 29); week starts for weekly habits. A span that
+	// starts mid-month labels its first day, and a weekly tick too close to it is left out.
 	const tickLabel = (p: MonthPeriod, i: number): string | null => {
 		if (weekly) return t.formatDayShort(p.start);
 		const day = parseDayKey(p.start).getDate();
-		return i === 0 || day % 7 === 1 ? String(day) : null;
+		return i === 0 || (day % 7 === 1 && i >= 3) ? String(day) : null;
 	};
 
 	const activePeriod = active === null ? undefined : periods[active];

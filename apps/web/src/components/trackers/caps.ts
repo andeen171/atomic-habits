@@ -15,19 +15,23 @@ const preview = String(import.meta.env.VITE_FEATURES ?? "")
 	.filter((flag): flag is FeatureFlag => flag in FEATURES);
 for (const flag of preview) FEATURES[flag] = true;
 
+/** This browser can keep photos: IndexedDB and WebCrypto (not on plain-http LAN origins), not the artifact. */
+const photoPlatform =
+	!isArtifactBuild &&
+	typeof indexedDB !== "undefined" &&
+	typeof crypto !== "undefined" &&
+	!!crypto.subtle;
+
+// Where photos can't work, the templates and demo habits built on them (progress photo,
+// the meal log) aren't offered either (spec §1.3): the core flag follows the platform.
+if (!photoPlatform) FEATURES.trackerPhotos = false;
+
 /**
  * Photos need the 4C flag, IndexedDB and WebCrypto, and never ship in the
  * artifact build (spec §1.3, §5.8).
  */
 export function trackerCaps(): { photos: boolean } {
-	return {
-		photos:
-			FEATURES.trackerPhotos &&
-			!isArtifactBuild &&
-			typeof indexedDB !== "undefined" &&
-			typeof crypto !== "undefined" &&
-			!!crypto.subtle,
-	};
+	return { photos: FEATURES.trackerPhotos && photoPlatform };
 }
 
 /** The device's region for currency defaults ("BR" from "pt-BR"), or null. */

@@ -52,6 +52,18 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.privacy":
 		"Seu diário fica neste dispositivo e sincroniza com sua conta quando você está conectado. No servidor ele não tem criptografia de ponta a ponta — desative Sincronizar diário para mantê-lo aqui. Ele nunca é enviado para IA.",
 	"journal.card.label": "{kind}, {date}: {preview}",
+
+	// ── Journal page: toolbar, timeline and cards ──
+	"journal.filter.allHabits": "Todos os hábitos",
+	"journal.clearSearch": "Limpar busca",
+	"journal.results.one": "{count} entrada",
+	"journal.results.other": "{count} entradas",
+	"journal.showMore": "Mostrar mais",
+	"journal.pinned.more": "+{count} outras",
+	"journal.pinned.less": "Mostrar menos",
+	"journal.open": "Abrir",
+	"journal.dayNoteShort": "Nota do dia",
+	"journal.values.open": "Abrir relatório",
 	"journal.pickKind": "O que você quer escrever?",
 	"journal.pickHabit": "Qual hábito?",
 	"journal.needsBuildHabit": "Precisa de um hábito que você está construindo",
@@ -65,6 +77,30 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.group.plan": "Planejar",
 	"journal.group.reflect": "Refletir",
 	"journal.group.free": "Livre",
+
+	// ── Editor: vínculos, status e ajudas ──
+	"journal.aboutToday": "Sobre hoje",
+	"journal.aboutYesterday": "Sobre ontem",
+	"journal.dateLabel": "O dia de que esta entrada trata",
+	"journal.link.identity": "Identidade",
+	"journal.link.habit": "Hábito",
+	"journal.pickIdentity": "Escolha uma identidade",
+	"journal.addIdentity": "Adicionar uma identidade",
+	"journal.changeHabit": "Trocar de hábito",
+	"journal.charsLeft.one": "Resta {count} caractere",
+	"journal.charsLeft.other": "Restam {count} caracteres",
+	"journal.counter": "{count} de {max} caracteres",
+	"journal.noEligibleHabit": "Crie um hábito primeiro e depois volte para escrever isto.",
+	"journal.plan.empty": "Preencha quando, onde ou o que vem logo antes, e seu plano aparece aqui.",
+	"journal.plan.isHabitPlan": "Este é o plano do hábito ✓",
+	"journal.goldilocks.now": "A meta diária agora é {target} ✓",
+	"journal.review.unit.week": "Semana",
+	"journal.review.unit.month": "Mês",
+	"journal.review.unit.year": "Ano",
+	"journal.review.period": "Período",
+	"journal.contract.length": "Duração do contrato",
+	"journal.contract.signature": "Assinatura",
+	"journal.contract.outcome": "Você cumpriu?",
 
 	// ── Tipos (Anexo J §1.1) ──
 	"journal.kind.evidence": "Evidência",
@@ -300,6 +336,9 @@ export const journalPtBR: Record<keyof typeof journalEn, string> = {
 	"journal.nudge.evidence.body":
 		"Você deu {votes} votos em “{identity}” esta semana. Anote um deles como prova.",
 	"journal.nudge.evidence.cta": "Escrever evidência",
+	"journal.nudge.dismissed": "Não vamos mais perguntar sobre isso.",
+	"journal.nudge.contract.keptToast": "Contrato cumprido. Você fez o que disse que faria.",
+	"journal.nudge.contract.brokenToast": "Anotado. Um contrato quebrado é informação, não sentença.",
 
 	// ── Avisos de Hoje e o card de dia perfeito ──
 	"journal.nmt.plan": "Planejar a retomada",

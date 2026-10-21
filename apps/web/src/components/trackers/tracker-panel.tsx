@@ -96,11 +96,8 @@ function SummaryPanel({ habit, tracker }: { habit: Habit; tracker: TrackerInfo }
 						</p>
 					</div>
 				</div>
-				{editable ? (
-					<Button size="sm" onClick={() => openTracker(habit, today)} className="shrink-0">
-						{trackerActionLabel(type, t)}
-					</Button>
-				) : !tracker.active && !habit.archivedAt ? (
+				{/* Logging lives in the hero right above (TrackerLogControl); a switched-off tracker can come back. */}
+				{!tracker.active && !habit.archivedAt ? (
 					<Button size="sm" variant="secondary" onClick={reenable} className="shrink-0">
 						<Power />
 						{t("tracker.reenable", { tracker: name })}
@@ -158,7 +155,8 @@ function SummaryPanel({ habit, tracker }: { habit: Habit; tracker: TrackerInfo }
 						{tracker.def.emoji}
 					</span>
 					<p className="max-w-sm text-balance text-ink-muted">{summary.emptyText}</p>
-					{editable && controls.canNext === false ? (
+					{/* A clean period on a break habit is the goal, not a gap to fill: no "I slipped" here. */}
+					{editable && controls.canNext === false && habit.kind !== "break" ? (
 						<Button size="sm" variant="soft" onClick={() => openTracker(habit, today)}>
 							{trackerActionLabel(type, t)}
 						</Button>

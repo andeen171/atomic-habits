@@ -657,7 +657,8 @@ export function monthAmount(habit: Habit, count: number, t: Translator): string 
 	const kind = config?.enabled !== false ? trackerUnitKind(habit) : null;
 	if (kind && kind !== "value") return t.tp(`tracker.unit.${kind}` as PluralKey, count);
 	const unit = unitWord(habit, t);
-	return unit ? `${t.number(count)} ${unit}` : t.number(count);
+	// Habits without a unit count times ("13 times to go", "1 time ahead of pace").
+	return unit ? `${t.number(count)} ${unit}` : t.tp("common.times", count);
 }
 
 /** "October" / "outubro": the month's name for a sentence. */
@@ -752,7 +753,10 @@ export function monthWonToast(
 }
 
 export interface LevelUpCopy {
+	/** The evidence and the rule in one sentence pair (kept for older surfaces). */
 	body: string;
+	/** The rule without the numbers, to follow `evidence` on the card: "Motivation peaks at the edge…". */
+	why: string;
 	/** "You beat 10 pages on 24 of 30 days in September." */
 	evidence: string;
 	/** The accept button: "Raise to 12 pages" / "Make it 4× a week". */
@@ -768,6 +772,7 @@ export function levelUpCopy(s: LevelUpSuggestion, habit: Habit, t: Translator): 
 		const weekly = "weeks" in s.evidence ? s.evidence : { weeksAbove: s.above, weeks: s.of };
 		return {
 			body: t.t("levelUp.bodyFrequency", { month, above: s.above, total: s.of }),
+			why: t.t("levelUp.edge"),
 			evidence: t.t("levelUp.evidenceWeekly", {
 				times: s.from,
 				weeks: weekly.weeksAbove,
@@ -781,6 +786,7 @@ export function levelUpCopy(s: LevelUpSuggestion, habit: Habit, t: Translator): 
 	const daily = "owed" in s.evidence ? s.evidence : { above: s.above, owed: s.of };
 	return {
 		body: t.t("levelUp.bodyTarget", { month, above: s.above, total: s.of }),
+		why: t.t("levelUp.edge"),
 		evidence: t.t("levelUp.evidence", {
 			target: monthAmount(habit, s.from, t),
 			above: daily.above,

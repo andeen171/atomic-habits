@@ -74,6 +74,13 @@ function DayEntries({ habit, day, onClose }: { habit: Habit; day: DayKey; onClos
 	const { openTracker } = useTrackerActions();
 	const markNothing = useNothingToLog();
 	const editable = !!tracker?.active && !habit.archivedAt;
+	// One wake-up, bedtime or plan per day: once it's there, its row edits it and "Add" goes.
+	const primary = tracker?.def.primaryType;
+	const full =
+		!!primary &&
+		!!tracker?.def.uniquePerDay.includes(primary) &&
+		listed.some((e) => e.type === primary);
+	const noSpend = !!tracker?.def.allowsNone && listed.length === 0;
 
 	const add = () => {
 		onClose();
@@ -101,13 +108,15 @@ function DayEntries({ habit, day, onClose }: { habit: Habit; day: DayKey; onClos
 					))}
 				</ul>
 			) : null}
-			{editable ? (
+			{editable && (!full || listed.length === 0) ? (
 				<div className="flex flex-wrap items-center gap-2 border-line border-t px-3 py-2.5">
-					<Button size="sm" onClick={add}>
-						<Plus />
-						{t("common.add")}
-					</Button>
-					{tracker?.def.allowsNone && listed.length === 0 ? (
+					{full ? null : (
+						<Button size="sm" onClick={add}>
+							<Plus />
+							{t("common.add")}
+						</Button>
+					)}
+					{noSpend ? (
 						<Button
 							size="sm"
 							variant="secondary"

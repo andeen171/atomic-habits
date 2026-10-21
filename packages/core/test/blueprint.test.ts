@@ -85,6 +85,11 @@ describe("blueprint slots", () => {
 		);
 		expect(ptWhy && slotTitle(ptWhy, ptT)).toBe("Eu tenho a oportunidade de ler");
 		expect(slotTitle(slot("reward"), enT)).toBe("Immediate reward");
+		// Raw values written to fit a sentence still read as titles.
+		const place = blueprintSlots(habit({ cueLocation: "in bed" })).find(
+			(s) => s.field === "cueLocation",
+		);
+		expect(place && slotTitle(place, enT)).toBe("In bed");
 	});
 
 	test("law headings use inverse names for break habits", () => {

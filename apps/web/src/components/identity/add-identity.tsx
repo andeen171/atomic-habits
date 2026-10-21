@@ -3,6 +3,7 @@ import { identityTemplates } from "@atomic/core";
 import { useActions, useIdentities, useLocale } from "@atomic/core/react";
 import { Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
+import { AiSuggest } from "../ai/ai-suggest";
 import { Button } from "../ui/button";
 import { SmartInput } from "../ui/smart-input";
 
@@ -36,6 +37,12 @@ export function AddIdentity() {
 					aria-label={t("identity.add")}
 					placeholder={t("identity.placeholder")}
 					onChange={(event) => setStatement(event.target.value)}
+				/>
+				<AiSuggest
+					kind="identity.statement"
+					label={t("identity.add")}
+					input={() => ({ goal: statement.trim() })}
+					onPick={setStatement}
 				/>
 				<Button type="submit" disabled={!statement.trim()} className="h-11">
 					<Plus />

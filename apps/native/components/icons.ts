@@ -81,3 +81,36 @@ export { default as X } from "lucide-react-native/icons/x";
 // v2:T2 setup tasks: "Make it a task" and the Paused group (Annex T §5.4).
 export { default as CirclePause } from "lucide-react-native/icons/circle-pause";
 export { default as ListPlus } from "lucide-react-native/icons/list-plus";
+// v2:T4 trackers: tracker icons, the session timer and the writing pad (Annex K §5).
+export { default as Ban } from "lucide-react-native/icons/ban";
+export { default as CloudOff } from "lucide-react-native/icons/cloud-off";
+export { default as Dumbbell } from "lucide-react-native/icons/dumbbell";
+export { default as FilePlus } from "lucide-react-native/icons/file-plus";
+export { default as Hash } from "lucide-react-native/icons/hash";
+export { default as HeartHandshake } from "lucide-react-native/icons/heart-handshake";
+export { default as Moon } from "lucide-react-native/icons/moon";
+export { default as Pause } from "lucide-react-native/icons/pause";
+export { default as Play } from "lucide-react-native/icons/play";
+export { default as Power } from "lucide-react-native/icons/power";
+export { default as Settings2 } from "lucide-react-native/icons/settings-2";
+export { default as Square } from "lucide-react-native/icons/square";
+export { default as Sunrise } from "lucide-react-native/icons/sunrise";
+export { default as ToggleLeft } from "lucide-react-native/icons/toggle-left";
+export { default as Wind } from "lucide-react-native/icons/wind";
+// v2:T4 photos (4C): add a photo, the then-and-now view, and the "not on this device" placeholders.
+export { default as CloudDownload } from "lucide-react-native/icons/cloud-download";
+export { default as Columns2 } from "lucide-react-native/icons/columns-2";
+export { default as ImagePlus } from "lucide-react-native/icons/image-plus";
+export { default as MonitorSmartphone } from "lucide-react-native/icons/monitor-smartphone";
+// v2:T3 journal editor: pin/unpin, the contract's signature and lock, plan and check-in marks (Annex J §5);
+// timeline: the review period pill and the "Day notes" filter.
+export { default as CalendarRange } from "lucide-react-native/icons/calendar-range";
+export { default as EyeOff } from "lucide-react-native/icons/eye-off";
+export { default as Feather } from "lucide-react-native/icons/feather";
+export { default as Link2 } from "lucide-react-native/icons/link-2";
+export { default as Lock } from "lucide-react-native/icons/lock";
+export { default as NotebookText } from "lucide-react-native/icons/notebook-text";
+export { default as PinOff } from "lucide-react-native/icons/pin-off";
+export { default as Signature } from "lucide-react-native/icons/signature";
+export { default as Target } from "lucide-react-native/icons/target";
+export { default as TrendingDown } from "lucide-react-native/icons/trending-down";

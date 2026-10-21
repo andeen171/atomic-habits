@@ -82,7 +82,7 @@ export function MonthBars({ habit, goal, style }: MonthBarsProps) {
 	const tickLabel = (p: MonthPeriod, i: number): string | null => {
 		if (weekly) return t.formatDayShort(p.start);
 		const day = parseDayKey(p.start).getDate();
-		return i === 0 || day % 7 === 1 ? String(day) : null;
+		return i === 0 || (day % 7 === 1 && i >= 3) ? String(day) : null;
 	};
 
 	const describe = (p: MonthPeriod): string => {

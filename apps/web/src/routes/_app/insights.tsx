@@ -60,6 +60,8 @@ function InsightsScreen() {
 	const monthsWon = useMonthsWon(range);
 
 	if (!habits.length) {
+		// Nothing logged yet, but the book's two big ideas already apply: the
+		// 1% chart as a 30-day "what if", and the plateau without a personal line.
 		return (
 			<Page width="default">
 				<PageHeader title={t("insights.title")} subtitle={t("insights.subtitle")} />
@@ -77,6 +79,8 @@ function InsightsScreen() {
 						}
 					/>
 				</div>
+				<CompoundCard journeyDays={0} />
+				<PlateauCard className="mt-6" journeyDays={0} totalVotes={0} showProgress={false} />
 			</Page>
 		);
 	}
@@ -166,36 +170,49 @@ function MonthsWonTile({ won, total }: { won: number; total: number }) {
 						<span className="sr-only">{t("month.wonCount", { won, total })}</span>
 					</>
 				) : (
-					<span className="text-ink-muted">—</span>
+					<>
+						<span aria-hidden="true" className="text-ink-muted">
+							—
+						</span>
+						<span className="sr-only">{t("month.wonCount", { won: 0, total: 0 })}</span>
+					</>
 				)
 			}
 		/>
 	);
 }
 
+/**
+ * The three futures (Annex H §1.4): the book's line, a three-item legend and
+ * the chart. With no journey yet (no habits, or the first one started today)
+ * it reads as a 30-day "what if" instead of "0 days … 1.00×".
+ */
 function CompoundCard({ journeyDays }: { journeyDays: number }) {
 	const { t, at } = useT();
 	const days = Math.max(30, journeyDays);
-	const end = compounding(journeyDays);
+	const started = journeyDays > 0;
+	const end = compounding(started ? journeyDays : days);
 	// The copy template already carries the "×"; two decimals like the book ("37.78").
-	const fmt = (v: number) => t.number(v, 2);
+	const params = {
+		days: t.tp("common.days", started ? journeyDays : days),
+		better: t.number(end.better, 2),
+		worse: t.number(end.worse, 2),
+	};
 	return (
 		<Card className="mt-6 overflow-hidden">
 			<div className="grid grid-cols-1 gap-6 p-5 md:p-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-center">
 				<div>
 					<h2 className="font-display text-ink text-title">{t("insights.compoundTitle")}</h2>
 					<p className="mt-2 text-ink-muted">
-						{t("insights.compoundBody", {
-							days: t.tp("common.days", journeyDays),
-							better: fmt(end.better),
-							worse: fmt(end.worse),
-						})}
+						{started
+							? t("insights.compoundBody", params)
+							: at("insights.compoundHypothetical", params)}
 					</p>
 					<CompoundLegend className="mt-4" />
 				</div>
 				<CompoundChart
 					days={days}
-					marker={journeyDays}
+					marker={started ? journeyDays : undefined}
 					markerLabel={at("insights.journey", { count: t.number(journeyDays) })}
 				/>
 			</div>

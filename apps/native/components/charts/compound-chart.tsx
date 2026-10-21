@@ -50,9 +50,9 @@ const PAD = { top: 22, bottom: 26 };
 /** Past this end value the y axis switches to a square-root scale (spec §5.5). */
 const SQRT_FROM = 8;
 /**
- * Minimum distance between the `same` and `worse` end points; the plot grows
- * to keep it, up to MAX_H (past ~1.6 years even √ can't separate 1× from
- * 0.99ⁿ → 0; the dash pattern keeps the two lines apart there).
+ * Minimum distance between the `same` and `worse` end points (spec §5.5). The
+ * plot grows to keep it, up to MAX_H; past that (journeys of ~1.5 years and
+ * more) the 0–1× band of the scale widens just enough instead.
  */
 const SAME_GAP = 16;
 /** Minimum distance between end labels (13pt text). */
@@ -127,16 +127,25 @@ export function CompoundChart({
 	const g = useMemo(() => {
 		if (!width) return null;
 		const maxY = Math.max(2, end.better * 1.08);
-		/** Height fraction (0 at the baseline, 1 at the top) of a value. */
-		const frac = (v: number) => (sqrt ? Math.sqrt(Math.max(0, v) / maxY) : Math.max(0, v) / maxY);
+		/** The axis transform: √ for long journeys, else linear (scale(0) = 0, scale(1) = 1). */
+		const scale = (v: number) => (sqrt ? Math.sqrt(Math.max(0, v)) : Math.max(0, v));
+		const scaleMax = scale(maxY);
+		/** Share of the 0–1× band between 1× and the last day's 0.99ⁿ. */
+		const lowGap = Math.max(1 - scale(end.worse), 1e-6);
 		const W = Math.max(240, width);
 		const baseH = height ?? clamp(Math.round(W * 0.5), 180, 250);
-		const sameGap = frac(1) - frac(end.worse);
 		const H = Math.min(
 			MAX_H,
-			Math.max(baseH, Math.ceil(SAME_GAP / Math.max(sameGap, 1e-6)) + PAD.top + PAD.bottom),
+			Math.max(baseH, Math.ceil((SAME_GAP * scaleMax) / lowGap) + PAD.top + PAD.bottom),
 		);
 		const plotH = H - PAD.top - PAD.bottom;
+		// Height share of the 0–1× band: 1/scale(maxY) is the plain scale. When
+		// even MAX_H can't keep 1× and 0.99ⁿ SAME_GAP apart, the band widens to do
+		// it and the part above 1× shares the rest (as on web).
+		const band = Math.min(0.5, Math.max(1 / scaleMax, SAME_GAP / (plotH * lowGap)));
+		/** Height fraction (0 at the baseline, 1 at the top) of a value. */
+		const frac = (v: number) =>
+			v <= 1 ? band * scale(v) : band + ((1 - band) * (scale(v) - 1)) / (scaleMax - 1);
 
 		const candidates = sqrt ? tickCandidates(maxY) : [];
 		const tickText = (v: number) => `${t.number(v)}×`;

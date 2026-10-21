@@ -261,7 +261,7 @@ export default function InsightsScreen() {
 			<StrongestCard items={strongest} breakingFree={breakingFree} style={styles.block} />
 
 			<SectionLabel>{t.t("insights.yearTitle")}</SectionLabel>
-			<Card padding={16} style={styles.block}>
+			<Card padding={16} style={styles.block} testID="year-card">
 				<Heatmap
 					end={today}
 					weeks={53}
@@ -285,8 +285,8 @@ export default function InsightsScreen() {
 /**
  * "Months won" (D62): monthly goals of build habits reached in the range —
  * complete months, plus the current month once it's won. "3/5" on screen,
- * "3 of 5" to screen readers; "—" when no month can count yet. Matches
- * `StatTile`, whose value is a plain string.
+ * "3 of 5" to screen readers; "—" ("0 of 0" spoken) when no month can count
+ * yet. Mirrors `StatTile`, whose value is a plain string.
  */
 function MonthsWonTile({
 	won,
@@ -298,7 +298,7 @@ function MonthsWonTile({
 	const styles = useStyles();
 	const label = t.t("insights.monthsWon");
 	const hint = t.t("insights.monthsWonHint");
-	const spoken = total ? t.t("month.wonCount", { won, total }) : "—";
+	const spoken = t.t("month.wonCount", { won, total });
 	return (
 		<View
 			style={styles.tile}

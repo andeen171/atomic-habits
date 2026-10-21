@@ -20,7 +20,9 @@ export interface FeatureFlags {
 export type FeatureFlag = keyof FeatureFlags;
 
 export const FEATURES: FeatureFlags = {
-	templateTrackers: false,
-	trackerPhaseB: false,
+	// 4A and 4B shipped on web and native: template habits come with their trackers,
+	// and `plan` and `measure` are offered.
+	templateTrackers: true,
+	trackerPhaseB: true,
 	trackerPhotos: false,
 };

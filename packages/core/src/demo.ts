@@ -169,6 +169,20 @@ function flaggedPlans(): DemoHabitPlan[] {
 			forceDone: 2,
 		});
 	}
+	if (FEATURES.templateTrackers) {
+		// Present and healthy get a tracker habit too: the circle (one person overdue) and bedtimes.
+		plans.push(
+			{ template: "call", identity: "present", startOffset: 70, from: 0.3, to: 0.45, forceDone: 1 },
+			{
+				template: "sleep",
+				identity: "healthy",
+				startOffset: 45,
+				from: 0.75,
+				to: 0.9,
+				forceDone: 1,
+			},
+		);
+	}
 	return plans;
 }
 
@@ -299,6 +313,7 @@ export function buildDemoData({
 		Object.assign(data.trackerEntries, tracked.trackerEntries);
 		Object.assign(data.logs, tracked.logs);
 		Object.assign(data.tasks, tracked.tasks);
+		Object.assign(data.habits, tracked.habits);
 	}
 
 	const notes =

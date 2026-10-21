@@ -1,7 +1,4 @@
-import { EmptyState } from "@/components/empty-state";
-import { Screen } from "@/components/ui/screen";
-import { useT } from "@/lib/i18n";
-import { useHabit } from "@atomic/core/react";
+import { TimerScreen } from "@/components/trackers/timer-screen";
 import { useLocalSearchParams } from "expo-router";
 
 /** Route params (Annex K §5.2). */
@@ -13,15 +10,11 @@ export type HabitTimerParams = {
 
 /**
  * The session timer (Annex K §5.2): keep-awake, the `timer:<habitId>`
- * notification, its own channel. Owner: T4. Phase 1B: a placeholder.
+ * notification on its own channel, wall-clock state that survives an app
+ * kill. Owner: T4.
  */
 export default function HabitTimerScreen() {
-	const t = useT();
-	const { id } = useLocalSearchParams<HabitTimerParams>();
-	const habit = useHabit(id);
-	return (
-		<Screen back title={habit?.name} testID="habit-timer">
-			<EmptyState title={t.t("app.comingSoon")} body={t.t("app.comingSoonBody")} />
-		</Screen>
-	);
+	const { id, day } = useLocalSearchParams<HabitTimerParams>();
+	const valid = typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : undefined;
+	return <TimerScreen habitId={String(id ?? "")} day={valid} />;
 }

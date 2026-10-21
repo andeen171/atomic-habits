@@ -105,7 +105,7 @@ export function LevelUpCard({
 		<div
 			className={cn(
 				"flex flex-wrap items-center gap-2",
-				banner ? "justify-end md:shrink-0 md:flex-nowrap" : "mt-4",
+				banner ? "@2xl:shrink-0 @2xl:flex-nowrap justify-end" : "mt-4",
 			)}
 		>
 			<Button variant="ghost" size="sm" onClick={dismiss}>
@@ -120,27 +120,31 @@ export function LevelUpCard({
 
 	if (banner) {
 		return (
+			// One row only when the column is wide enough (a container query: beside the
+			// tasks rail the main column is narrower than the viewport suggests).
 			<section
 				aria-labelledby={titleId}
 				style={style}
 				className={cn(
-					"flex animate-fade-in flex-col gap-3 rounded-xl border border-accent/25 bg-gradient-to-r from-accent-soft/55 to-surface p-4 shadow-card md:flex-row md:items-center md:gap-4 md:p-5",
+					"@container animate-fade-in rounded-xl border border-accent/25 bg-gradient-to-r from-accent-soft/55 to-surface p-4 shadow-card md:p-5",
 					className,
 				)}
 			>
-				<div className="flex min-w-0 flex-1 gap-3.5">
-					{icon}
-					<div className="min-w-0">
-						<p className="font-semibold text-ink-muted text-tiny uppercase tracking-[0.08em]">
-							{t("levelUp.eyebrow")}
-						</p>
-						<h2 id={titleId} className="mt-0.5 break-words font-semibold text-ink leading-snug">
-							{t("levelUp.banner", { habit: name })}
-						</h2>
-						<p className="mt-0.5 text-pretty text-ink-muted text-small">{copy.evidence}</p>
+				<div className="flex @2xl:flex-row flex-col @2xl:items-center @2xl:gap-4 gap-3">
+					<div className="flex min-w-0 flex-1 gap-3.5">
+						{icon}
+						<div className="min-w-0">
+							<p className="font-semibold text-ink-muted text-tiny uppercase tracking-[0.08em]">
+								{t("levelUp.eyebrow")}
+							</p>
+							<h2 id={titleId} className="mt-0.5 break-words font-semibold text-ink leading-snug">
+								{t("levelUp.banner", { habit: name })}
+							</h2>
+							<p className="mt-0.5 text-pretty text-ink-muted text-small">{copy.evidence}</p>
+						</div>
 					</div>
+					{buttons}
 				</div>
-				{buttons}
 			</section>
 		);
 	}
@@ -164,7 +168,7 @@ export function LevelUpCard({
 						{t("levelUp.title")}
 					</h2>
 					<p className="mt-1.5 max-w-xl font-medium text-ink text-small">{copy.evidence}</p>
-					<p className="mt-1 max-w-xl text-ink-muted text-small">{copy.body}</p>
+					<p className="mt-1 max-w-xl text-ink-muted text-small">{copy.why}</p>
 					{buttons}
 					<Link
 						to="/journal/new"

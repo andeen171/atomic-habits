@@ -1,23 +1,40 @@
+import { displayHabit } from "@/components/habit/display-habit";
+import {
+	JournalEditor,
+	JournalFrame,
+	useCloseJournal,
+	useFocusHeadingOnMount,
+} from "@/components/journal/journal-editor";
+import { JournalHabitPicker, JournalKindPicker } from "@/components/journal/kind-picker";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { IconButton } from "@/components/ui/icon-button";
 import { useT } from "@/lib/messages";
 import {
 	type DayKey,
+	type Habit,
+	JOURNAL_KIND_SPECS,
 	type JournalKind,
+	type MessageKey,
 	type ReviewScope,
 	isDayKey,
 	isJournalKind,
+	journalEligibleHabits,
+	journalKindUnavailable,
+	newJournalDraft,
+	slipPrefill,
 	toDayKey,
 } from "@atomic/core";
 import {
-	Link,
-	createFileRoute,
-	useCanGoBack,
-	useNavigate,
-	useRouter,
-} from "@tanstack/react-router";
-import { X } from "lucide-react";
+	useAtomic,
+	useHabits,
+	useIdentities,
+	useText,
+	useToday,
+	useTrackerEntryIndex,
+} from "@atomic/core/react";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, Plus } from "lucide-react";
+import { useRef, useState } from "react";
 
 /** Prefills of a new entry (Annex J §1.4, §4). Without `kind`, the kind picker shows. */
 export interface NewJournalSearch {
@@ -51,46 +68,161 @@ export const Route = createFileRoute("/journal/new")({
 });
 
 /**
- * New journal entry, outside the shell like the habit editor (Annex J §4):
- * the kind picker, the habit step when the kind needs one, then the editor
- * keyed by the search. Owner: T3. Phase 1B: a placeholder.
+ * A new journal entry, outside the shell like the habit editor (Annex J §4):
+ * the kind picker, then the habit step when the kind needs a habit and none
+ * was given, then the editor with the kind's prefills. Each step replaces
+ * the previous one in history, so Back leaves the flow. Owner: T3.
  */
 function NewJournalEntryScreen() {
+	const search = Route.useSearch();
+	if (!search.kind) return <KindStep search={search} />;
+	return <KindFlow kind={search.kind} search={search} />;
+}
+
+function KindStep({ search }: { search: NewJournalSearch }) {
 	const { t } = useT();
-	const router = useRouter();
-	const canGoBack = useCanGoBack();
 	const navigate = useNavigate();
-	const close = () => {
-		if (canGoBack) router.history.back();
-		else void navigate({ to: "/journal" });
-	};
+	const close = useCloseJournal();
+	const ref = useRef<HTMLDivElement>(null);
+	useFocusHeadingOnMount(ref);
 	return (
-		<div className="flex min-h-dvh flex-col">
-			<header className="sticky top-0 z-20 border-line border-b bg-bg/85 backdrop-blur-xl">
-				<div className="mx-auto flex min-h-16 w-full max-w-[680px] items-center gap-3 px-4 py-2 md:px-8">
-					<IconButton label={t("common.close")} onClick={close}>
-						<X />
-					</IconButton>
-					<h1 className="min-w-0 flex-1 truncate font-semibold text-ink">
-						{t("create.journalEntry")}
-					</h1>
-				</div>
-			</header>
-			<main
-				id="main"
-				tabIndex={-1}
-				className="mx-auto w-full max-w-[680px] flex-1 px-5 py-10 outline-none"
-			>
-				<EmptyState
-					title={t("app.comingSoon")}
-					body={t("app.comingSoonBody")}
-					action={
-						<Button asChild variant="secondary">
-							<Link to="/journal">{t("nav.journal")}</Link>
-						</Button>
+		<JournalFrame title={t("create.journalEntry")} onClose={close}>
+			<div ref={ref}>
+				<JournalKindPicker
+					onPick={(kind) =>
+						void navigate({ to: "/journal/new", search: { ...search, kind }, replace: true })
 					}
 				/>
-			</main>
-		</div>
+			</div>
+		</JournalFrame>
+	);
+}
+
+function KindFlow({ kind, search }: { kind: JournalKind; search: NewJournalSearch }) {
+	const habits = useHabits();
+	const spec = JOURNAL_KIND_SPECS[kind];
+	const needsHabit = spec.habit === "build" || spec.habit === "break" || spec.habit === "any";
+	const eligible = needsHabit ? journalEligibleHabits(kind, habits) : habits;
+	const habit =
+		spec.habit === "hidden" || !search.habit
+			? undefined
+			: eligible.find((h) => h.id === search.habit);
+	if (needsHabit && !habit) return <HabitStep kind={kind} search={search} habits={eligible} />;
+	// A new prefill (another habit, day or period) starts a fresh editor.
+	return <NewEntryEditor key={JSON.stringify(search)} kind={kind} search={search} habit={habit} />;
+}
+
+function HabitStep({
+	kind,
+	search,
+	habits,
+}: { kind: JournalKind; search: NewJournalSearch; habits: Habit[] }) {
+	const { t } = useT();
+	const navigate = useNavigate();
+	const close = useCloseJournal();
+	const identities = useIdentities();
+	const ref = useRef<HTMLDivElement>(null);
+	useFocusHeadingOnMount(ref);
+	const reason = journalKindUnavailable(kind, { habits, identities });
+	return (
+		<JournalFrame title={t("create.journalEntry")} onClose={close}>
+			<div ref={ref} className="flex flex-col gap-8">
+				<JournalHabitPicker
+					kind={kind}
+					habits={habits}
+					onPick={(habit) =>
+						void navigate({
+							to: "/journal/new",
+							search: { ...search, habit: habit.id },
+							replace: true,
+						})
+					}
+					empty={
+						<div className="rounded-xl border border-line bg-surface shadow-card">
+							<EmptyState
+								compact
+								title={t((reason ?? "journal.needsHabit") as MessageKey)}
+								body={t("journal.noEligibleHabit")}
+								action={
+									<Button asChild>
+										<Link to="/habits/new">
+											<Plus />
+											{t("habits.new")}
+										</Link>
+									</Button>
+								}
+							/>
+						</div>
+					}
+				/>
+				<div>
+					<Button
+						variant="ghost"
+						className="-ml-3"
+						onClick={() =>
+							void navigate({
+								to: "/journal/new",
+								search: { ...search, kind: undefined, habit: undefined },
+								replace: true,
+							})
+						}
+					>
+						<ArrowLeft />
+						{t("common.back")}
+					</Button>
+				</div>
+			</div>
+		</JournalFrame>
+	);
+}
+
+function NewEntryEditor({
+	kind,
+	search,
+	habit,
+}: { kind: JournalKind; search: NewJournalSearch; habit: Habit | undefined }) {
+	const { t } = useT();
+	const text = useText();
+	const navigate = useNavigate();
+	const today = useToday();
+	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
+	const identities = useIdentities();
+	const trackers = useTrackerEntryIndex();
+	// The draft is built once: prefills from the habit (its text in the content
+	// language), the identity, the day and, after a slip, the slip's own note and cue.
+	const [initial] = useState(() => {
+		const identity = identities.find((item) => item.id === search.identity);
+		const day = search.date ?? today;
+		const prefill =
+			kind === "recovery" && habit?.kind === "break"
+				? slipPrefill(trackers, habit.id, day)
+				: undefined;
+		return newJournalDraft(kind, {
+			today,
+			weekStartsOn,
+			t,
+			habit: habit ? displayHabit(habit, text) : undefined,
+			identity,
+			date: search.date,
+			scope: search.scope,
+			prefill,
+		});
+	});
+	const spec = JOURNAL_KIND_SPECS[kind];
+	const required = spec.habit === "build" || spec.habit === "break" || spec.habit === "any";
+	return (
+		<JournalEditor
+			initial={initial}
+			onChangeHabit={
+				required
+					? (habitId) =>
+							void navigate({
+								to: "/journal/new",
+								search: { ...search, habit: habitId },
+								replace: true,
+							})
+					: undefined
+			}
+		/>
 	);
 }
