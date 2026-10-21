@@ -6,6 +6,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Download, FlaskConical, RotateCcw, Upload } from "lucide-react";
 import { type ChangeEvent, useRef, useState } from "react";
 import { toast } from "sonner";
+import { usePhotosOnlyHere } from "../account/sync-rows";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 import { SettingsRow, SettingsSection } from "./settings-section";
@@ -19,6 +20,7 @@ export function DataSection() {
 	const fileRef = useRef<HTMLInputElement>(null);
 	const [confirm, setConfirm] = useState<"demo" | "reset" | null>(null);
 	const signedIn = useSyncState(syncController).user !== null;
+	const photosOnlyHere = usePhotosOnlyHere();
 
 	const exportBackup = async () => {
 		const saved = await downloadJson(`atomic-backup-${today}.json`, actions.exportData());
@@ -48,7 +50,12 @@ export function DataSection() {
 			// Signed in, the account keeps a copy too (Annex C §4).
 			description={signedIn ? t("sync.dataHintSignedIn") : t("settings.dataHint")}
 		>
-			<SettingsRow label={t("settings.export")} stack>
+			<SettingsRow
+				label={t("settings.export")}
+				// JSON backups leave photos out (D23); say so while they live only on this device.
+				hint={photosOnlyHere ? t("sync.photosNotInBackups") : undefined}
+				stack
+			>
 				<Button variant="secondary" size="sm" onClick={() => void exportBackup()}>
 					<Download />
 					{t("settings.export")}

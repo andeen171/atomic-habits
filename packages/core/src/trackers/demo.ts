@@ -175,6 +175,14 @@ const COPY = {
 	},
 } as const;
 
+/**
+ * Plan lines become task titles, so the phrasebook pairs them (`[en,
+ * pt-BR]`): a demo loaded in one language reads in the other after a switch.
+ */
+export function demoTrackerPhrasePairs(): Array<readonly [string, string]> {
+	return COPY.en.priorities.map((text, i) => [text, COPY["pt-BR"].priorities[i] ?? text] as const);
+}
+
 const HOUR_MS = 3_600_000;
 /** Plan tasks start after the demo's own tasks. */
 const PLAN_TASK_ORDER = 1000;
@@ -314,9 +322,23 @@ export function buildDemoTrackerEntries(input: DemoTrackerInput): DemoTrackerDat
 					hour: 21,
 					data: { items: [], for: forDay, reflection: null },
 				});
+				// No line repeats a task Today would list beside it: one for the
+				// same day, a still-open one (overdue rows), or one already planned
+				// for a later day (a Friday plan for Monday is made before the
+				// weekend's plans).
+				const taken = new Set<string>();
+				const sameDay = new Set<string>();
+				for (const task of Object.values(tasks)) {
+					if (task.deletedAt != null) continue;
+					if (task.date === forDay) sameDay.add(task.title);
+					if (task.date === forDay || task.completedAt == null || (task.date ?? "") > forDay)
+						taken.add(task.title);
+				}
+				let choices = copy.priorities.filter((text) => !taken.has(text));
+				if (choices.length < 2) choices = copy.priorities.filter((text) => !sameDay.has(text));
 				const lines = new Set<string>();
-				const size = Math.min(config.size, between(2, 3));
-				while (lines.size < size) lines.add(pick(copy.priorities));
+				const size = Math.min(config.size, between(2, 3), choices.length);
+				while (lines.size < size) lines.add(pick(choices));
 				entry.data = {
 					...entry.data,
 					items: [...lines].map((text, index) => ({

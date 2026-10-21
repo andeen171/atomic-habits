@@ -4,16 +4,19 @@ import { cn } from "@/lib/utils";
 import {
 	type HabitColor,
 	type HabitTemplate,
+	type Translator,
 	habitTemplates,
 	identityTemplates,
 	pruneSetupDrafts,
+	trackerMeta,
+	trackerUnitWord,
 } from "@atomic/core";
 import { useIdentities, useLocale, useText } from "@atomic/core/react";
 import { Check, ChevronDown, Link2, Plus, RotateCcw } from "lucide-react";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import { AiSuggest } from "../ai/ai-suggest";
 import { TrackerBadge } from "../trackers/tracker-badge";
-import { TrackerField } from "../trackers/tracker-picker";
+import { TrackerField, draftTracker } from "../trackers/tracker-picker";
 import { Chip } from "../ui/chip";
 import { Field } from "../ui/field";
 import { SmartInput } from "../ui/smart-input";
@@ -661,9 +664,31 @@ export function ObviousFields({ draft, update, habitId }: StepProps) {
 	);
 }
 
+/**
+ * How the goal field adapts to the draft's tracker (Annex K §4.1): hidden for
+ * trackers measured in days or by a deadline (their goal is 1, set by
+ * `goalFor`); for sums and entry counts the tracker owns the unit, so the
+ * label reads "Daily goal · words" and the free unit input goes away.
+ */
+function trackerGoal(
+	draft: HabitDraft,
+	t: Translator,
+): { hidden: boolean; label: string; trackerUnit: boolean } {
+	const label = t.t("form.target");
+	const config = draftTracker(draft.tracker);
+	if (!config) return { hidden: false, label, trackerUnit: false };
+	const meta = trackerMeta(config);
+	const measure = meta.measure(config);
+	if (measure === "days" || measure === "threshold")
+		return { hidden: true, label, trackerUnit: true };
+	const unit = trackerUnitWord(meta.unit(config), config, t);
+	return { hidden: false, label: unit ? `${label} · ${unit}` : label, trackerUnit: true };
+}
+
 /** Law 3. Build: the two-minute version, how it is logged and the daily goal. Break: adding friction. */
 export function EasyFields({ draft, update, habitId }: StepProps) {
 	const { t } = useT();
+	const goal = trackerGoal(draft, t);
 	if (draft.kind === "break") {
 		return (
 			<div className="flex flex-col gap-5">
@@ -701,29 +726,33 @@ export function EasyFields({ draft, update, habitId }: StepProps) {
 				placeholder={t("form.twoMinutePlaceholder")}
 			/>
 			<TrackerField draft={draft} update={update} />
-			<div className="flex flex-col gap-2">
-				<span className="font-medium text-ink text-small">{t("form.target")}</span>
-				<p className="-mt-1 text-ink-subtle text-small">{t("form.targetHint")}</p>
-				<div className="flex flex-wrap items-center gap-3">
-					<Stepper
-						value={draft.target}
-						min={1}
-						max={10_000}
-						onChange={(target) => update({ target })}
-						label={t("form.target")}
-					/>
-					<SmartInput
-						field="habit.unit"
-						value={draft.unit}
-						maxLength={24}
-						disabled={draft.target <= 1}
-						aria-label={t("form.unit")}
-						placeholder={t("form.unitPlaceholder")}
-						onChange={(event) => update({ unit: event.target.value })}
-						className="max-w-56 flex-1"
-					/>
+			{goal.hidden ? null : (
+				<div className="flex flex-col gap-2">
+					<span className="font-medium text-ink text-small">{goal.label}</span>
+					<p className="-mt-1 text-ink-subtle text-small">{t("form.targetHint")}</p>
+					<div className="flex flex-wrap items-center gap-3">
+						<Stepper
+							value={draft.target}
+							min={1}
+							max={10_000}
+							onChange={(target) => update({ target })}
+							label={goal.label}
+						/>
+						{goal.trackerUnit ? null : (
+							<SmartInput
+								field="habit.unit"
+								value={draft.unit}
+								maxLength={24}
+								disabled={draft.target <= 1}
+								aria-label={t("form.unit")}
+								placeholder={t("form.unitPlaceholder")}
+								onChange={(event) => update({ unit: event.target.value })}
+								className="max-w-56 flex-1"
+							/>
+						)}
+					</div>
 				</div>
-			</div>
+			)}
 			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</div>
 	);

@@ -2,6 +2,7 @@ import { useT } from "@/lib/messages";
 import { syncController } from "@/lib/sync";
 import { useActions, useSettings, useSyncState } from "@atomic/core/react";
 import { SettingsRow } from "../settings/settings-section";
+import { trackerCaps } from "../trackers/caps";
 import { Switch } from "../ui/switch";
 
 /**
@@ -10,7 +11,9 @@ import { Switch } from "../ui/switch";
  *   here on this device; entries from other devices still arrive. Shown
  *   signed out too, so it can be turned off before the first sign-in.
  * - "Back up photos" (D23, `settings.backupPhotos`): only signed in to a
- *   server with photo backup, with the backup's state underneath.
+ *   server with photo backup, with the backup's state underneath. Signed
+ *   out, on a browser that keeps photos, the row says they live only here
+ *   (`sync.photosNotInBackups`; JSON backups never hold photos).
  *
  * Rendered as rows inside a settings card. Owner: T5.
  */
@@ -21,6 +24,7 @@ export function SyncSwitchRows() {
 	const sync = useSyncState(syncController);
 	const blobs = sync.user && sync.server?.features.blobs ? sync.blobs : null;
 	const photosOffered = !!sync.user && !!sync.server?.features.blobs;
+	const photosOnlyHere = usePhotosOnlyHere();
 
 	return (
 		<>
@@ -53,9 +57,21 @@ export function SyncSwitchRows() {
 						onCheckedChange={(backupPhotos) => actions.updateSettings({ backupPhotos })}
 					/>
 				</SettingsRow>
+			) : photosOnlyHere ? (
+				<SettingsRow label={t("sync.backupPhotos")} hint={t("sync.photosNotInBackups")} />
 			) : null}
 		</>
 	);
+}
+
+/**
+ * Photos this browser keeps exist only here: photos are possible on this
+ * device (`trackerCaps`) and nobody is signed in to back them up. The
+ * export row and the sync switches then say JSON backups leave them out.
+ */
+export function usePhotosOnlyHere(): boolean {
+	const signedIn = useSyncState(syncController).user !== null;
+	return !signedIn && trackerCaps().photos;
 }
 
 function PhotoBackupState({

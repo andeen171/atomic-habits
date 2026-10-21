@@ -33,6 +33,9 @@ const classic = headScripts.filter((s) => !/type=["']?module/i.test(s));
 const modules = headScripts.filter((s) => /type=["']?module/i.test(s));
 
 const page = [
+	// First, so the file decodes as UTF-8 even when opened on its own (core's regexes
+	// hold non-ASCII ranges such as À-ɏ); the host's own skeleton declares it too.
+	'<meta charset="utf-8">',
 	`<title>${TITLE}</title>`,
 	...styles,
 	...classic,

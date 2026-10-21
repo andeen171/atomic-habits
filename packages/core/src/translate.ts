@@ -2,6 +2,7 @@ import type { TranslationWrite } from "./actions/cloud";
 import type { AiTranslateRequest, AiTranslateResponse } from "./ai";
 import { identityTemplates } from "./content";
 import type { DayKey } from "./dates";
+import { demoPhrasePairs } from "./demo";
 import { FEATURES, type FeatureFlag } from "./flags";
 import { LOCALES, type Locale } from "./i18n";
 import { type AtomicData, type Translation, translationId } from "./model";
@@ -247,7 +248,10 @@ const TEMPLATE_HABIT_FIELDS = [
 	"environment",
 ] as const;
 
-/** Pairs every string field of the two locales' templates by identity and habit `key`. */
+/**
+ * Pairs every string field of the two locales' templates by identity and
+ * habit `key`, then the sample data's own text (`demoPhrasePairs`).
+ */
 function collectPairs(add: (from: Locale, to: Locale, a: string, b: string) => void): void {
 	const [first, second] = LOCALES as readonly [Locale, Locale];
 	const a = identityTemplates(first);
@@ -268,6 +272,8 @@ function collectPairs(add: (from: Locale, to: Locale, a: string, b: string) => v
 			for (const field of TEMPLATE_HABIT_FIELDS) pair(habit[field], match[field]);
 		}
 	}
+	// The sample data's own text (push-ups, task titles, scorecard labels).
+	if (first === "en" && second === "pt-BR") for (const [en, pt] of demoPhrasePairs()) pair(en, pt);
 }
 
 let phrasebookMemo: Phrasebook | null = null;
@@ -275,7 +281,7 @@ let phrasebookMemo: Phrasebook | null = null;
 /**
  * The template phrasebook (memoized): every string field of
  * `identityTemplates("en")` and `identityTemplates("pt-BR")`, zipped by
- * identity and habit `key`, both directions. An exact (folded) match wins;
+ * identity and habit `key`, plus the demo's own text, both directions. An exact (folded) match wins;
  * else digit runs act as placeholders, for pairs that use the same numbers
  * on both sides. Templates with and without their tracker presets are both
  * included (the flags are switched for the build and restored), so text
@@ -362,9 +368,11 @@ export interface LocalizedTextArgs {
 
 /**
  * A document's text in the app language, in the Annex C §1.8 order: the
- * original when the setting says so, when it is empty, or already in the
- * app language; else the phrasebook; else a current AI translation; else
- * the original (a stale translation is ignored).
+ * original when the setting says so, when it is empty, or when its `lang`
+ * is the app language; else the phrasebook; else the original when the
+ * guess says it is in the app language; else a current AI translation; else
+ * the original (a stale translation is ignored). The phrasebook goes before
+ * the guess (spec Implementation notes).
  */
 export function localizedText({
 	collection,
@@ -382,14 +390,17 @@ export function localizedText({
 		return plain;
 	const lang = typeof entity.lang === "string" ? entity.lang : null;
 	if (sameLanguage(lang, locale)) return plain;
-	const guessed = guessLocale(original);
-	if (guessed === locale) return plain;
 
+	// A phrasebook hit is template (or sample) text of another language, so
+	// it wins over the stopword guess, which misreads short phrases
+	// ("Renovar a academia" counts the English "a").
 	const phrase = phrasebook().match(original, locale);
 	if (phrase) {
 		if (phrase.text === original.trim()) return plain;
 		return { text: phrase.text, source: "phrasebook", from: lang ?? phrase.from };
 	}
+	const guessed = guessLocale(original);
+	if (guessed === locale) return plain;
 
 	if (typeof entity.id === "string") {
 		const doc = translations[translationId(collection, entity.id, locale)];

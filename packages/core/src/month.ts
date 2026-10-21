@@ -160,7 +160,7 @@ export interface MonthGoal {
 	neededPerDay: number | null;
 	/** Weekly: sessions that win the month. */
 	neededSessions: number | null;
-	/** `MONTH_DAY_CAP ×` the current target. */
+	/** What one day can credit: `MONTH_DAY_CAP ×` the current target, or the target itself when `!canExceed`. */
 	maxPerDay: number;
 	/** `canExceedTarget(habit)`: the UI hides cap hints and extra-rep actions when false. */
 	canExceed: boolean;
@@ -306,6 +306,10 @@ function buildGoal(
 	let owedDaysLeft = 0;
 	let daysLeft = 0;
 	const yesterday = addDays(today, -1);
+	// Trackers measured in days or by a threshold write at most the target on
+	// a day (`canExceedTarget`), so a day left can't make up more than that.
+	const canExceed = canExceedTarget(habit);
+	const dayCap = canExceed ? MONTH_DAY_CAP : 1;
 	for (const row of rows) {
 		credited += row.credited;
 		logged += row.count;
@@ -316,7 +320,7 @@ function buildGoal(
 		if (row.day >= today) {
 			daysLeft++;
 			if (row.owed > 0) owedDaysLeft++;
-			if (!row.skipped) capacityLeft += Math.max(0, MONTH_DAY_CAP * row.target - row.credited);
+			if (!row.skipped) capacityLeft += Math.max(0, dayCap * row.target - row.credited);
 		}
 	}
 	const expectedBefore = Math.floor(owedBefore + 1e-9);
@@ -361,8 +365,8 @@ function buildGoal(
 		daysLeft: weekly ? daysLeft : owedDaysLeft,
 		neededPerDay,
 		neededSessions,
-		maxPerDay: MONTH_DAY_CAP * habit.target,
-		canExceed: canExceedTarget(habit),
+		maxPerDay: dayCap * habit.target,
+		canExceed,
 		periods,
 	};
 }

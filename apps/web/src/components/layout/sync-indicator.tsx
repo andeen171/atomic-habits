@@ -10,8 +10,8 @@ import { Tip } from "../ui/tooltip";
 
 /**
  * Discreet cloud status in the sidebar (Annex C §4); hidden while signed
- * out. The label says what's waiting ("3 changes waiting to sync") or when
- * the last backup was; the icon turns into an alert for a failed round, a
+ * out. The label says what's waiting ("3 changes waiting to sync"), that a
+ * failed round will retry ("Retrying sync soon"), or when the last backup was; the icon turns into an alert for a failed round, a
  * skewed clock or an outdated server. It links to the Account page.
  * Owner: T5.
  */
@@ -27,7 +27,10 @@ export function SyncIndicator({ showLabel }: { showLabel?: boolean }) {
 		state.status === "syncing"
 			? t("settings.syncing")
 			: state.status === "error"
-				? at("sync.error")
+				? // A failed round retries on its own; only an ended session really pauses sync.
+					state.error === "auth"
+					? at("sync.error")
+					: t("sync.retryingShort")
 				: attention
 					? t("sync.attention")
 					: state.pendingCount > 0

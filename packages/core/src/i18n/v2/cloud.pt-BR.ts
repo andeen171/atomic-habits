@@ -21,6 +21,7 @@ export const cloudPtBR: Record<keyof typeof cloudEn, string> = {
 	"sync.serverOutdated":
 		"Seu servidor é mais antigo que este app; alguns dados vão sincronizar depois que ele for atualizado.",
 	"sync.retrying": "Não foi possível falar com o servidor. O Atomic vai tentar de novo em breve.",
+	"sync.retryingShort": "Tentando sincronizar de novo",
 	"sync.storageMeter": "Armazenamento de sincronização: {used} de {limit}",
 	"sync.storageAlmostFull":
 		"O armazenamento deste aparelho está quase cheio. Exporte um backup por segurança.",
@@ -198,6 +199,7 @@ export const cloudPtBR: Record<keyof typeof cloudEn, string> = {
 	"account.mergeCancelHint": "Nada muda neste aparelho nem na sua conta.",
 	"account.manage": "Gerenciar conta",
 	"account.rowSignedOut": "Backup e sincronização",
+	"account.haveAccount": "Já usa o Atomic em outro aparelho?",
 	"account.rowSignedOutHint": "Mantenha seus hábitos seguros entre aparelhos",
 	"account.signInAgain": "Entrar de novo",
 	"account.nameHint": "Aparece nos e-mails do Atomic.",

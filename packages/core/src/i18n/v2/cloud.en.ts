@@ -27,6 +27,7 @@ export const cloudEn = {
 	"sync.serverOutdated":
 		"Your server is older than this app; some data will sync after it's updated.",
 	"sync.retrying": "Couldn't reach the server. Atomic will try again soon.",
+	"sync.retryingShort": "Retrying sync soon",
 	"sync.storageMeter": "Sync storage: {used} of {limit}",
 	"sync.storageAlmostFull": "Storage on this device is almost full. Export a backup to be safe.",
 	"sync.backupPhotos": "Back up photos",
@@ -203,6 +204,7 @@ export const cloudEn = {
 	"account.mergeCancelHint": "Nothing changes on this device or in your account.",
 	"account.manage": "Manage account",
 	"account.rowSignedOut": "Back up & sync",
+	"account.haveAccount": "Already use Atomic on another device?",
 	"account.rowSignedOutHint": "Keep your habits safe across devices",
 	"account.signInAgain": "Sign in again",
 	"account.nameHint": "Shown in emails from Atomic.",

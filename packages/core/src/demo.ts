@@ -1,4 +1,4 @@
-import { type HabitTemplate, identityTemplates } from "./content";
+import { type HabitTemplate, autoHabitEmoji, identityTemplates } from "./content";
 import { type DayKey, type Weekday, addDays, eachDay, startOfWeek, weekdayOf } from "./dates";
 import { FEATURES } from "./flags";
 import { type Locale, resolveLocale } from "./i18n";
@@ -23,7 +23,7 @@ import {
 } from "./model";
 import { addMonthKey, currentMonthKey, monthBounds } from "./month";
 import { occurrencesBetween } from "./recurrence";
-import { buildDemoTrackerEntries } from "./trackers/demo";
+import { buildDemoTrackerEntries, demoTrackerPhrasePairs } from "./trackers/demo";
 
 /** Small deterministic PRNG so sample data looks the same on every load. */
 function mulberry32(seed: number) {
@@ -246,6 +246,9 @@ export function buildDemoData({
 		const startDate = addDays(today, -plan.startOffset);
 		const habit: Habit = habitSchema.parse({
 			...template,
+			// D12: the identity's icon wins; the template's own emoji is only the editor's "Use 📖" chip.
+			emoji: autoHabitEmoji(template.kind, identity.emoji),
+			emojiAuto: true,
 			id,
 			identityId: identityIds.get(plan.identity) ?? null,
 			reminder: false,
@@ -325,19 +328,19 @@ export function buildDemoData({
 	const journalLog = data.logs[logId("demo-habit-journal", addDays(today, -5))];
 	if (journalLog) journalLog.note = notes[1] ?? null;
 
-	const pt = resolved === "pt-BR";
 	const weekStart: 0 | 1 = weekStartsOn === 0 ? 0 : 1;
+	const taskTitle = (key: keyof typeof DEMO_TASK_TITLES) => DEMO_TASK_TITLES[key][resolved];
 	const tasks: DemoTask[] = [
-		{ title: pt ? "Renovar a academia" : "Renew gym membership", date: today, priority: 2 },
+		{ title: taskTitle("gym"), date: today, priority: 2 },
 		{
-			title: pt ? "Comprar um marcador de páginas" : "Buy a bookmark",
+			title: taskTitle("bookmark"),
 			date: today,
 			priority: 0,
 			completedAt: now - 3_600_000,
 		},
 		// Annex T §3.6: a setup task for the workout's environment, Mon/Wed/Fri.
 		{
-			title: pt ? "Preparar a mochila de treino" : "Pack the gym bag",
+			title: taskTitle("gymBag"),
 			date: addDays(today, -28),
 			priority: 1,
 			repeat: series({ type: "weeks", every: 1, days: [1, 3, 5], weekStart }),
@@ -345,21 +348,21 @@ export function buildDemoData({
 			settle: (_date, i) => (i === 4 ? "skipped" : "done"),
 		},
 		{
-			title: pt ? "Ligar para o dentista" : "Call the dentist",
+			title: taskTitle("dentist"),
 			date: addDays(today, -1),
 			priority: 3,
 		},
-		{ title: pt ? "Planejar a semana" : "Plan the week", date: addDays(today, 1), priority: 1 },
+		{ title: taskTitle("planWeek"), date: addDays(today, 1), priority: 1 },
 		{
-			title: pt ? "Escolher o próximo livro" : "Pick the next book",
+			title: taskTitle("nextBook"),
 			date: addDays(today, 4),
 			priority: 0,
 		},
-		{ title: pt ? "Pesquisar aulas de violão" : "Look up guitar lessons", date: null, priority: 0 },
+		{ title: taskTitle("guitar"), date: null, priority: 0 },
 		// Every 3 days: one skip, one late, and the last one missed, so today's
 		// row reads "1 missed".
 		{
-			title: pt ? "Regar as plantas" : "Water the plants",
+			title: taskTitle("plants"),
 			date: addDays(today, -30),
 			priority: 0,
 			repeat: series({ type: "days", every: 3 }),
@@ -367,14 +370,14 @@ export function buildDemoData({
 			lateBy: (_date, i) => (i === 6 ? 1 : 0),
 		},
 		{
-			title: pt ? "Revisão semanal" : "Weekly review",
+			title: taskTitle("review"),
 			date: addDays(today, -56),
 			priority: 1,
 			repeat: series({ type: "weeks", every: 1, days: [0], weekStart }),
 		},
 		// A one-off setup task for the doomscrolling habit's environment, done.
 		{
-			title: pt ? "Carregar o celular fora do quarto" : "Charge the phone outside the bedroom",
+			title: taskTitle("charge"),
 			date: addDays(today, -20),
 			priority: 0,
 			completedAt: now - 20 * DAY_MS,
@@ -428,25 +431,7 @@ export function buildDemoData({
 
 	buildDemoJournal(data, { today, now, createdAt, locale: resolved, weekStartsOn });
 
-	const scorecard: Array<Pick<ScorecardItem, "label" | "rating" | "time">> = pt
-		? [
-				{ label: "Acordar", rating: "neutral", time: "06:30" },
-				{ label: "Olhar o celular na cama", rating: "negative", time: "06:35" },
-				{ label: "Passar o café", rating: "neutral", time: "06:45" },
-				{ label: "Meditar 5 minutos", rating: "positive", time: "06:55" },
-				{ label: "Ir de bicicleta para o trabalho", rating: "positive", time: "08:00" },
-				{ label: "Lanchar doce à tarde", rating: "negative", time: "16:00" },
-				{ label: "Ler antes de dormir", rating: "positive", time: "21:30" },
-			]
-		: [
-				{ label: "Wake up", rating: "neutral", time: "06:30" },
-				{ label: "Check phone in bed", rating: "negative", time: "06:35" },
-				{ label: "Make coffee", rating: "neutral", time: "06:45" },
-				{ label: "Meditate for 5 minutes", rating: "positive", time: "06:55" },
-				{ label: "Bike to work", rating: "positive", time: "08:00" },
-				{ label: "Afternoon sugary snack", rating: "negative", time: "16:00" },
-				{ label: "Read before bed", rating: "positive", time: "21:30" },
-			];
+	const scorecard = DEMO_SCORECARD[resolved];
 	scorecard.forEach((item, order) => {
 		const id = `demo-score-${order}`;
 		data.scorecard[id] = {
@@ -461,6 +446,67 @@ export function buildDemoData({
 	});
 
 	return data;
+}
+
+/** Demo task titles; `demoPhrasePairs` hands them to the phrasebook. */
+const DEMO_TASK_TITLES = {
+	gym: { en: "Renew gym membership", "pt-BR": "Renovar a academia" },
+	bookmark: { en: "Buy a bookmark", "pt-BR": "Comprar um marcador de páginas" },
+	gymBag: { en: "Pack the gym bag", "pt-BR": "Preparar a mochila de treino" },
+	dentist: { en: "Call the dentist", "pt-BR": "Ligar para o dentista" },
+	planWeek: { en: "Plan the week", "pt-BR": "Planejar a semana" },
+	nextBook: { en: "Pick the next book", "pt-BR": "Escolher o próximo livro" },
+	guitar: { en: "Look up guitar lessons", "pt-BR": "Pesquisar aulas de violão" },
+	plants: { en: "Water the plants", "pt-BR": "Regar as plantas" },
+	review: { en: "Weekly review", "pt-BR": "Revisão semanal" },
+	charge: {
+		en: "Charge the phone outside the bedroom",
+		"pt-BR": "Carregar o celular fora do quarto",
+	},
+} as const satisfies Record<string, Record<Locale, string>>;
+
+/** The Habits Scorecard (same rows, in the same order, in both languages). */
+const DEMO_SCORECARD: Record<Locale, Array<Pick<ScorecardItem, "label" | "rating" | "time">>> = {
+	en: [
+		{ label: "Wake up", rating: "neutral", time: "06:30" },
+		{ label: "Check phone in bed", rating: "negative", time: "06:35" },
+		{ label: "Make coffee", rating: "neutral", time: "06:45" },
+		{ label: "Meditate for 5 minutes", rating: "positive", time: "06:55" },
+		{ label: "Bike to work", rating: "positive", time: "08:00" },
+		{ label: "Afternoon sugary snack", rating: "negative", time: "16:00" },
+		{ label: "Read before bed", rating: "positive", time: "21:30" },
+	],
+	"pt-BR": [
+		{ label: "Acordar", rating: "neutral", time: "06:30" },
+		{ label: "Olhar o celular na cama", rating: "negative", time: "06:35" },
+		{ label: "Passar o café", rating: "neutral", time: "06:45" },
+		{ label: "Meditar 5 minutos", rating: "positive", time: "06:55" },
+		{ label: "Ir de bicicleta para o trabalho", rating: "positive", time: "08:00" },
+		{ label: "Lanchar doce à tarde", rating: "negative", time: "16:00" },
+		{ label: "Ler antes de dormir", rating: "positive", time: "21:30" },
+	],
+};
+
+/**
+ * The demo's own translatable text that isn't template text, as `[en,
+ * pt-BR]` pairs: the push-ups habit, task titles (plan lines included) and
+ * scorecard labels. The phrasebook adds them, so sample data loaded in one
+ * language reads in the other after a switch (no English names in the
+ * Portuguese UI). Journal and tracker entry text is never translated.
+ */
+export function demoPhrasePairs(): Array<readonly [en: string, ptBR: string]> {
+	const pairs: Array<readonly [string, string]> = [];
+	const add = (en: string | null | undefined, pt: string | null | undefined) => {
+		if (en && pt) pairs.push([en, pt]);
+	};
+	const en = pushUps("en");
+	const pt = pushUps("pt-BR");
+	for (const field of ["name", "unit", "stackAfter", "twoMinute"] as const)
+		add(en[field], pt[field]);
+	for (const title of Object.values(DEMO_TASK_TITLES)) add(title.en, title["pt-BR"]);
+	DEMO_SCORECARD.en.forEach((item, i) => add(item.label, DEMO_SCORECARD["pt-BR"][i]?.label));
+	for (const [a, b] of demoTrackerPhrasePairs()) add(a, b);
+	return pairs;
 }
 
 interface DemoTask extends Pick<Task, "title" | "date" | "priority"> {

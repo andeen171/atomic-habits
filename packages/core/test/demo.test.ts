@@ -18,6 +18,7 @@ import { createMemoryStorage } from "../src/storage";
 import { createAtomicStore } from "../src/store";
 import { buildTaskLogIndex, habitSetupTasks, taskAgenda } from "../src/tasks";
 import { reconcilePlan, reconcileWindow } from "../src/trackers/reconcile";
+import { TRANSLATABLE_FIELDS, type TranslatableCollection, localizedText } from "../src/translate";
 
 /**
  * Demo data (spec §3.1 `demo.ts`, D39): the saver identity with expenses,
@@ -85,7 +86,91 @@ describe("demo data (D39)", () => {
 	test("is deterministic", () => {
 		expect(demo("2026-10-20")).toEqual(demo("2026-10-20"));
 	});
+
+	test("habits wear their identity's icon (item 2, D12): auto, never the template emoji", () => {
+		for (const on of [false, true]) {
+			allFlags(on);
+			const data = demo("2026-10-20");
+			const habits = Object.values(data.habits);
+			expect(habits.length).toBeGreaterThan(5);
+			for (const habit of habits) {
+				const identity = data.identities[habit.identityId ?? ""];
+				expect(identity).toBeDefined();
+				expect([habit.id, habit.emojiAuto, habit.emoji]).toEqual([
+					habit.id,
+					true,
+					identity?.emoji ?? "",
+				]);
+			}
+			// 📖 Read sits under 📚 I am a reader.
+			expect(data.habits["demo-habit-read"]?.emoji).toBe("📚");
+		}
+	});
+
+	test("Today never lists two plan tasks with the same title", () => {
+		allFlags(true);
+		const days = eachDayBetween("2026-09-01", "2026-12-31");
+		for (const today of days) {
+			const data = demo(today);
+			const ctx = {
+				tasks: Object.values(data.tasks),
+				logs: buildTaskLogIndex(data.taskLogs),
+				habits: data.habits,
+				today,
+			};
+			const titles = taskAgenda(ctx, today)
+				.filter((item) => item.task.sourceEntryId != null)
+				.map((item) => item.task.title);
+			expect([today, ...titles]).toEqual([today, ...new Set(titles)]);
+		}
+	});
 });
+
+describe("demo text after a language switch (phrasebook)", () => {
+	test("every translatable demo text reads in the other language: no English names in Portuguese", () => {
+		for (const on of [false, true]) {
+			allFlags(on);
+			const sides = { en: demo("2026-10-20", "en"), "pt-BR": demo("2026-10-20", "pt-BR") };
+			for (const [from, to] of [
+				["en", "pt-BR"],
+				["pt-BR", "en"],
+			] as const) {
+				for (const collection of Object.keys(TRANSLATABLE_FIELDS) as TranslatableCollection[]) {
+					const source = sides[from][collection] as Record<string, Record<string, unknown>>;
+					const target = sides[to][collection] as Record<string, Record<string, unknown>>;
+					for (const [id, entity] of Object.entries(source)) {
+						for (const field of TRANSLATABLE_FIELDS[collection]) {
+							const original = entity[field];
+							if (typeof original !== "string" || !original.trim()) continue;
+							// Tracker units name the tracker's measure and stay as written (D32).
+							if (collection === "habits" && field === "unit" && entity.tracker != null) continue;
+							const shown = localizedText({
+								collection,
+								entity: { ...entity, id },
+								field,
+								locale: to,
+								translations: {},
+								contentLanguage: "follow",
+							});
+							expect([collection, id, field, shown.text]).toEqual([
+								collection,
+								id,
+								field,
+								String(target[id]?.[field]),
+							]);
+						}
+					}
+				}
+			}
+		}
+	});
+});
+
+function eachDayBetween(from: DayKey, to: DayKey): DayKey[] {
+	const days: DayKey[] = [];
+	for (let day = from; day <= to; day = addDays(day, 1)) days.push(day);
+	return days;
+}
 
 describe("demo level-up month (Annex H §9.13)", () => {
 	test("the read habit beat its target on 80% of last month's days, so a level-up is offered", () => {

@@ -1,7 +1,7 @@
 import { useT } from "@/lib/messages";
 import { useUI } from "@/lib/ui";
 import { getLog } from "@atomic/core";
-import { useActions, useAtomic, useHabit } from "@atomic/core/react";
+import { useActions, useAtomic, useHabit, useText } from "@atomic/core/react";
 import { type FormEvent, useState } from "react";
 import { Button } from "../ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "../ui/dialog";
@@ -31,6 +31,8 @@ function NoteForm({ habitId, date, onDone }: { habitId: string; date: string; on
 	const { t } = useT();
 	const actions = useActions();
 	const habit = useHabit(habitId);
+	// The name in the content language ("Ler 10 páginas"), like the row it came from.
+	const text = useText();
 	const existing = useAtomic((s) => getLog(s, habitId, date)?.note ?? "");
 	const [note, setNote] = useState(existing);
 
@@ -44,7 +46,11 @@ function NoteForm({ habitId, date, onDone }: { habitId: string; date: string; on
 		<form onSubmit={submit} className="flex min-h-0 flex-col">
 			<DialogHeader
 				title={existing ? t("habit.editNote") : t("habit.addNote")}
-				description={habit ? `${habit.emoji} ${habit.name} · ${t.formatDayLong(date)}` : undefined}
+				description={
+					habit
+						? `${habit.emoji} ${text.habit(habit, "name")} · ${t.formatDayLong(date)}`
+						: undefined
+				}
 			/>
 			<DialogBody>
 				<Textarea

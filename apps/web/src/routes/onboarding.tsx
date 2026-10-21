@@ -1,18 +1,29 @@
+import { AuthDialog } from "@/components/account/auth-dialog";
+import { MergeDialog } from "@/components/account/merge-dialog";
 import { LogoMark } from "@/components/brand/logo";
 import { CompoundChart } from "@/components/insights/compound-chart";
 import { TrackerBadge } from "@/components/trackers/tracker-badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/field";
+import { useAuthDialog } from "@/lib/account";
 import { focusHeading } from "@/lib/focus";
 import { useT } from "@/lib/messages";
+import { isArtifactBuild } from "@/lib/runtime";
+import { syncController } from "@/lib/sync";
 import { useHabitStyle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { type HabitTemplate, type IdentityTemplate, identityTemplates } from "@atomic/core";
-import { useActions, useLocale, useSettings } from "@atomic/core/react";
+import {
+	type HabitTemplate,
+	type IdentityTemplate,
+	hasAnyData,
+	identityTemplates,
+} from "@atomic/core";
+import { useActions, useAtomic, useLocale, useSettings, useSyncState } from "@atomic/core/react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Check, PenLine, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/onboarding")({
 	component: OnboardingScreen,
@@ -43,6 +54,12 @@ function OnboardingScreen() {
 	const [custom, setCustom] = useState<CustomIdentity[]>([]);
 	const [habitKeys, setHabitKeys] = useState<string[] | null>(null);
 	const mainRef = useRef<HTMLElement>(null);
+	// The same check as Today's "Explore with sample data": the sample replaces everything.
+	const hasData = useAtomic((s) => hasAnyData(s.data));
+	const [confirmDemo, setConfirmDemo] = useState(false);
+	const openAuth = useAuthDialog((s) => s.openAuth);
+	const signedIn = useSyncState(syncController).user !== null;
+	const wasSignedIn = useRef(signedIn);
 
 	const selectedTemplates = templates.filter((tpl) => identityKeys.includes(tpl.key));
 	const candidateHabits = selectedTemplates.flatMap((tpl) =>
@@ -97,6 +114,16 @@ function OnboardingScreen() {
 		});
 		void navigate({ to: "/" });
 	};
+
+	// A second device signs in from the welcome step: once signed in (after the merge question,
+	// when this device has data), the account's data is on its way, so onboarding is done.
+	useEffect(() => {
+		if (signedIn && !wasSignedIn.current) {
+			actions.updateSettings({ onboarded: true });
+			void navigate({ to: "/" });
+		}
+		wasSignedIn.current = signedIn;
+	}, [signedIn, actions, navigate]);
 
 	const explore = () => {
 		actions.loadDemoData(locale);
@@ -184,11 +211,26 @@ function OnboardingScreen() {
 											variant="ghost"
 											size="lg"
 											className="w-full sm:w-auto"
-											onClick={explore}
+											onClick={() => (hasData ? setConfirmDemo(true) : explore())}
 										>
 											{t("onboarding.explore")}
 										</Button>
 									</>
+								}
+								after={
+									isArtifactBuild ? null : (
+										<p className="flex flex-wrap items-center justify-center gap-x-1.5 text-ink-muted text-small">
+											{t("account.haveAccount")}
+											<Button
+												variant="link"
+												size="sm"
+												className="h-auto px-0 py-1"
+												onClick={() => openAuth("signIn")}
+											>
+												{t("settings.signIn")}
+											</Button>
+										</p>
+									)
 								}
 							>
 								<LogoMark className="mb-8 size-16" />
@@ -370,6 +412,20 @@ function OnboardingScreen() {
 					</motion.div>
 				</AnimatePresence>
 			</main>
+			<ConfirmDialog
+				open={confirmDemo}
+				onOpenChange={setConfirmDemo}
+				title={t("settings.demo")}
+				body={t("settings.demoConfirm")}
+				confirmLabel={t("common.confirm")}
+				onConfirm={explore}
+			/>
+			{isArtifactBuild ? null : (
+				<>
+					<AuthDialog />
+					<MergeDialog />
+				</>
+			)}
 		</div>
 	);
 }
@@ -379,9 +435,11 @@ interface StepLayoutProps {
 	footer: ReactNode;
 	center?: boolean;
 	onSubmit?(event: FormEvent): void;
+	/** A quieter line under the footer buttons. */
+	after?: ReactNode;
 }
 
-function StepLayout({ children, footer, center, onSubmit }: StepLayoutProps) {
+function StepLayout({ children, footer, center, onSubmit, after }: StepLayoutProps) {
 	const Wrapper = onSubmit ? "form" : "div";
 	return (
 		<Wrapper onSubmit={onSubmit} className="flex flex-1 flex-col">
@@ -401,6 +459,7 @@ function StepLayout({ children, footer, center, onSubmit }: StepLayoutProps) {
 			>
 				{footer}
 			</div>
+			{after ? <div className="pt-4">{after}</div> : null}
 		</Wrapper>
 	);
 }

@@ -249,6 +249,42 @@ describe("monthGoal (D8)", () => {
 		expect(goalOf(reading, {}, "2026-10").canExceed).toBe(true);
 	});
 
+	test("trackers measured in days or by a threshold credit at most 1 a day: a miss is out of reach, not behind", () => {
+		// Oct 1–19 logged except Oct 5; 12 days left (Oct 20–31) can add at most 12.
+		const entries: Entries = { ...fill("2026-10-01", "2026-10-19", 1), "2026-10-05": 0 };
+		for (const type of ["expense", "workout", "wake", "sleep", "connection", "plan"]) {
+			const h = habit({ target: 1, tracker: { type } });
+			const g = goalOf(h, entries, "2026-10");
+			expect([type, g.goal, g.credited, g.status]).toEqual([type, 31, 18, "outOfReach"]);
+			expect([g.maxPerDay, g.canExceed]).toEqual([1, false]);
+			expect(monthPace(g, h, TODAY)).toBeNull();
+		}
+		// The same logs on a plain habit can still be made up (2× a day).
+		const plain = goalOf(habit({ target: 1 }), entries, "2026-10");
+		expect([plain.status, plain.maxPerDay]).toEqual(["behind", 2]);
+		// A detached tracker behaves like a plain habit again.
+		const detached = habit({ target: 1, tracker: { type: "expense", enabled: false } });
+		expect(goalOf(detached, entries, "2026-10").status).toBe("behind");
+		// A skipped day owes nothing, so the month stays reachable.
+		const skipped = goalOf(
+			habit({ target: 1, tracker: { type: "expense" } }),
+			{
+				...entries,
+				"2026-10-05": "skip",
+			},
+			"2026-10",
+		);
+		expect([skipped.goal, skipped.credited, skipped.status]).toEqual([30, 18, "onTrack"]);
+		// Sum trackers keep the 2× capacity.
+		const reading = habit({ target: 10, tracker: { type: "reading" } });
+		const sum = goalOf(
+			reading,
+			{ ...fill("2026-10-01", "2026-10-19", 10), "2026-10-05": 0 },
+			"2026-10",
+		);
+		expect([sum.status, sum.maxPerDay]).toEqual(["behind", 20]);
+	});
+
 	test("null for deleted habits, future months and months before the start", () => {
 		expect(monthGoal(habit({ deletedAt: 1 }), new Map(), "2026-10", TODAY)).toBeNull();
 		expect(monthGoal(habit(), new Map(), "2026-11", TODAY)).toBeNull();

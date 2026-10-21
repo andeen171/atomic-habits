@@ -8,11 +8,20 @@ import {
 	canExceedTarget,
 	isTrackerActive,
 	isTrackerDay,
+	knownTracker,
 	monthPaceHint,
 	progressLabel,
 	targetOn,
+	trackerActionLabel,
 } from "@atomic/core";
-import { useActions, useMonthGoal, useText, useToday, useTrackerDayLine } from "@atomic/core/react";
+import {
+	useActions,
+	useMonthGoal,
+	useSleepWakePrompt,
+	useText,
+	useToday,
+	useTrackerDayLine,
+} from "@atomic/core/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Minus, Plus, StickyNote } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -59,6 +68,10 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 	const trackerDay = isTrackerDay(habit, day);
 	const dayLine = useTrackerDayLine(trackerDay ? habit : undefined, day);
 	const isToday = day === today;
+	// Mornings after a logged bedtime (Annex K §1.8.7): today's row asks for last night's
+	// wake-up time; the ring opens that night's entry (`openTracker`).
+	const wakePrompt = useSleepWakePrompt(trackerDay && isToday ? habit : undefined);
+	const trackerLine = wakePrompt ? t("tracker.sleep.addWake") : trackerDay ? dayLine : null;
 	// Pace toward this month's goal ("+3 pages/day wins October"), today only (spec §5.2).
 	// Count habits only, like the row's "+1" (D11): for a once-a-day habit "+1 time/day" would
 	// ask for doubling every day, when a few extra reps anywhere in the month do it.
@@ -102,7 +115,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 			: t(isToday ? "habit.cleanToday" : "habit.cleanDay");
 
 	const secondary = (() => {
-		if (trackerDay && dayLine) return dayLine;
+		if (trackerLine) return trackerLine;
 		if (isBreak)
 			return count > 0 ? <span className="text-danger">{breakStatus}</span> : breakStatus;
 		if (log?.skipped) return t("habit.skipped");
@@ -117,11 +130,16 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 		return item.identity ? text.identity(item.identity, "statement") : null;
 	})();
 
-	const ringLabel = isBreak
-		? `${name}, ${breakStatus}`
-		: counted
-			? `${name}, ${progressLabel(shown, count, t)}`
-			: name;
+	const tracker = trackerDay ? knownTracker(habit) : null;
+	// Annex K §4.3: a tracker's ring opens a dialog, so its name says what the day holds or
+	// what the tap does: "{name}, {dayLine ?? action}".
+	const ringLabel = tracker
+		? `${name}, ${trackerLine ?? trackerActionLabel(tracker.type, t, tracker)}`
+		: isBreak
+			? `${name}, ${breakStatus}`
+			: counted
+				? `${name}, ${progressLabel(shown, count, t)}`
+				: name;
 
 	return (
 		// biome-ignore lint/a11y/useKeyWithClickEvents: the name link and ring are the keyboard targets.
