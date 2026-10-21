@@ -1,10 +1,12 @@
 import { EmptyState } from "@/components/empty-state";
 import { HabitRow } from "@/components/habit/habit-row";
+import { LevelUpCard } from "@/components/habit/level-up-card";
+import { MonthBehindCard } from "@/components/habit/month-behind-card";
 import { ArrowLeft, Check } from "@/components/icons";
 import { JournalNudgeCard, useJournalNudge } from "@/components/journal/journal-nudge-card";
 import { FreshStartBanner, NeverMissTwiceBanner } from "@/components/today/banners";
 import { PerfectDayCard } from "@/components/today/perfect-day-card";
-import { PrincipleCard } from "@/components/today/principle-card";
+import { PrincipleHero } from "@/components/today/principle-card";
 import { TodayTasks } from "@/components/today/today-tasks";
 import { WeekStrip } from "@/components/today/week-strip";
 import { RunningTimerBanner, useRunningTimer } from "@/components/trackers/running-timer-banner";
@@ -25,9 +27,17 @@ import {
 	type TodayCardKind,
 	greetingKey,
 	hasAnyData,
+	isLevelUpBannerDay,
 	planTodayCards,
 } from "@atomic/core";
-import { useActions, useAtomic, useDayAgenda, useToday } from "@atomic/core/react";
+import {
+	useActions,
+	useAtomic,
+	useDayAgenda,
+	useLevelUpSuggestions,
+	useMonthBehind,
+	useToday,
+} from "@atomic/core/react";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -48,6 +58,9 @@ export default function TodayScreen() {
 	);
 	const timer = useRunningTimer();
 	const nudge = useJournalNudge(day);
+	const habits = useAtomic((s) => s.data.habits);
+	const suggestions = useLevelUpSuggestions();
+	const behind = useMonthBehind();
 
 	// Follow midnight rollover when the user was looking at "today".
 	const lastToday = useRef(today);
@@ -87,11 +100,19 @@ export default function TodayScreen() {
 	);
 	const nothingDue = !agenda.empty && groups.length === 0 && agenda.score.due === 0;
 
+	// Level-up: the first suggestion in `sortHabits` order, on days 1–7 of the month (Annex H §1.1.6).
+	const firstSuggestion = isToday && isLevelUpBannerDay(day) ? suggestions[0] : undefined;
+	const levelUpHabit = firstSuggestion ? habits[firstSuggestion.habitId] : undefined;
+	// Month-behind: the first build habit behind pace in the last 7 days (spec §5.1).
+	const monthBehind = isToday ? behind : null;
+
 	// The Today card budget (D35): at most one card above the first group on native.
+	// Of level-up, month-behind and a non-recovery nudge, `planTodayCards` keeps one.
 	const candidates: TodayCardKind[] = [];
 	if (timer) candidates.push("timer");
 	if (isToday && agenda.atRisk.length) candidates.push("neverMissTwice");
-	// T1 adds "levelUp" (days 1–7) and "monthBehind" (last 7 days of the month).
+	if (firstSuggestion && levelUpHabit) candidates.push("levelUp");
+	if (monthBehind) candidates.push("monthBehind");
 	if (isToday && nudge) {
 		candidates.push(nudge.type === "slip" || nudge.type === "contract" ? "recoveryNudge" : "nudge");
 	}
@@ -108,8 +129,20 @@ export default function TodayScreen() {
 				return nudge ? <JournalNudgeCard key={kind} nudge={nudge} /> : null;
 			case "freshStart":
 				return <FreshStartBanner key={kind} items={agenda.broken} />;
+			case "levelUp":
+				return firstSuggestion && levelUpHabit ? (
+					<LevelUpCard
+						key={kind}
+						habit={levelUpHabit}
+						suggestion={firstSuggestion}
+						variant="banner"
+					/>
+				) : null;
+			case "monthBehind":
+				return monthBehind ? (
+					<MonthBehindCard key={kind} habit={monthBehind.habit} goal={monthBehind.goal} />
+				) : null;
 			default:
-				// "levelUp" and "monthBehind" (T1).
 				return null;
 		}
 	};
@@ -122,6 +155,7 @@ export default function TodayScreen() {
 					title={title}
 					onBack={isToday ? undefined : () => setDay(today)}
 				/>
+				<PrincipleHero day={day} />
 				{allArchived ? (
 					<EmptyState
 						testID="today-all-archived"
@@ -174,7 +208,6 @@ export default function TodayScreen() {
 					/>
 				)}
 				<TodayTasks day={day} />
-				<PrincipleCard day={day} />
 			</Screen>
 		);
 	}
@@ -190,6 +223,7 @@ export default function TodayScreen() {
 				ratio={agenda.score.ratio}
 				onBack={isToday ? undefined : () => setDay(today)}
 			/>
+			<PrincipleHero day={day} />
 			<View style={styles.strip}>
 				<WeekStrip selected={day} onSelect={setDay} />
 			</View>
@@ -227,7 +261,6 @@ export default function TodayScreen() {
 			{cards.below.map(renderCard)}
 
 			<TodayTasks day={day} />
-			<PrincipleCard day={day} />
 		</Screen>
 	);
 }

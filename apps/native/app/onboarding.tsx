@@ -1,4 +1,5 @@
-import { CompoundChart } from "@/components/charts/compound-chart";
+import { CompoundChart, CompoundLegend } from "@/components/charts/compound-chart";
+import { identityTemplateFor } from "@/components/editor/fields";
 import { Check, ChevronLeft, PenLine } from "@/components/icons";
 import { Logo } from "@/components/logo";
 import { TrackerBadge } from "@/components/trackers/tracker-badge";
@@ -22,7 +23,8 @@ const STEPS = 7;
 const MAX_PICKS = 3;
 const STEP_IDS = Array.from({ length: STEPS }, (_, i) => i);
 
-type TemplateHabit = HabitTemplate & { identityKey: string };
+/** A starter habit with the identity it votes for (it wears that identity's icon, D12). */
+type TemplateHabit = HabitTemplate & { identityKey: string; identityEmoji: string };
 
 export default function OnboardingScreen() {
 	const t = useT();
@@ -38,12 +40,20 @@ export default function OnboardingScreen() {
 	const [habitPicks, setHabitPicks] = useState<string[] | null>(null);
 	const templates = useMemo(() => identityTemplates(t.locale), [t.locale]);
 
+	const pickedTemplates = useMemo(
+		() => templates.filter((identity) => picked.includes(identity.key)),
+		[templates, picked],
+	);
 	const starter: TemplateHabit[] = useMemo(
 		() =>
-			templates
-				.filter((identity) => picked.includes(identity.key))
-				.flatMap((identity) => identity.habits.map((h) => ({ ...h, identityKey: identity.key }))),
-		[templates, picked],
+			pickedTemplates.flatMap((identity) =>
+				identity.habits.map((h) => ({
+					...h,
+					identityKey: identity.key,
+					identityEmoji: identity.emoji,
+				})),
+			),
+		[pickedTemplates],
 	);
 	const defaultHabitPicks = useMemo(() => {
 		const firsts = picked
@@ -68,11 +78,25 @@ export default function OnboardingScreen() {
 				});
 				ids.set(identity.key, created.id);
 			}
-			if (custom.trim() && picked.length < MAX_PICKS)
-				actions.createIdentity({ statement: custom.trim(), emoji: "🌱", color: "ember" });
+			if (custom.trim() && picked.length < MAX_PICKS) {
+				// A statement that matches a template identity gets its icon and color, as in the editor.
+				const matched = identityTemplateFor({ statement: custom });
+				actions.createIdentity({
+					statement: custom.trim(),
+					emoji: matched?.emoji ?? "🌱",
+					color: matched?.color ?? "ember",
+				});
+			}
 			for (const habit of starter.filter((h) => chosenHabits.includes(h.key))) {
-				const { key: _key, identityKey, ...fields } = habit;
-				actions.createHabit({ ...fields, identityId: ids.get(identityKey) ?? null });
+				const { key: _key, requires: _requires, identityKey, identityEmoji, ...fields } = habit;
+				// Same icon rules as the editor (D12): nobody picked an icon here, so the
+				// habit wears its identity's emoji and follows it.
+				actions.createHabit({
+					...fields,
+					emoji: identityEmoji,
+					emojiAuto: true,
+					identityId: ids.get(identityKey) ?? null,
+				});
 			}
 			haptics.success();
 		}
@@ -177,6 +201,7 @@ export default function OnboardingScreen() {
 						<StepBody title={t.t("onboarding.compoundTitle")} body={t.t("onboarding.compoundBody")}>
 							<View style={styles.chartCard}>
 								<CompoundChart days={365} height={200} />
+								<CompoundLegend style={styles.chartLegend} />
 							</View>
 						</StepBody>
 					) : null}
@@ -240,23 +265,40 @@ export default function OnboardingScreen() {
 							{starter.length === 0 ? (
 								<Text tone="muted">{t.t("identity.noHabits")}</Text>
 							) : (
-								<View style={{ gap: 10 }}>
-									{starter.map((habit) => (
-										<HabitTile
-											key={habit.key}
-											habit={habit}
-											selected={chosenHabits.includes(habit.key)}
-											disabled={
-												!chosenHabits.includes(habit.key) && chosenHabits.length >= MAX_PICKS
-											}
-											onPress={() => toggleHabit(habit.key)}
-										/>
+								<View style={{ gap: 22 }}>
+									{/* Grouped by the identity each habit votes for; each wears that identity's icon. */}
+									{pickedTemplates.map((identity) => (
+										<View key={identity.key} style={{ gap: 10 }}>
+											<View style={styles.groupHeader} accessibilityRole="header">
+												<Text style={styles.groupEmoji} allowFontScaling={false}>
+													{identity.emoji}
+												</Text>
+												<Text variant="small" weight="semibold" tone="muted" style={{ flex: 1 }}>
+													{identity.statement}
+												</Text>
+											</View>
+											{starter
+												.filter((habit) => habit.identityKey === identity.key)
+												.map((habit) => (
+													<HabitTile
+														key={habit.key}
+														habit={habit}
+														selected={chosenHabits.includes(habit.key)}
+														disabled={
+															!chosenHabits.includes(habit.key) && chosenHabits.length >= MAX_PICKS
+														}
+														onPress={() => toggleHabit(habit.key)}
+													/>
+												))}
+										</View>
 									))}
 								</View>
 							)}
 						</StepBody>
 					) : null}
-					{step === 6 ? <Ready /> : null}
+					{step === 6 ? (
+						<Ready habits={starter.filter((habit) => chosenHabits.includes(habit.key))} />
+					) : null}
 				</Animated.View>
 			</ScrollView>
 
@@ -341,9 +383,9 @@ function Systems() {
 	);
 }
 
-function Ready() {
+function Ready({ habits }: { habits: TemplateHabit[] }) {
 	const t = useT();
-	const { colors } = useTheme();
+	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
 	return (
 		<View style={styles.welcome}>
@@ -356,6 +398,22 @@ function Ready() {
 			<Text tone="muted" align="center">
 				{t.t("onboarding.readyBody")}
 			</Text>
+			{habits.length ? (
+				<View style={styles.readyHabits}>
+					{habits.map((habit) => (
+						<View key={habit.key} style={styles.readyHabit}>
+							<View style={[styles.readyHabitEmoji, { backgroundColor: toneOf(habit.color).soft }]}>
+								<Text style={{ fontSize: 14, lineHeight: 18 }} allowFontScaling={false}>
+									{habit.identityEmoji}
+								</Text>
+							</View>
+							<Text variant="small" weight="medium" style={{ flexShrink: 1 }}>
+								{habit.name}
+							</Text>
+						</View>
+					))}
+				</View>
+			) : null}
 		</View>
 	);
 }
@@ -412,7 +470,7 @@ function HabitTile({
 	disabled,
 	onPress,
 }: {
-	habit: HabitTemplate;
+	habit: TemplateHabit;
 	selected: boolean;
 	disabled: boolean;
 	onPress: () => void;
@@ -427,12 +485,13 @@ function HabitTile({
 			scaleTo={0.98}
 			accessibilityRole="checkbox"
 			accessibilityState={{ checked: selected, disabled }}
-			accessibilityLabel={habit.name}
+			accessibilityLabel={habit.twoMinute ? `${habit.name}. ${habit.twoMinute}` : habit.name}
 			style={[styles.habit, selected && { borderColor: tone.fill }, disabled && { opacity: 0.45 }]}
 		>
+			{/* The icon the habit gets: its identity's (D12). */}
 			<View style={[styles.habitEmoji, { backgroundColor: tone.soft }]}>
 				<Text style={{ fontSize: 22, lineHeight: 28 }} allowFontScaling={false}>
-					{habit.emoji}
+					{habit.identityEmoji}
 				</Text>
 			</View>
 			<View style={{ flex: 1, gap: 2 }}>
@@ -479,6 +538,7 @@ const useStyles = makeStyles((t) => ({
 		padding: 14,
 		...t.cardShadow,
 	},
+	chartLegend: { marginTop: 10, paddingHorizontal: 2 },
 	grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
 	tile: {
 		width: "48%",
@@ -514,6 +574,36 @@ const useStyles = makeStyles((t) => ({
 	habitEmoji: {
 		width: 44,
 		height: 44,
+		borderRadius: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	groupHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+	groupEmoji: { fontSize: 16, lineHeight: 20 },
+	readyHabits: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		justifyContent: "center",
+		gap: 8,
+		marginTop: 18,
+	},
+	readyHabit: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+		minHeight: 40,
+		maxWidth: "100%",
+		paddingLeft: 5,
+		paddingRight: 14,
+		paddingVertical: 5,
+		borderRadius: 999,
+		borderWidth: 1,
+		borderColor: t.colors.border,
+		backgroundColor: t.colors.surface,
+	},
+	readyHabitEmoji: {
+		width: 28,
+		height: 28,
 		borderRadius: 14,
 		alignItems: "center",
 		justifyContent: "center",

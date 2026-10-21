@@ -9,17 +9,22 @@ import {
 	type HabitStats,
 	type Identity,
 	type LogIndex,
+	type MonthProgress,
 	addDays,
 	dayState,
 	logsFor,
+	monthProgressLabel,
 	scheduleLabel,
 	streakLabel,
+	strengthLabel,
 	weekdayOf,
 } from "@atomic/core";
-import { useAtomic, useToday } from "@atomic/core/react";
+import { useAtomic, useMonthGoal, useText, useToday, useTrackerHeadline } from "@atomic/core/react";
 import { router } from "expo-router";
 import { View, type ViewStyle } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import { useDisplayHabit } from "./display-habit";
+import { statusTone } from "./month-goal-card";
 
 export interface HabitCardProps {
 	habit: Habit;
@@ -34,8 +39,25 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
 	const today = useToday();
+	const text = useText();
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	const tone = toneOf(habit.color);
+	const name = text.habit(habit, "name");
+	const shown = useDisplayHabit(habit);
+	const month = useMonthGoal(habit);
+	const headline = useTrackerHeadline(habit);
+	const monthSpoken =
+		month && (month.kind === "break" || month.goal > 0)
+			? [
+					t.t("month.line", {
+						label: t.t("month.title"),
+						value: monthProgressLabel(month, shown, t),
+					}),
+					month.kind === "build" ? t.t(`month.status.${month.status}`) : null,
+				]
+					.filter(Boolean)
+					.join(", ")
+			: null;
 	const isBreak = habit.kind === "break";
 	const streak = stats?.streak;
 	const strength = stats?.strength ?? 0;
@@ -60,7 +82,13 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 				scaleTo={0.985}
 				onPress={() => router.push({ pathname: "/habit/[id]", params: { id: habit.id } })}
 				accessibilityRole="button"
-				accessibilityLabel={[habit.name, meta, streak ? streakLabel(habit, streak, t) : null]
+				accessibilityLabel={[
+					name,
+					meta,
+					streak ? streakLabel(habit, streak, t) : null,
+					monthSpoken,
+					headline,
+				]
 					.filter(Boolean)
 					.join(", ")}
 				style={[styles.card, archived && styles.archived]}
@@ -73,7 +101,7 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 					</View>
 					<View style={styles.titleBlock}>
 						<Text variant="h3" numberOfLines={2}>
-							{habit.name}
+							{name}
 						</Text>
 						<Text variant="small" tone="muted" numberOfLines={1}>
 							{meta}
@@ -106,16 +134,19 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 				{identity ? (
 					<View style={[styles.identity, { backgroundColor: colors.sunken }]}>
 						<Text variant="tiny" weight="medium" tone="muted" numberOfLines={1}>
-							{`${identity.emoji} ${identity.statement}`}
+							{`${identity.emoji} ${text.identity(identity, "statement")}`}
 						</Text>
 					</View>
 				) : null}
+
+				<MonthLine habit={habit} month={month} headline={headline} />
 
 				<View style={styles.bottom}>
 					<View style={styles.strength}>
 						<View style={styles.strengthLabels}>
 							<Text variant="tiny" tone="subtle" weight="semibold">
-								{t.t("habits.strength")}
+								{/* "Freedom" for break habits (D61). */}
+								{strengthLabel(habit, t).label}
 							</Text>
 							<Text variant="tiny" weight="bold" tabular color={tone.text}>
 								{t.percent(strength)}
@@ -137,6 +168,51 @@ export function HabitCard({ habit, stats, identity, index }: HabitCardProps) {
 				</View>
 			</PressableScale>
 		</Animated.View>
+	);
+}
+
+/**
+ * "This month · 214/310 pages" (break: "17 of 19 days clean") with a status
+ * dot (D8; the card's spoken label says the status in words), then the
+ * tracker's headline ("R$ 320 left this month") when it has one (spec §5.2).
+ */
+function MonthLine({
+	habit,
+	month,
+	headline,
+}: { habit: Habit; month: MonthProgress | null; headline: string | null }) {
+	const t = useT();
+	const { colors, habit: toneOf } = useTheme();
+	const styles = useStyles();
+	const shown = useDisplayHabit(habit);
+	const showMonth = !!month && (month.kind === "break" || month.goal > 0);
+	if (!showMonth && !headline) return null;
+	const dot = !month
+		? colors.textSubtle
+		: month.kind === "build"
+			? statusTone(month.status, colors).dot
+			: month.slipDays === 0
+				? toneOf(habit.color).fill
+				: colors.textSubtle;
+	return (
+		<View style={styles.month}>
+			{month && showMonth ? (
+				<View style={styles.monthRow}>
+					<View style={[styles.monthDot, { backgroundColor: dot }]} />
+					<Text variant="small" tone="muted" tabular numberOfLines={1} style={styles.monthText}>
+						{t.t("month.line", {
+							label: t.t("month.title"),
+							value: monthProgressLabel(month, shown, t),
+						})}
+					</Text>
+				</View>
+			) : null}
+			{headline ? (
+				<Text variant="small" tone="muted" numberOfLines={1} style={styles.headline}>
+					{headline}
+				</Text>
+			) : null}
+		</View>
 	);
 }
 
@@ -232,4 +308,9 @@ const useStyles = makeStyles((t) => ({
 	dotCol: { alignItems: "center", gap: 4 },
 	dot: { width: 12, height: 12, borderRadius: 6 },
 	dotLabel: { fontSize: 9, lineHeight: 11 },
+	month: { gap: 2, marginTop: -2 },
+	monthRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+	monthDot: { width: 8, height: 8, borderRadius: 4 },
+	monthText: { flexShrink: 1 },
+	headline: { paddingLeft: 16 },
 }));

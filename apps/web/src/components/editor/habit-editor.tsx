@@ -1,20 +1,29 @@
 import { focusHeading } from "@/lib/focus";
 import { useT } from "@/lib/messages";
 import { type HabitTemplate, resolveSetupDrafts } from "@atomic/core";
-import { useActions, useIdentities, useToday } from "@atomic/core/react";
+import { useActions, useIdentities, useText, useToday } from "@atomic/core/react";
 import { useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { BlueprintCard } from "../habit/blueprint-card";
 import { TrackerReviewLine } from "../trackers/tracker-review-line";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { SegmentedControl } from "../ui/segmented";
-import { type HabitDraft, applyTemplate, draftToInput, previewHabit } from "./draft";
+import {
+	type HabitDraft,
+	applyTemplate,
+	draftIdentity,
+	draftToInput,
+	previewHabit,
+	withDraftLook,
+} from "./draft";
 import {
 	BasicsFields,
 	EasyFields,
+	FillLawsButton,
 	IdentityFields,
 	ObviousFields,
 	SatisfyingFields,
@@ -24,18 +33,23 @@ import { HabitPreview } from "./habit-preview";
 import { SetupTasksReview } from "./setup-tasks-review";
 
 type EditorMode = "guided" | "quick";
-const STEPS = ["what", "identity", "obvious", "easy", "satisfying", "review"] as const;
-type Step = (typeof STEPS)[number];
+/** Identity first (Annex H §1.2): "The goal is not to read a book, it's to become a reader." */
+const STEPS = ["identity", "what", "obvious", "easy", "satisfying", "review"] as const;
+export type EditorStep = (typeof STEPS)[number];
+type Step = EditorStep;
 
 interface HabitEditorProps {
 	initial: HabitDraft;
 	/** Present when editing an existing habit. */
 	habitId?: string;
+	/** Where the guided flow starts: "what" when the identity is already chosen (`?identity=`). */
+	initialStep?: EditorStep;
 }
 
 /** Guided four-laws wizard (default for new habits) or a single quick page (default for edits). */
-export function HabitEditor({ initial, habitId }: HabitEditorProps) {
+export function HabitEditor({ initial, habitId, initialStep = "identity" }: HabitEditorProps) {
 	const { t, at } = useT();
+	const text = useText();
 	const actions = useActions();
 	const navigate = useNavigate();
 	const router = useRouter();
@@ -44,9 +58,11 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 	const identities = useIdentities();
 	const editing = habitId !== undefined;
 
-	const [draft, setDraft] = useState(initial);
+	const [rawDraft, setDraft] = useState(initial);
+	// The icon and color follow the identity while auto (D12), including one edited elsewhere meanwhile.
+	const draft = useMemo(() => withDraftLook(rawDraft, identities), [rawDraft, identities]);
 	const [mode, setMode] = useState<EditorMode>(editing ? "quick" : "guided");
-	const [step, setStep] = useState<Step>("what");
+	const [step, setStep] = useState<Step>(initialStep);
 	const [direction, setDirection] = useState(1);
 	const [nameError, setNameError] = useState(false);
 	const stepRef = useRef<HTMLElement>(null);
@@ -69,10 +85,12 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 		() => previewHabit(draft, at("form.previewEmpty"), today),
 		[draft, at, today],
 	);
-	const identityStatement =
-		draft.newIdentity?.trim() ||
-		identities.find((i) => i.id === draft.identityId)?.statement ||
-		null;
+	const linked = draftIdentity(draft, identities);
+	const identityStatement = linked
+		? linked.identity
+			? text.identity(linked.identity, "statement")
+			: linked.statement
+		: null;
 	const isBreak = draft.kind === "break";
 	const index = STEPS.indexOf(step);
 
@@ -104,8 +122,17 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 	const save = () => {
 		if (!validName()) return;
 		let identityId = draft.identityId;
-		const statement = draft.newIdentity?.trim();
-		if (statement) identityId = actions.createIdentity({ statement, color: draft.color }).id;
+		if (draft.newIdentity !== null) {
+			// 1. The new identity, with the icon and color it was given (a chip, the picker, a match).
+			identityId = linked
+				? actions.createIdentity({
+						statement: linked.statement,
+						emoji: linked.emoji,
+						color: linked.color ?? draft.color,
+					}).id
+				: null;
+		}
+		// 2. The habit; an auto icon is derived again from the saved identity by the store.
 		const input = draftToInput(draft, identityId);
 		let savedId: string;
 		if (habitId) {
@@ -121,6 +148,11 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 			draft.kind,
 		);
 		if (setup.length) actions.createSetupTasks(savedId, setup);
+		// 4. (edit mode) the retitle offer comes from the setup-task pieces (`useSetupRetitleOnSave`).
+		// 5. Toasts.
+		toast.success(t("common.saved"), {
+			description: setup.length ? t.tp("setup.created", setup.length) : undefined,
+		});
 		void navigate({ to: "/habits/$habitId", params: { habitId: savedId }, replace: true });
 	};
 
@@ -129,12 +161,15 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 		setNameError(false);
 	};
 
-	const stepTitle: Record<Step, { title: string; hint?: string }> = {
+	const stepTitle: Record<Step, { title: string; hint?: string; action?: ReactNode }> = {
 		what: { title: isBreak ? t("form.step.whatBreak") : t("form.step.what") },
 		identity: { title: t("form.step.identity"), hint: t("form.step.identityHint") },
-		obvious: isBreak
-			? { title: t("form.step.invisible"), hint: t("form.step.invisibleHint") }
-			: { title: t("form.step.obvious"), hint: t("form.step.obviousHint") },
+		obvious: {
+			...(isBreak
+				? { title: t("form.step.invisible"), hint: t("form.step.invisibleHint") }
+				: { title: t("form.step.obvious"), hint: t("form.step.obviousHint") }),
+			action: <FillLawsButton draft={draft} update={update} />,
+		},
 		easy: isBreak
 			? { title: t("form.step.difficult"), hint: t("form.step.difficultHint") }
 			: { title: t("form.step.easy"), hint: t("form.step.easyHint") },
@@ -145,6 +180,7 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 	};
 
 	const stepContent: Record<Step, ReactNode> = {
+		identity: <IdentityFields draft={draft} update={update} />,
 		what: (
 			<>
 				<BasicsFields
@@ -158,7 +194,6 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 				{editing ? null : <TemplateList draft={draft} onPick={pickTemplate} />}
 			</>
 		),
-		identity: <IdentityFields draft={draft} update={update} />,
 		obvious: <ObviousFields draft={draft} update={update} habitId={habitId} />,
 		easy: <EasyFields draft={draft} update={update} habitId={habitId} />,
 		satisfying: <SatisfyingFields draft={draft} update={update} habitId={habitId} />,
@@ -244,7 +279,12 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 										{stepTitle[step].title}
 									</h2>
 									{stepTitle[step].hint ? (
-										<p className="mt-2 mb-7 max-w-xl text-ink-muted">{stepTitle[step].hint}</p>
+										<div className="mt-2 mb-7 flex flex-wrap items-start gap-x-4 gap-y-3">
+											<p className="min-w-0 max-w-xl flex-[1_1_18rem] text-ink-muted">
+												{stepTitle[step].hint}
+											</p>
+											{stepTitle[step].action}
+										</div>
 									) : (
 										<div className="mb-7" />
 									)}
@@ -275,7 +315,7 @@ export function HabitEditor({ initial, habitId }: HabitEditorProps) {
 						<>
 							<Button
 								variant="ghost"
-								onClick={() => (index > 0 ? goTo(STEPS[index - 1] ?? "what") : close())}
+								onClick={() => (index > 0 ? goTo(STEPS[index - 1] ?? "identity") : close())}
 							>
 								<ArrowLeft />
 								{index > 0 ? t("common.back") : t("common.cancel")}
@@ -331,6 +371,9 @@ function QuickForm({ draft, update, nameError, habitId, onPickTemplate }: QuickF
 	const isBreak = draft.kind === "break";
 	return (
 		<div className="flex flex-col gap-8">
+			<QuickSection title={t("form.identity")} hint={t("form.step.identity")}>
+				<IdentityFields draft={draft} update={update} />
+			</QuickSection>
 			<QuickSection>
 				<BasicsFields
 					draft={draft}
@@ -340,10 +383,11 @@ function QuickForm({ draft, update, nameError, habitId, onPickTemplate }: QuickF
 					editing={editing}
 				/>
 			</QuickSection>
-			<QuickSection title={t("form.identity")}>
-				<IdentityFields draft={draft} update={update} />
-			</QuickSection>
-			<QuickSection title={t("form.advanced")} hint={t("form.advancedHint")}>
+			<QuickSection
+				title={t("form.advanced")}
+				hint={t("form.advancedHint")}
+				action={<FillLawsButton draft={draft} update={update} />}
+			>
 				<div className="flex flex-col gap-8">
 					<LawBlock law="1" title={t(isBreak ? "form.step.invisible" : "form.step.obvious")}>
 						<ObviousFields draft={draft} update={update} habitId={habitId} />
@@ -368,14 +412,18 @@ function QuickForm({ draft, update, nameError, habitId, onPickTemplate }: QuickF
 function QuickSection({
 	title,
 	hint,
+	action,
 	children,
-}: { title?: string; hint?: string; children: ReactNode }) {
+}: { title?: string; hint?: string; action?: ReactNode; children: ReactNode }) {
 	return (
 		<section className="rounded-xl border border-line bg-surface p-5 shadow-card md:p-6">
 			{title ? (
-				<div className="mb-5">
-					<h2 className="font-semibold text-h3 text-ink">{title}</h2>
-					{hint ? <p className="mt-0.5 text-ink-muted text-small">{hint}</p> : null}
+				<div className="mb-5 flex flex-wrap items-start gap-x-4 gap-y-3">
+					<div className="min-w-0 flex-[1_1_14rem]">
+						<h2 className="font-semibold text-h3 text-ink">{title}</h2>
+						{hint ? <p className="mt-0.5 text-ink-muted text-small">{hint}</p> : null}
+					</div>
+					{action}
 				</div>
 			) : null}
 			{children}

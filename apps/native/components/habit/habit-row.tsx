@@ -1,16 +1,34 @@
 import { Flame, TriangleAlert } from "@/components/icons";
+import { PressableScale } from "@/components/ui/pressable-scale";
 import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
-import { type AgendaItem, type DayKey, progressLabel, streakLabel } from "@atomic/core";
-import { useToday } from "@atomic/core/react";
+import {
+	type AgendaItem,
+	type DayKey,
+	canExceedTarget,
+	isTrackerActive,
+	isTrackerDay,
+	monthPaceHint,
+	progressLabel,
+	streakLabel,
+	targetOn,
+} from "@atomic/core";
+import { useMonthGoal, useText, useToday, useTrackerDayLine } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import Animated, {
+	FadeIn,
+	FadeOut,
+	LinearTransition,
+	ZoomIn,
+	ZoomOut,
+} from "react-native-reanimated";
+import { displayHabit } from "./display-habit";
 import { HabitRing } from "./habit-ring";
 
 export interface HabitRowProps {
@@ -22,16 +40,38 @@ export interface HabitRowProps {
 	last?: boolean;
 }
 
-/** Today row: ring (tap = log), name, secondary line and streak chip. */
+/**
+ * Today row: ring (tap = log), name, secondary line, the month's pace hint
+ * ("+2 pages/day wins October", today only) and the streak chip. Once a count
+ * habit reaches its target, a "+1" button logs an extra rep (D11); the ring
+ * itself stops at the target.
+ */
 export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	const t = useT();
-	const { colors } = useTheme();
+	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
 	const logger = useHabitLog();
+	const text = useText();
 	const today = useToday();
 	const [shakeKey, setShakeKey] = useState(0);
 	const { habit, count, streak, state } = item;
 	const isBreak = habit.kind === "break";
+	const tone = toneOf(habit.color);
+	const name = text.habit(habit, "name");
+	// Copy in the content language: "3/8 copos", not "3/8 glasses" (display only).
+	const shown = displayHabit(habit, text);
+	const target = targetOn(habit, day);
+	const counted = !isBreak && target > 1;
+	const trackerActive = isTrackerActive(habit);
+	const trackerDay = isTrackerDay(habit, day);
+	const dayLine = useTrackerDayLine(trackerDay ? habit : undefined, day);
+	const isToday = day === today;
+	// Pace toward this month's goal ("+3 pages/day wins October"), today only (spec §5.2).
+	const month = useMonthGoal(!isBreak && isToday ? habit : undefined);
+	const pace = month?.kind === "build" ? monthPaceHint(month, shown, today, t) : null;
+	// The visible "+1" once the target is met (D11): count habits whose extra reps count.
+	const showExtra =
+		counted && !trackerDay && state !== "skipped" && count >= target && canExceedTarget(habit);
 
 	const openActions = () => {
 		haptics.medium();
@@ -48,9 +88,10 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 	};
 
 	const secondary = (() => {
+		if (trackerDay && dayLine) return dayLine;
 		if (isBreak) {
 			if (count === 0) return streakLabel(habit, streak, t);
-			return day === today ? t.t("habit.slipped") : t.t("habit.slippedDay");
+			return isToday ? t.t("habit.slipped") : t.t("habit.slippedDay");
 		}
 		if (state === "skipped") return t.t("habit.skipped");
 		if (state === "rest") return t.x("habit.restDay");
@@ -59,11 +100,11 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 				done: item.week.done,
 				required: item.week.required,
 			});
-			return habit.target > 1 ? `${progressLabel(habit, count, t)} · ${week}` : week;
+			return target > 1 ? `${progressLabel(shown, count, t)} · ${week}` : week;
 		}
-		if (count === 0 && habit.twoMinute) return habit.twoMinute;
-		if (habit.target > 1) return progressLabel(habit, count, t);
-		return item.identity?.statement ?? null;
+		if (count === 0 && habit.twoMinute) return text.habit(habit, "twoMinute");
+		if (target > 1) return progressLabel(shown, count, t);
+		return item.identity ? text.identity(item.identity, "statement") : null;
 	})();
 	const italic =
 		!isBreak &&
@@ -73,8 +114,8 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 		state !== "skipped";
 
 	const ringLabel = [
-		habit.name,
-		isBreak ? streakLabel(habit, streak, t) : progressLabel(habit, count, t),
+		name,
+		isBreak ? streakLabel(habit, streak, t) : progressLabel(shown, count, t),
 		state === "skipped" ? t.t("habit.skipped") : null,
 	]
 		.filter(Boolean)
@@ -103,7 +144,7 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 					onLongPress={openActions}
 					delayLongPress={350}
 					accessibilityRole="button"
-					accessibilityLabel={habit.name}
+					accessibilityLabel={pace ? `${name}, ${pace}` : name}
 					accessibilityHint={t.t("habit.viewDetails")}
 					// No custom "activate": declaring it makes TalkBack/VoiceOver swallow the default click.
 					accessibilityActions={[{ name: "longpress", label: t.t("common.more") }]}
@@ -123,7 +164,7 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 							numberOfLines={2}
 							style={item.done && !isBreak ? styles.doneName : undefined}
 						>
-							{habit.name}
+							{name}
 						</Text>
 						{secondary ? (
 							<Text
@@ -133,6 +174,16 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 								numberOfLines={1}
 							>
 								{secondary}
+							</Text>
+						) : null}
+						{pace ? (
+							<Text
+								variant="small"
+								weight="medium"
+								numberOfLines={2}
+								testID={`habit-pace-${habit.id}`}
+							>
+								{pace}
 							</Text>
 						) : null}
 					</View>
@@ -161,7 +212,32 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 							</Text>
 						</View>
 					) : null}
+					{/* Room for the "+1" button, drawn as a sibling below (never a button inside a button). */}
+					{showExtra ? <View style={styles.extraSpace} /> : null}
 				</Pressable>
+				{showExtra ? (
+					<Animated.View
+						entering={ZoomIn.duration(180)}
+						exiting={ZoomOut.duration(140)}
+						style={styles.extraSlot}
+						pointerEvents="box-none"
+					>
+						<PressableScale
+							onPress={() => logger.extraRep(habit, day)}
+							scaleTo={0.9}
+							hitSlop={{ top: 6, bottom: 6, left: 4, right: 6 }}
+							accessibilityRole="button"
+							accessibilityLabel={`${t.t("month.extraRep")}, ${name}`}
+							accessibilityHint={t.t("month.extraRepHint")}
+							style={[styles.extra, { backgroundColor: tone.soft, borderColor: tone.fill }]}
+							testID={`habit-extra-${habit.id}`}
+						>
+							<Text weight="bold" color={tone.text} tabular allowFontScaling={false}>
+								+1
+							</Text>
+						</PressableScale>
+					</Animated.View>
+				) : null}
 				{/* Sibling (not nested) so web never renders a button inside a button. */}
 				<View style={styles.ringSlot} pointerEvents="box-none">
 					<HabitRing
@@ -174,6 +250,9 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 						onPress={onRingPress}
 						onLongPress={openActions}
 						shakeKey={shakeKey}
+						extra={item.extra}
+						target={target}
+						opensTracker={trackerActive}
 						accessibilityLabel={ringLabel}
 					/>
 				</View>
@@ -183,6 +262,8 @@ export function HabitRow({ item, day, dimmed, first, last }: HabitRowProps) {
 }
 
 const RING = 46;
+/** The "+1" pill's width; its hit area reaches 44pt with the slop. */
+const EXTRA_SIZE = 46;
 
 const useStyles = makeStyles((t) => ({
 	row: {
@@ -207,6 +288,25 @@ const useStyles = makeStyles((t) => ({
 	dimmed: { opacity: 0.55 },
 	body: { flex: 1, gap: 2 },
 	doneName: { color: t.colors.textMuted },
+	extraSpace: { width: EXTRA_SIZE - 4 },
+	extraSlot: {
+		position: "absolute",
+		right: 14,
+		top: 0,
+		bottom: 0,
+		justifyContent: "center",
+	},
+	extra: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 1,
+		minWidth: EXTRA_SIZE,
+		height: 36,
+		paddingHorizontal: 8,
+		borderRadius: 18,
+		borderWidth: 1.5,
+	},
 	chip: {
 		flexDirection: "row",
 		alignItems: "center",

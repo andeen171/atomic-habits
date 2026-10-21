@@ -1,7 +1,7 @@
 import { applyTemplate, emptyDraft } from "@/components/editor/draft";
 import { HabitEditor } from "@/components/editor/habit-editor";
 import { HABIT_KINDS, type HabitKind, habitTemplates } from "@atomic/core";
-import { useLocale } from "@atomic/core/react";
+import { useIdentities, useLocale } from "@atomic/core/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -40,15 +40,19 @@ function NewHabitScreen() {
 
 function PrefilledEditor({ search }: { search: NewHabitSearch }) {
 	const locale = useLocale();
-	const [initial] = useState(() => {
+	const identities = useIdentities();
+	const [{ initial, identityChosen }] = useState(() => {
 		let draft = emptyDraft(search.kind);
 		const template = search.template
 			? habitTemplates(locale).find((tpl) => tpl.key === search.template)
 			: undefined;
 		if (template) draft = applyTemplate(draft, template);
 		if (search.name) draft = { ...draft, name: search.name };
-		if (search.identity) draft = { ...draft, identityId: search.identity };
-		return draft;
+		// Only a live identity: a stale link starts at the identity step instead.
+		const identity = identities.find((item) => item.id === search.identity);
+		if (identity) draft = { ...draft, identityId: identity.id };
+		return { initial: draft, identityChosen: identity !== undefined };
 	});
-	return <HabitEditor initial={initial} />;
+	// Coming from an identity, its choice is made: start at "what" (Annex H §1.2).
+	return <HabitEditor initial={initial} initialStep={identityChosen ? "what" : "identity"} />;
 }

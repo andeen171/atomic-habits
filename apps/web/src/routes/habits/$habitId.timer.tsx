@@ -1,4 +1,4 @@
-import { HabitScreenPlaceholder } from "@/components/trackers/habit-screen-placeholder";
+import { TimerScreen as Timer } from "@/components/trackers/timer-screen";
 import { type DayKey, isDayKey } from "@atomic/core";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -16,9 +16,10 @@ export const Route = createFileRoute("/habits/$habitId/timer")({
 /**
  * The full-screen session timer (Annex K §4.2): countdown or stopwatch
  * ring, label chips, Start / Pause / Finish, "Log time manually". Owner: T4.
- * Phase 1B: a placeholder.
  */
 function TimerScreen() {
 	const { habitId } = Route.useParams();
-	return <HabitScreenPlaceholder habitId={habitId} />;
+	const { day } = Route.useSearch();
+	// One screen per habit: moving between two timers starts from a clean slate.
+	return <Timer key={habitId} habitId={habitId} day={day} />;
 }

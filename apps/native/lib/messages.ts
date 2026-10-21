@@ -26,7 +26,7 @@ const en = {
 	"habit.setCount": "Set progress",
 	"habit.setCountHint": "Repetitions logged for {date}.",
 	"habit.restDay": "Rest day",
-	"habit.alreadyDone": "Already done — nice work.",
+	"habit.alreadyDone": "Done for today. Tap +1 for extra reps.",
 
 	"detail.logToday": "Log today",
 	"detail.doneToday": "Done today",
@@ -70,7 +70,7 @@ const en = {
 	"insights.dayN": "Day {count}",
 	"insights.strongestHint": "Habit strength — how automatic each habit is becoming.",
 	"insights.compoundHypothetical":
-		"Improve 1% a day and in {days} you're {better}× better — slip 1% a day and you shrink to {worse}×.",
+		"Over {days}, improving 1% a day compounds to {better}×. Staying the same keeps you at 1×. Slipping 1% a day shrinks you to {worse}×.",
 
 	"settings.exported": "Backup ready to share",
 	"settings.syncUpToDate": "Up to date",
@@ -124,7 +124,7 @@ const ptBR: Record<AppMessageKey, string> = {
 	"habit.setCount": "Definir progresso",
 	"habit.setCountHint": "Repetições registradas em {date}.",
 	"habit.restDay": "Dia de descanso",
-	"habit.alreadyDone": "Já feito — bom trabalho.",
+	"habit.alreadyDone": "Feito por hoje. Toque em +1 para repetições extras.",
 
 	"detail.logToday": "Registrar hoje",
 	"detail.doneToday": "Feito hoje",
@@ -168,7 +168,7 @@ const ptBR: Record<AppMessageKey, string> = {
 	"insights.dayN": "Dia {count}",
 	"insights.strongestHint": "Força do hábito — o quanto cada hábito está ficando automático.",
 	"insights.compoundHypothetical":
-		"Melhore 1% ao dia e em {days} você estará {better}× melhor — piore 1% ao dia e encolhe para {worse}×.",
+		"Em {days}, melhorar 1% ao dia acumula {better}×. Ficar igual mantém você em 1×. Piorar 1% ao dia encolhe para {worse}×.",
 
 	"settings.exported": "Backup pronto para compartilhar",
 	"settings.syncUpToDate": "Sincronizado",

@@ -78,6 +78,14 @@ export const tasksEn = {
 	"tasks.series.reopenDate": "Mark {date} as not done",
 	"tasks.series.markDone": "Mark done",
 	"tasks.series.missedState": "Missed",
+	// Web task UI (T2-A): toasts, the custom repeat dialog and the "ends after" stepper.
+	"tasks.series.resumedToast": "Repeating again",
+	// An occurrence's state ("Done · 2 days late"); `common.done` is the action ("Concluir").
+	"tasks.series.doneState": "Done",
+	"repeat.customTitle": "Custom repeat",
+	"repeat.count": "Number of times",
+	"repeat.timesUnit.one": "time",
+	"repeat.timesUnit.other": "times",
 
 	// Task fields (Annex T §7, group tasks.*).
 	"tasks.habit": "Habit",
@@ -108,6 +116,10 @@ export const tasksEn = {
 	"setup.deleteNote.one": "Its setup task is deleted too.",
 	"setup.deleteNote.other": "Its {count} setup tasks are deleted too.",
 	"setup.updateTitle": "Update the linked task too?",
+	// Web T2-B: the free-form row's input and remove button, and the retitle toast's action.
+	"setup.titleLabel": "Setup task",
+	"setup.remove": "Remove setup task",
+	"setup.updateTitleAction": "Update task",
 
 	// Native task reminders (Annex T §5.5, milestone D).
 	"notify.taskBody": "A small step for your system.",

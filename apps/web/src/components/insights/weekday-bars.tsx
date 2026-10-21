@@ -7,14 +7,18 @@ import { useState } from "react";
 export function WeekdayBars({
 	values,
 	weekStartsOn,
-}: { values: (number | null)[]; weekStartsOn: Weekday }) {
+	className,
+}: { values: (number | null)[]; weekStartsOn: Weekday; className?: string }) {
 	const { t } = useT();
 	const [active, setActive] = useState<number | null>(null);
 	const days = orderedWeekdays(weekStartsOn);
 	const best = Math.max(...values.map((v) => v ?? -1));
 
 	return (
-		<div className="flex h-48 items-end gap-2" onPointerLeave={() => setActive(null)}>
+		<div
+			className={cn("flex h-48 items-end gap-2", className)}
+			onPointerLeave={() => setActive(null)}
+		>
 			{days.map((day) => {
 				const value = values[day] ?? null;
 				const isBest = value != null && value === best && best > 0;

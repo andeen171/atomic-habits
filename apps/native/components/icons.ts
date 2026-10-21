@@ -78,3 +78,6 @@ export { default as Upload } from "lucide-react-native/icons/upload";
 export { default as UserRound } from "lucide-react-native/icons/user-round";
 export { default as Vote } from "lucide-react-native/icons/vote";
 export { default as X } from "lucide-react-native/icons/x";
+// v2:T2 setup tasks: "Make it a task" and the Paused group (Annex T §5.4).
+export { default as CirclePause } from "lucide-react-native/icons/circle-pause";
+export { default as ListPlus } from "lucide-react-native/icons/list-plus";

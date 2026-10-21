@@ -1,7 +1,7 @@
 import { HeatLegend, Heatmap } from "@/components/habit/heatmap";
 import { CompletionChart } from "@/components/insights/completion-chart";
 import { CompoundChart, CompoundLegend } from "@/components/insights/compound-chart";
-import { PlateauIllustration } from "@/components/insights/plateau-illustration";
+import { PlateauCard } from "@/components/insights/plateau-card";
 import { StrongestHabits } from "@/components/insights/strongest-habits";
 import { WeekdayBars } from "@/components/insights/weekday-bars";
 import { Page, PageHeader } from "@/components/layout/page";
@@ -15,9 +15,11 @@ import { useColorScheme } from "@/lib/theme";
 import {
 	type DayKey,
 	type InsightsSummary,
+	breakingFreeHabits,
 	compounding,
 	heatColor,
 	insightsSummary,
+	strongestHabits,
 } from "@atomic/core";
 import {
 	useAllHabitStats,
@@ -25,6 +27,7 @@ import {
 	useAtomic,
 	useHabits,
 	useLogIndex,
+	useMonthsWon,
 	useToday,
 } from "@atomic/core/react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -54,6 +57,7 @@ function InsightsScreen() {
 		() => insightsSummary(habits, index, today, range, weekStartsOn),
 		[habits, index, today, range, weekStartsOn],
 	);
+	const monthsWon = useMonthsWon(range);
 
 	if (!habits.length) {
 		return (
@@ -91,62 +95,81 @@ function InsightsScreen() {
 				className="mb-6"
 			/>
 
-			{/* 1 + 2 + 2 on phones, 3 + 2 on tablets and small laptops, one row of 5 from 1280px. */}
-			<div className="grid grid-cols-2 gap-3 md:grid-cols-6 xl:grid-cols-5">
-				<StatTile
-					label={t("insights.consistency")}
-					value={t.percent(summary.consistency)}
-					className="col-span-2 xl:col-span-1"
-				/>
-				<StatTile
-					label={t("insights.perfectDays")}
-					value={t.number(summary.perfectDays)}
-					className="md:col-span-2 xl:col-span-1"
-				/>
-				<StatTile
-					label={t("insights.totalVotes")}
-					value={t.number(summary.totalVotes)}
-					className="md:col-span-2 xl:col-span-1"
-				/>
+			{/*
+			 * Spec §5.5 order (the same on both apps): stats → 1% chart → plateau →
+			 * daily → [weekday | strongest] → year. Tiles: 2 × 3 on phones, 3 × 2 from md.
+			 */}
+			<div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+				<StatTile label={t("insights.consistency")} value={t.percent(summary.consistency)} />
+				<StatTile label={t("insights.perfectDays")} value={t.number(summary.perfectDays)} />
+				<StatTile label={t("insights.totalVotes")} value={t.number(summary.totalVotes)} />
 				<StatTile
 					label={t("insights.bestStreak")}
 					value={t.tp("common.days", summary.bestStreak)}
-					className="md:col-span-3 xl:col-span-1"
 				/>
-				<StatTile
-					label={t("insights.activeHabits")}
-					value={t.number(summary.activeHabits)}
-					className="md:col-span-3 xl:col-span-1"
-				/>
+				<StatTile label={t("insights.activeHabits")} value={t.number(summary.activeHabits)} />
+				<MonthsWonTile won={monthsWon.won} total={monthsWon.total} />
 			</div>
 
 			<CompoundCard journeyDays={summary.journeyDays} />
+
+			<PlateauCard
+				className="mt-6"
+				journeyDays={summary.journeyDays}
+				totalVotes={summary.totalVotes}
+				showProgress={summary.totalVotes > 0}
+			/>
 
 			<Card className="mt-6">
 				<CardHeader title={at("insights.dailyTitle")} description={at("insights.dailyHint")} />
 				<DailyCard series={summary.series} />
 			</Card>
 
-			<YearCard today={today} />
-
 			<div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-				<Card>
+				{/* The bars grow with the row so they line up with a long Strongest card. */}
+				<Card className="flex flex-col">
 					<CardHeader title={t("insights.weekdayTitle")} description={t("insights.weekdayHint")} />
-					<div className="px-5 pt-5 pb-5">
-						<WeekdayBars values={summary.byWeekday} weekStartsOn={weekStartsOn} />
+					<div className="flex flex-1 flex-col px-5 pt-5 pb-5">
+						<WeekdayBars
+							values={summary.byWeekday}
+							weekStartsOn={weekStartsOn}
+							className="h-auto min-h-48 flex-1"
+						/>
 					</div>
 				</Card>
 				<StrongestCard />
 			</div>
 
-			<Card className="mt-6 flex flex-col items-start gap-5 p-5 sm:flex-row sm:items-center md:p-6">
-				<PlateauIllustration className="h-24 w-44 shrink-0" />
-				<div>
-					<h2 className="font-display text-h2 text-ink">{t("insights.plateauTitle")}</h2>
-					<p className="mt-1 text-ink-muted text-small">{t("insights.plateauBody")}</p>
-				</div>
-			</Card>
+			<YearCard today={today} />
 		</Page>
+	);
+}
+
+/**
+ * "Months won" (D62): monthly goals of build habits reached in the range —
+ * complete months, plus the current month once it's won. "3/5" visually,
+ * "3 of 5" to screen readers; "—" when no month could count yet.
+ */
+function MonthsWonTile({ won, total }: { won: number; total: number }) {
+	const { t } = useT();
+	return (
+		<StatTile
+			label={t("insights.monthsWon")}
+			hint={t("insights.monthsWonHint")}
+			value={
+				total ? (
+					<>
+						<span aria-hidden="true">
+							{t.number(won)}
+							<span className="ml-0.5 text-[1.5rem] text-ink-muted">/{t.number(total)}</span>
+						</span>
+						<span className="sr-only">{t("month.wonCount", { won, total })}</span>
+					</>
+				) : (
+					<span className="text-ink-muted">—</span>
+				)
+			}
+		/>
 	);
 }
 
@@ -154,8 +177,8 @@ function CompoundCard({ journeyDays }: { journeyDays: number }) {
 	const { t, at } = useT();
 	const days = Math.max(30, journeyDays);
 	const end = compounding(journeyDays);
-	// The copy template already carries the "×".
-	const fmt = (v: number) => (v >= 10 ? t.number(v, 1) : t.number(v, 2));
+	// The copy template already carries the "×"; two decimals like the book ("37.78").
+	const fmt = (v: number) => t.number(v, 2);
 	return (
 		<Card className="mt-6 overflow-hidden">
 			<div className="grid grid-cols-1 gap-6 p-5 md:p-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-center">
@@ -246,22 +269,13 @@ function StrongestCard() {
 	const { t, at } = useT();
 	const habits = useHabits();
 	const stats = useAllHabitStats(habits);
-	const items = useMemo(
-		() =>
-			habits
-				.flatMap((habit) => {
-					const s = stats.get(habit.id);
-					return s ? [{ habit, stats: s }] : [];
-				})
-				.sort((a, b) => b.stats.strength - a.stats.strength)
-				.slice(0, 5),
-		[habits, stats],
-	);
+	const strongest = useMemo(() => strongestHabits(habits, stats, 5), [habits, stats]);
+	const free = useMemo(() => breakingFreeHabits(habits, stats, 3), [habits, stats]);
 	return (
 		<Card>
 			<CardHeader title={t("insights.strongest")} description={at("insights.strongestHint")} />
 			<div className="px-5 pt-5 pb-5">
-				<StrongestHabits items={items} />
+				<StrongestHabits items={strongest} breakingFree={free} />
 			</div>
 		</Card>
 	);

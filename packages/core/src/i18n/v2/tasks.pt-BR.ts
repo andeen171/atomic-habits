@@ -69,6 +69,12 @@ export const tasksPtBR: Record<keyof typeof tasksEn, string> = {
 	"tasks.series.reopenDate": "Marcar {date} como não feita",
 	"tasks.series.markDone": "Marcar como feita",
 	"tasks.series.missedState": "Perdida",
+	"tasks.series.resumedToast": "Voltou a repetir",
+	"tasks.series.doneState": "Feita",
+	"repeat.customTitle": "Repetição personalizada",
+	"repeat.count": "Número de vezes",
+	"repeat.timesUnit.one": "vez",
+	"repeat.timesUnit.other": "vezes",
 
 	"tasks.habit": "Hábito",
 	"tasks.habitNone": "Sem hábito",
@@ -97,6 +103,9 @@ export const tasksPtBR: Record<keyof typeof tasksEn, string> = {
 	"setup.deleteNote.one": "Sua tarefa de preparo também será excluída.",
 	"setup.deleteNote.other": "As {count} tarefas de preparo também serão excluídas.",
 	"setup.updateTitle": "Atualizar a tarefa vinculada também?",
+	"setup.titleLabel": "Tarefa de preparo",
+	"setup.remove": "Remover tarefa de preparo",
+	"setup.updateTitleAction": "Atualizar tarefa",
 
 	"notify.taskBody": "Um pequeno passo para o seu sistema.",
 };

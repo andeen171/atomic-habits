@@ -1,5 +1,6 @@
 import { EmptyState } from "@/components/empty-state";
 import { ChevronDown, Plus } from "@/components/icons";
+import { RepeatChip } from "@/components/tasks/repeat-field";
 import { DateChips, PriorityPicker } from "@/components/tasks/task-fields";
 import { TaskRow } from "@/components/tasks/task-row";
 import { Card } from "@/components/ui/card";
@@ -10,15 +11,9 @@ import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { fonts, makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
-import {
-	type DayKey,
-	type Task,
-	type TaskBucket,
-	type TaskPriority,
-	groupTasks,
-} from "@atomic/core";
-import { useActions, useTasks, useToday } from "@atomic/core/react";
-import { useMemo, useState } from "react";
+import type { DayKey, RepeatRule, TaskBucket, TaskItem, TaskPriority } from "@atomic/core";
+import { useActions, useAtomic, useTaskGroups, useToday } from "@atomic/core/react";
+import { useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 
@@ -35,13 +30,14 @@ export default function TasksScreen() {
 	const { colors } = useTheme();
 	const styles = useStyles();
 	const actions = useActions();
-	const today = useToday();
-	const tasks = useTasks();
-	const groups = useMemo(() => groupTasks(tasks, today), [tasks, today]);
+	// One-offs as in v1; each active series is one row, its open occurrence (Annex T §1.4).
+	const groups = useTaskGroups();
+	const openCount = OPEN_BUCKETS.reduce((sum, bucket) => sum + groups[bucket].length, 0);
 	const [showDone, setShowDone] = useState(false);
 
 	const clearCompleted = () => {
-		const ids = groups.done.map((task) => task.id);
+		// `clearCompletedTasks` also removes stopped and finished series: undo restores them too.
+		const ids = groups.done.map((item) => item.task.id);
 		actions.clearCompletedTasks();
 		haptics.medium();
 		showToast(t.x("tasks.cleared", { count: t.number(ids.length) }), {
@@ -58,7 +54,7 @@ export default function TasksScreen() {
 		<Screen tab keyboard testID="tasks-screen">
 			<ScreenTitle title={t.t("tasks.title")} subtitle={t.t("tasks.subtitle")} />
 			<QuickAdd />
-			{tasks.length === 0 ? (
+			{openCount === 0 ? (
 				<EmptyState compact title={t.t("tasks.empty")} body={t.t("tasks.emptyBody")} />
 			) : null}
 			{OPEN_BUCKETS.map((bucket) =>
@@ -67,7 +63,7 @@ export default function TasksScreen() {
 						key={bucket}
 						label={t.t(`tasks.group.${bucket}`)}
 						tone={bucket === "overdue" ? "danger" : undefined}
-						tasks={groups[bucket]}
+						items={groups[bucket]}
 						hideDate={bucket === "today" || bucket === "tomorrow" || bucket === "inbox"}
 					/>
 				) : null,
@@ -107,8 +103,8 @@ export default function TasksScreen() {
 					{showDone ? (
 						<Animated.View entering={FadeIn}>
 							<Card padding={0} style={styles.card}>
-								{groups.done.map((task, index) => (
-									<TaskRow key={task.id} task={task} first={index === 0} />
+								{groups.done.map((item, index) => (
+									<TaskRow key={item.key} item={item} first={index === 0} />
 								))}
 							</Card>
 						</Animated.View>
@@ -121,12 +117,12 @@ export default function TasksScreen() {
 
 function TaskGroup({
 	label,
-	tasks,
+	items,
 	tone,
 	hideDate,
 }: {
 	label: string;
-	tasks: Task[];
+	items: TaskItem[];
 	tone?: "danger";
 	hideDate?: boolean;
 }) {
@@ -142,40 +138,49 @@ function TaskGroup({
 				tone={tone}
 				right={
 					<Text variant="tiny" weight="semibold" tone="subtle" tabular>
-						{t.number(tasks.length)}
+						{t.number(items.length)}
 					</Text>
 				}
 			>
 				{label}
 			</SectionLabel>
 			<Card padding={0} style={styles.card}>
-				{tasks.map((task, index) => (
-					<TaskRow key={task.id} task={task} hideDate={hideDate} first={index === 0} />
+				{items.map((item, index) => (
+					<TaskRow key={item.key} item={item} hideDate={hideDate} first={index === 0} />
 				))}
 			</Card>
 		</Animated.View>
 	);
 }
 
-/** Title + date chips + priority; Enter adds and keeps the keyboard up. */
+/** Title + date chips + repeat + priority; Enter adds and keeps the keyboard up. */
 function QuickAdd() {
 	const t = useT();
 	const { colors } = useTheme();
 	const styles = useStyles();
 	const actions = useActions();
 	const today = useToday();
+	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	const [title, setTitle] = useState("");
 	const [date, setDate] = useState<DayKey | null>(today);
 	const [priority, setPriority] = useState<TaskPriority>(0);
+	const [repeat, setRepeat] = useState<RepeatRule | null>(null);
 	const [focused, setFocused] = useState(false);
 
 	const add = () => {
 		const value = title.trim();
 		if (!value) return;
-		actions.createTask({ title: value, date, priority });
+		actions.createTask({ title: value, date, priority, repeat });
 		haptics.light();
 		setTitle("");
 		setPriority(0);
+		setRepeat(null);
+	};
+
+	const changeRepeat = (rule: RepeatRule | null) => {
+		setRepeat(rule);
+		// A series needs a start date: "Someday" becomes today.
+		if (rule && date === null) setDate(today);
 	};
 
 	return (
@@ -218,15 +223,22 @@ function QuickAdd() {
 			</View>
 			<View style={styles.quickMeta}>
 				<View style={{ flex: 1 }}>
-					<DateChips value={date} onChange={setDate} size="sm" />
+					<DateChips value={date} onChange={setDate} size="sm" somedayDisabled={repeat !== null} />
 				</View>
 			</View>
-			{/* Always rendered: collapsing on blur would shift the list under the finger. */}
+			{/* Repeat + priority. Always rendered: collapsing on blur would shift the list under the finger. */}
 			<View style={styles.quickPriority}>
-				<Text variant="tiny" weight="semibold" tone="subtle">
-					{t.t("tasks.priority")}
-				</Text>
-				<PriorityPicker value={priority} onChange={setPriority} compact />
+				<RepeatChip
+					size="sm"
+					value={repeat}
+					onChange={changeRepeat}
+					start={date ?? today}
+					weekStartsOn={weekStartsOn}
+				/>
+				{/* A long rule wraps the flags onto their own line instead of truncating it. */}
+				<View style={styles.quickFlags}>
+					<PriorityPicker value={priority} onChange={setPriority} compact />
+				</View>
 			</View>
 		</Card>
 	);
@@ -269,9 +281,12 @@ const useStyles = makeStyles((t) => ({
 	quickMeta: { flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingTop: 4 },
 	quickPriority: {
 		flexDirection: "row",
+		flexWrap: "wrap",
 		alignItems: "center",
-		justifyContent: "space-between",
+		columnGap: 12,
+		rowGap: 10,
 		paddingHorizontal: 12,
 		paddingTop: 12,
 	},
+	quickFlags: { marginLeft: "auto" },
 }));

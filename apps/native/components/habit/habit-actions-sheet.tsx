@@ -2,6 +2,7 @@ import {
 	Check,
 	Eye,
 	Minus,
+	PenLine,
 	Pencil,
 	Plus,
 	RotateCcw,
@@ -21,22 +22,60 @@ import { useT } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import { showToast, ui, useUI } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
-import { getLog, isTrackerDay, progressLabel } from "@atomic/core";
-import { useActions, useAtomic, useHabit, useToday } from "@atomic/core/react";
+import { canExceedTarget, getLog, isTrackerDay, progressLabel, targetOn } from "@atomic/core";
+import { useActions, useAtomic, useHabit, useText, useToday } from "@atomic/core/react";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
+import { displayHabit } from "./display-habit";
+import { LogAmountSheet } from "./log-amount-sheet";
 
-/** Long-press actions for a habit on a day (global, opened via `ui.openHabitActions`). */
+interface HabitDay {
+	habitId: string;
+	day: string;
+}
+
+/**
+ * Long-press actions for a habit on a day (global, opened via
+ * `ui.openHabitActions`). "Log amount…" closes this sheet first and opens
+ * the amount sheet once it is gone.
+ */
 export function HabitActionsSheet() {
 	const target = useUI((s) => s.habitActions);
 	const [last, setLast] = useState(target);
+	const [amount, setAmount] = useState<HabitDay | null>(null);
+	const [amountLast, setAmountLast] = useState<HabitDay | null>(null);
+	const pendingAmount = useRef<HabitDay | null>(null);
+	const amountHabit = useHabit(amountLast?.habitId);
 	useEffect(() => {
 		if (target) setLast(target);
 	}, [target]);
 	const current = target ?? last;
 	return (
-		<HabitActionsContent open={Boolean(target)} habitId={current?.habitId} day={current?.day} />
+		<>
+			<HabitActionsContent
+				open={Boolean(target)}
+				habitId={current?.habitId}
+				day={current?.day}
+				onLogAmount={(next) => {
+					pendingAmount.current = next;
+					ui.closeHabitActions();
+				}}
+				onClosed={() => {
+					const next = pendingAmount.current;
+					pendingAmount.current = null;
+					if (!next) return;
+					setAmountLast(next);
+					setAmount(next);
+				}}
+			/>
+			<LogAmountSheet
+				habit={amountHabit}
+				day={amountLast?.day}
+				open={amount !== null}
+				onClose={() => setAmount(null)}
+			/>
+		</>
 	);
 }
 
@@ -44,15 +83,20 @@ function HabitActionsContent({
 	open,
 	habitId,
 	day,
+	onLogAmount,
+	onClosed,
 }: {
 	open: boolean;
 	habitId: string | undefined;
 	day: string | undefined;
+	onLogAmount: (target: HabitDay) => void;
+	onClosed: () => void;
 }) {
 	const t = useT();
 	const { habit: toneOf } = useTheme();
 	const actions = useActions();
 	const logger = useHabitLog();
+	const text = useText();
 	const today = useToday();
 	const habit = useHabit(habitId);
 	const log = useAtomic((s) => (habitId && day ? getLog(s, habitId, day) : undefined));
@@ -73,7 +117,9 @@ function HabitActionsContent({
 		}
 	}, [open, habitId, day]);
 
-	if (!habit || !day) return <Sheet open={false} onClose={ui.closeHabitActions} />;
+	if (!habit || !day) {
+		return <Sheet open={false} onClose={ui.closeHabitActions} onClosed={onClosed} />;
+	}
 
 	const close = ui.closeHabitActions;
 	const count = log?.count ?? 0;
@@ -88,6 +134,25 @@ function HabitActionsContent({
 	};
 
 	const trackerDay = isTrackerDay(habit, day);
+	const target = targetOn(habit, day);
+	// Reps above the target are explicit and only where they count (D11).
+	const exceed = !isBreak && !trackerDay && !skipped && canExceedTarget(habit);
+	// Rows here log by hand, also on days before a tracker started (Annex K §1.3).
+	const manual = { manual: true };
+	const extraRepRow: SheetAction = {
+		key: "extra",
+		label: t.t("month.extraRep"),
+		hint: t.t("month.extraRepHint"),
+		icon: Plus,
+		tone: "accent",
+		onPress: run(() => logger.extraRep(habit, day)),
+	};
+	const logAmountRow: SheetAction = {
+		key: "amount",
+		label: t.t("habit.logAmount"),
+		icon: PenLine,
+		onPress: () => onLogAmount({ habitId: habit.id, day }),
+	};
 	const list: SheetAction[] = [];
 	if (trackerDay) {
 		list.push(...trackerRows);
@@ -98,28 +163,31 @@ function HabitActionsContent({
 						key: "unslip",
 						label: t.t("habit.undoSlip"),
 						icon: Undo2,
-						onPress: run(() => logger.tap(habit, day, count)),
+						onPress: run(() => logger.tap(habit, day, count, undefined, manual)),
 					}
 				: {
 						key: "slip",
 						label: t.t("habit.logSlip"),
 						icon: ShieldAlert,
 						tone: "danger",
-						onPress: run(() => logger.tap(habit, day, count)),
+						onPress: run(() => logger.tap(habit, day, count, undefined, manual)),
 					},
 		);
-	} else if (habit.target > 1) {
-		// At the target a tap would do nothing, so "Add one" is only offered below it.
-		if (count < habit.target) {
+	} else if (target > 1) {
+		// Below the target "Add one" completes the day; at it, "Log an extra rep" goes beyond.
+		if (count < target) {
 			list.push({
 				key: "increment",
 				label: t.t("habit.increment"),
 				icon: Plus,
 				tone: "accent",
-				hint: progressLabel(habit, count, t),
-				onPress: run(() => logger.tap(habit, day, count, liveIdentity)),
+				hint: progressLabel(displayHabit(habit, text), count, t),
+				onPress: run(() => logger.tap(habit, day, count, liveIdentity, manual)),
 			});
+		} else if (exceed) {
+			list.push(extraRepRow);
 		}
+		if (exceed) list.push(logAmountRow);
 		if (count > 0) {
 			list.push({
 				key: "decrement",
@@ -134,11 +202,13 @@ function HabitActionsContent({
 	} else {
 		list.push({
 			key: "toggle",
-			label: count >= habit.target ? t.t("habit.markUndone") : t.t("habit.markDone"),
-			icon: count >= habit.target ? Undo2 : Check,
-			tone: count >= habit.target ? "default" : "accent",
-			onPress: run(() => logger.tap(habit, day, count, liveIdentity)),
+			label: count >= target ? t.t("habit.markUndone") : t.t("habit.markDone"),
+			icon: count >= target ? Undo2 : Check,
+			tone: count >= target ? "default" : "accent",
+			onPress: run(() => logger.tap(habit, day, count, liveIdentity, manual)),
 		});
+		if (exceed && count >= target) list.push(extraRepRow);
+		if (exceed) list.push(logAmountRow);
 	}
 	// Skipping clears the day's count, so it is only offered before any progress;
 	// with progress the user gets "Reset day" instead.
@@ -201,7 +271,11 @@ function HabitActionsContent({
 
 	const subtitle = [
 		t.formatRelativeDay(day, today),
-		isBreak ? null : skipped ? t.t("habit.skipped") : progressLabel(habit, count, t),
+		isBreak
+			? null
+			: skipped
+				? t.t("habit.skipped")
+				: progressLabel(displayHabit(habit, text), count, t),
 	]
 		.filter(Boolean)
 		.join(" · ");
@@ -210,7 +284,8 @@ function HabitActionsContent({
 		<Sheet
 			open={open}
 			onClose={close}
-			title={habit.name}
+			onClosed={onClosed}
+			title={text.habit(habit, "name")}
 			subtitle={subtitle}
 			testID="habit-actions-sheet"
 			leading={

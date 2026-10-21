@@ -1,6 +1,7 @@
 import { HabitActionsSheet } from "@/components/habit/habit-actions-sheet";
 import { ChevronRight, ListChecks, type LucideIcon, NotebookPen, Orbit } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
+import { RepeatChip } from "@/components/tasks/repeat-field";
 import { DateChips, PriorityPicker } from "@/components/tasks/task-fields";
 import { DayEntriesSheet } from "@/components/trackers/day-entries-sheet";
 import { EntryComposerSheet } from "@/components/trackers/entry-composer-sheet";
@@ -12,8 +13,8 @@ import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui, useUI } from "@/lib/ui-store";
-import { type DayKey, type TaskPriority, toDayKey } from "@atomic/core";
-import { useActions } from "@atomic/core/react";
+import { type DayKey, type RepeatRule, type TaskPriority, toDayKey } from "@atomic/core";
+import { useActions, useAtomic, useHabit, useText, useToday } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { type TextInput, View } from "react-native";
@@ -125,27 +126,58 @@ function CreateOption({
 	);
 }
 
+/**
+ * Quick task composer (Annex T §5.3): title, date chips, the repeat chip
+ * (its own labelled row, so the date chips never push it off-screen) and
+ * priority. A setup-task prefill ("Make it a task") brings its title,
+ * repeat and habit link, shown as "Supports {habit}".
+ */
 function TaskComposerSheet() {
 	const t = useT();
+	const text = useText();
+	const { colors } = useTheme();
+	const styles = useStyles();
 	const actions = useActions();
+	const today = useToday();
+	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	const composer = useUI((s) => s.composer);
+	const prefill = composer.prefill;
+	const supports = useHabit(prefill?.habitId ?? undefined);
 	const [title, setTitle] = useState("");
 	const [date, setDate] = useState<DayKey | null>(null);
 	const [priority, setPriority] = useState<TaskPriority>(0);
+	const [repeat, setRepeat] = useState<RepeatRule | null>(null);
 	const input = useRef<TextInput>(null);
 
 	useEffect(() => {
 		if (composer.open) {
 			setTitle(composer.prefill?.title ?? "");
-			setDate(composer.prefill?.date ?? composer.date);
+			const rule = composer.prefill?.repeat ?? null;
+			// A series needs a start date.
+			setDate(composer.prefill?.date ?? composer.date ?? (rule ? toDayKey() : null));
+			setRepeat(rule);
 			setPriority(0);
 		}
 	}, [composer.open, composer.date, composer.prefill]);
 
+	const changeRepeat = (rule: RepeatRule | null) => {
+		setRepeat(rule);
+		// A series needs a start date: "Someday" becomes today.
+		if (rule && date === null) setDate(today);
+	};
+
 	const add = () => {
 		const value = title.trim();
 		if (!value) return;
-		actions.createTask({ title: value, date, priority });
+		actions.createTask({
+			...prefill,
+			title: value,
+			date,
+			priority,
+			repeat,
+			// A setup task takes the habit's identity once (Annex T §1.5); it isn't kept in sync.
+			...(supports ? { identityId: supports.identityId } : {}),
+		});
 		haptics.light();
 		ui.closeComposer();
 	};
@@ -167,6 +199,26 @@ function TaskComposerSheet() {
 			}
 		>
 			<View style={{ gap: 16, paddingBottom: 4 }}>
+				{supports ? (
+					<View
+						style={styles.supports}
+						accessible
+						accessibilityLabel={t.t("tasks.habitSupports", {
+							habit: text.habit(supports, "name"),
+						})}
+						testID="composer-supports"
+					>
+						<Text style={styles.supportsEmoji}>{supports.emoji}</Text>
+						<Text
+							variant="small"
+							weight="semibold"
+							color={colors.accentText}
+							style={{ flexShrink: 1 }}
+						>
+							{t.t("tasks.habitSupports", { habit: text.habit(supports, "name") })}
+						</Text>
+					</View>
+				) : null}
 				<SmartTextField
 					field="task.title"
 					ref={input}
@@ -182,8 +234,18 @@ function TaskComposerSheet() {
 					testID="composer-title"
 				/>
 				<View style={{ gap: 8 }}>
-					<Text variant="label">{t.t("tasks.date")}</Text>
-					<DateChips value={date} onChange={setDate} bleed={20} />
+					{/* A series' date is its start (Annex T §4.3), as in the task sheet. */}
+					<Text variant="label">{repeat ? t.t("repeat.starts") : t.t("tasks.date")}</Text>
+					<DateChips value={date} onChange={setDate} bleed={20} somedayDisabled={repeat !== null} />
+				</View>
+				<View style={{ gap: 8 }}>
+					<Text variant="label">{t.t("repeat.label")}</Text>
+					<RepeatChip
+						value={repeat}
+						onChange={changeRepeat}
+						start={date ?? today}
+						weekStartsOn={weekStartsOn}
+					/>
 				</View>
 				<View style={{ gap: 8 }}>
 					<Text variant="label">{t.t("tasks.priority")}</Text>
@@ -212,4 +274,16 @@ const useStyles = makeStyles((t) => ({
 		alignItems: "center",
 		justifyContent: "center",
 	},
+	supports: {
+		flexDirection: "row",
+		alignItems: "center",
+		alignSelf: "flex-start",
+		maxWidth: "100%",
+		gap: 6,
+		paddingHorizontal: 12,
+		paddingVertical: 6,
+		borderRadius: 999,
+		backgroundColor: t.colors.accentSoft,
+	},
+	supportsEmoji: { fontSize: 15, lineHeight: 20 },
 }));

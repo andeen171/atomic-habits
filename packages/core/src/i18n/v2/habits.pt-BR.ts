@@ -43,6 +43,7 @@ export const habitsPtBR: Record<keyof typeof habitsEn, string> = {
 	"month.daysLeft.other": "{count} dias restantes",
 	"month.span": "{from} – {to}",
 	"month.line": "{label} · {value}",
+	"month.paceMarker": "Ritmo esperado até hoje: {count}",
 
 	"levelUp.eyebrow": "A regra da Cachinhos Dourados",
 	"levelUp.title": "Pronto para subir de nível?",

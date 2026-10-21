@@ -13,7 +13,7 @@ import {
 } from "@atomic/core";
 import { useAtomic } from "@atomic/core/react";
 import { habitColor } from "@atomic/core/theme";
-import { Check, Lock, Minus, Plus, ShieldOff, Sprout, X } from "lucide-react";
+import { Check, Link2, Lock, Minus, Plus, RotateCcw, ShieldOff, Sprout, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Field, Input } from "../ui/field";
 import { IconButton } from "../ui/icon-button";
@@ -102,21 +102,45 @@ export function KindReadOnly({ value }: { value: HabitKind }) {
 	);
 }
 
+/** A habit icon that follows its identity until the user picks one (D12). */
+export interface EmojiAuto {
+	/** The icon is the automatic one right now. */
+	on: boolean;
+	/** The identity's emoji, or the kind default (🌱 / 🚫) without an identity. */
+	source: "identity" | "default";
+	/** What the automatic icon is. */
+	emoji: string;
+	/** Back to the automatic icon. */
+	onReset(): void;
+}
+
 export function EmojiPicker({
 	value,
 	color,
 	onChange,
-}: { value: string; color: HabitColor; onChange(emoji: string): void }) {
+	auto,
+	label,
+}: {
+	value: string;
+	color: HabitColor;
+	onChange(emoji: string): void;
+	/** Habit editor only: the "Matches your identity" caption, or a reset to it. */
+	auto?: EmojiAuto;
+	/** The trigger's name before ": {emoji}" (default "Icon"). */
+	label?: string;
+}) {
 	const { t, at } = useT();
 	const scheme = useColorScheme();
 	const [open, setOpen] = useState(false);
 	const [custom, setCustom] = useState("");
+	const fromIdentity = auto?.source === "identity";
+	const caption = auto?.on ? t(fromIdentity ? "form.emojiAuto" : "form.emojiAutoKind") : null;
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<button
 					type="button"
-					aria-label={`${t("form.emoji")}: ${value}`}
+					aria-label={`${label ?? t("form.emoji")}: ${value}${caption ? ` · ${caption}` : ""}`}
 					className="grid size-11 shrink-0 place-items-center rounded-md border border-line font-emoji text-2xl transition-colors hover:border-line-strong"
 					style={{ background: habitColor(color, scheme).soft }}
 				>
@@ -125,6 +149,31 @@ export function EmojiPicker({
 			</PopoverTrigger>
 			<PopoverContent className="w-[296px]">
 				<p className="mb-2 font-medium text-ink text-small">{at("form.emojiPick")}</p>
+				{auto ? (
+					auto.on ? (
+						<p className="-mt-1 mb-2.5 flex items-center gap-1.5 text-ink-subtle text-small">
+							<Link2 aria-hidden="true" className="size-3.5 shrink-0" />
+							{caption}
+						</p>
+					) : (
+						<button
+							type="button"
+							onClick={() => {
+								auto.onReset();
+								setOpen(false);
+							}}
+							className="-mt-1 mb-2.5 flex min-h-9 w-full items-center gap-2 rounded-md border border-line px-2.5 text-left font-medium text-ink text-small transition-colors hover:border-line-strong hover:bg-hover/60"
+						>
+							<RotateCcw aria-hidden="true" className="size-3.5 shrink-0 text-ink-muted" />
+							<span className="min-w-0 flex-1 break-words">
+								{t(fromIdentity ? "form.emojiUseIdentity" : "form.emojiUseDefault")}
+							</span>
+							<span aria-hidden="true" className="font-emoji text-lg leading-none">
+								{auto.emoji}
+							</span>
+						</button>
+					)
+				) : null}
 				<div className="grid grid-cols-8 gap-1">
 					{EMOJI_CHOICES.map((emoji) => (
 						<button

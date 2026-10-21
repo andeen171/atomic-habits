@@ -1,4 +1,4 @@
-import { HabitScreenPlaceholder } from "@/components/trackers/habit-screen-placeholder";
+import { WriteScreen as Pad } from "@/components/trackers/write-screen";
 import { type DayKey, isDayKey } from "@atomic/core";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -22,9 +22,12 @@ export const Route = createFileRoute("/habits/$habitId/write")({
 /**
  * The full-screen writing pad (Annex K §4.2): title, autosizing text, word
  * count ring, local draft (`atomic-habits:draft:<entryId | new:habitId:day>`)
- * committed on leave. Owner: T4. Phase 1B: a placeholder.
+ * committed on leave. Owner: T4.
  */
 function WriteScreen() {
 	const { habitId } = Route.useParams();
-	return <HabitScreenPlaceholder habitId={habitId} />;
+	const { day, entry } = Route.useSearch();
+	return (
+		<Pad key={`${habitId}:${entry ?? ""}:${day ?? ""}`} habitId={habitId} day={day} entry={entry} />
+	);
 }

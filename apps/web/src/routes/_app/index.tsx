@@ -1,10 +1,12 @@
+import { LevelUpCard } from "@/components/habit/level-up-card";
+import { MonthBehindCard } from "@/components/habit/month-behind-card";
 import { WeekStrip } from "@/components/habit/week-strip";
 import { JournalNudgeCard, useTodayJournalNudge } from "@/components/journal/journal-nudge-card";
 import { FreshStartBanner, NeverMissTwiceBanner } from "@/components/today/banners";
 import { DayProgress } from "@/components/today/day-progress";
 import { HabitGroup } from "@/components/today/habit-group";
 import { IdentityVotesCard } from "@/components/today/identity-votes-card";
-import { PrincipleCard } from "@/components/today/principle-card";
+import { PrincipleHero } from "@/components/today/principle-card";
 import { AllDoneCard, NothingDueCard } from "@/components/today/status-cards";
 import { TodayTasks } from "@/components/today/today-tasks";
 import { useCelebration } from "@/components/today/use-celebration";
@@ -17,18 +19,25 @@ import {
 	type DayAgenda,
 	type DayKey,
 	type DayScore,
+	type Habit,
 	type JournalNudge,
+	type LevelUpSuggestion,
+	type MonthGoal,
 	TIMES_OF_DAY,
 	type TodayCardKind,
 	greetingKey,
 	isDayKey,
+	isLevelUpBannerDay,
 	planTodayCards,
 } from "@atomic/core";
 import {
 	useActions,
+	useAtomic,
 	useDayAgenda,
 	useHabits,
+	useLevelUpSuggestions,
 	useLocale,
+	useMonthBehind,
 	useSettings,
 	useToday,
 } from "@atomic/core/react";
@@ -62,7 +71,11 @@ function TodayScreen() {
 
 	if (agenda.empty) {
 		return (
-			<TodayLayout header={<TodayHeader day={day} today={today} score={agenda.score} />} day={day}>
+			<TodayLayout
+				header={<TodayHeader day={day} today={today} score={agenda.score} />}
+				hero={<PrincipleHero day={day} />}
+				day={day}
+			>
 				<NoActiveHabits />
 			</TodayLayout>
 		);
@@ -73,12 +86,13 @@ function TodayScreen() {
 	return (
 		<TodayLayout
 			header={<TodayHeader day={day} today={today} score={agenda.score} />}
+			hero={<PrincipleHero day={day} />}
 			day={day}
 			votes
 		>
 			<WeekStrip selected={day} onSelect={selectDay} />
 			{cards.above.map((kind) => (
-				<TodayCard key={kind} kind={kind} agenda={agenda} nudge={cards.nudge} />
+				<TodayCard key={kind} kind={kind} agenda={agenda} cards={cards} />
 			))}
 			{agenda.allDone && agenda.isToday ? <AllDoneCard votes={agenda.votes} /> : null}
 			{!hasDue && agenda.score.due === 0 ? <NothingDueCard past={!agenda.isToday} /> : null}
@@ -94,61 +108,97 @@ function TodayScreen() {
 			/>
 			<HabitGroup title={t("today.breaking")} items={agenda.breaking} day={day} showCount={false} />
 			{cards.below.map((kind) => (
-				<TodayCard key={kind} kind={kind} agenda={agenda} nudge={cards.nudge} />
+				<TodayCard key={kind} kind={kind} agenda={agenda} cards={cards} />
 			))}
 		</TodayLayout>
 	);
 }
 
+interface TodayCards {
+	above: TodayCardKind[];
+	below: TodayCardKind[];
+	nudge: JournalNudge | null;
+	levelUp: { habit: Habit; suggestion: LevelUpSuggestion } | null;
+	monthBehind: { habit: Habit; goal: MonthGoal } | null;
+}
+
 /**
  * The cards Today may show (spec §5.1), through the card budget
  * (`planTodayCards`, D35): at most one above the habit groups on phones,
- * two on wider screens, the rest after the groups.
+ * two on wider screens, the rest after the groups. Of level-up (days 1–7),
+ * month-behind (the last 7 days) and a non-recovery nudge, only one renders.
  */
-function useTodayCards(agenda: DayAgenda) {
+function useTodayCards(agenda: DayAgenda): TodayCards {
 	const compact = useIsMobile();
 	const timer = useRunningTimer();
 	const nudge = useTodayJournalNudge(agenda.day);
+	const habits = useAtomic((s) => s.data.habits);
+	const suggestions = useLevelUpSuggestions();
+	const behind = useMonthBehind();
+
+	// The first suggestion in `sortHabits` order, on days 1–7 of the month only.
+	const first = agenda.isToday && isLevelUpBannerDay(agenda.day) ? suggestions[0] : undefined;
+	const levelUpHabit = first ? habits[first.habitId] : undefined;
+	const levelUp = first && levelUpHabit ? { habit: levelUpHabit, suggestion: first } : null;
+	const monthBehind = agenda.isToday ? behind : null;
+
 	const candidates: TodayCardKind[] = [];
 	if (timer) candidates.push("timer");
 	if (agenda.isToday && agenda.atRisk.length) candidates.push("neverMissTwice");
-	// "levelUp" and "monthBehind" [T1] join here.
+	if (levelUp) candidates.push("levelUp");
+	if (monthBehind) candidates.push("monthBehind");
 	if (nudge) {
 		candidates.push(nudge.type === "slip" || nudge.type === "contract" ? "recoveryNudge" : "nudge");
 	}
 	if (agenda.isToday && agenda.broken.length) candidates.push("freshStart");
-	return { ...planTodayCards(candidates, { compact }), nudge };
+	return { ...planTodayCards(candidates, { compact }), nudge, levelUp, monthBehind };
 }
 
 function TodayCard({
 	kind,
 	agenda,
-	nudge,
-}: { kind: TodayCardKind; agenda: DayAgenda; nudge: JournalNudge | null }) {
+	cards,
+}: { kind: TodayCardKind; agenda: DayAgenda; cards: TodayCards }) {
 	switch (kind) {
 		case "timer":
 			return <RunningTimerBanner />;
 		case "neverMissTwice":
 			return <NeverMissTwiceBanner items={agenda.atRisk} />;
+		case "levelUp":
+			return cards.levelUp ? (
+				<LevelUpCard
+					habit={cards.levelUp.habit}
+					suggestion={cards.levelUp.suggestion}
+					variant="banner"
+				/>
+			) : null;
+		case "monthBehind":
+			return cards.monthBehind ? (
+				<MonthBehindCard habit={cards.monthBehind.habit} goal={cards.monthBehind.goal} />
+			) : null;
 		case "recoveryNudge":
 		case "nudge":
-			return nudge ? <JournalNudgeCard nudge={nudge} /> : null;
+			return cards.nudge ? <JournalNudgeCard nudge={cards.nudge} /> : null;
 		case "freshStart":
 			return <FreshStartBanner items={agenda.broken} />;
-		// "levelUp": <LevelUpCard variant="banner" />, "monthBehind": <MonthBehindCard /> [T1].
 		default:
 			return null;
 	}
 }
 
-/** Header, then habits (main) | tasks, principle and votes (right rail from 1280px). */
+/**
+ * Header, the principle of the day across the full width, then habits (main)
+ * | tasks and votes (right rail from 1280px; below the habits before that).
+ */
 function TodayLayout({
 	header,
+	hero,
 	day,
 	votes,
 	children,
 }: {
 	header: ReactNode;
+	hero: ReactNode;
 	day: DayKey;
 	votes?: boolean;
 	children: ReactNode;
@@ -156,17 +206,16 @@ function TodayLayout({
 	return (
 		<div className="mx-auto w-full max-w-[760px] animate-page-in px-5 pt-6 pb-10 md:px-8 md:pt-10 lg:px-10 xl:max-w-[1160px]">
 			{header}
+			{hero}
 			<div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-8">
 				<div className="flex min-w-0 flex-col gap-6">
 					{children}
 					<div className="flex flex-col gap-6 xl:hidden">
 						<TodayTasks day={day} />
-						<PrincipleCard />
 					</div>
 				</div>
 				<aside className="hidden flex-col gap-6 xl:flex">
 					<TodayTasks day={day} />
-					<PrincipleCard />
 					{votes ? <IdentityVotesCard /> : null}
 				</aside>
 			</div>

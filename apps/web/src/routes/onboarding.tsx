@@ -80,8 +80,15 @@ function OnboardingScreen() {
 			}
 			for (const { habit, identity } of candidateHabits) {
 				if (!chosenHabitKeys.includes(habit.key)) continue;
-				const { key: _key, ...fields } = habit;
-				actions.createHabit({ ...fields, identityId: ids.get(identity.key) ?? null });
+				const { key: _key, requires: _requires, ...fields } = habit;
+				// Same icon rules as the editor (D12): nobody picked an icon here, so the
+				// habit wears its identity's emoji and follows it.
+				actions.createHabit({
+					...fields,
+					emoji: identity.emoji,
+					emojiAuto: true,
+					identityId: ids.get(identity.key) ?? null,
+				});
 			}
 		}
 		actions.updateSettings({
@@ -283,26 +290,45 @@ function OnboardingScreen() {
 										<p className="section-label mt-4">
 											{at("onboarding.pickUpTo", { count: MAX_HABITS })}
 										</p>
-										<div className="mt-3 flex flex-col gap-2.5">
-											{candidateHabits.map(({ habit }) => {
-												const selected = chosenHabitKeys.includes(habit.key);
-												return (
-													<HabitOption
-														key={habit.key}
-														habit={habit}
-														selected={selected}
-														disabled={!selected && chosenHabitKeys.length >= MAX_HABITS}
-														onToggle={() =>
-															setHabitKeys(
-																selected
-																	? chosenHabitKeys.filter((k) => k !== habit.key)
-																	: [...chosenHabitKeys, habit.key],
-															)
-														}
-													/>
-												);
-											})}
-										</div>
+										{/* Grouped by the identity each habit votes for; each wears that identity's icon. */}
+										{selectedTemplates.map((identity) => (
+											<section
+												key={identity.key}
+												aria-labelledby={`onboarding-identity-${identity.key}`}
+												className="mt-5 first-of-type:mt-3"
+											>
+												<h2
+													id={`onboarding-identity-${identity.key}`}
+													className="mb-2 flex items-center gap-2 font-medium text-ink-muted text-small"
+												>
+													<span aria-hidden="true" className="font-emoji text-base leading-none">
+														{identity.emoji}
+													</span>
+													<span className="min-w-0 break-words">{identity.statement}</span>
+												</h2>
+												<div className="flex flex-col gap-2.5">
+													{identity.habits.map((habit) => {
+														const selected = chosenHabitKeys.includes(habit.key);
+														return (
+															<HabitOption
+																key={habit.key}
+																habit={habit}
+																emoji={identity.emoji}
+																selected={selected}
+																disabled={!selected && chosenHabitKeys.length >= MAX_HABITS}
+																onToggle={() =>
+																	setHabitKeys(
+																		selected
+																			? chosenHabitKeys.filter((k) => k !== habit.key)
+																			: [...chosenHabitKeys, habit.key],
+																	)
+																}
+															/>
+														);
+													})}
+												</div>
+											</section>
+										))}
 									</>
 								) : null}
 							</StepLayout>
@@ -329,13 +355,13 @@ function OnboardingScreen() {
 								<div className="mt-8 flex flex-wrap justify-center gap-2">
 									{candidateHabits
 										.filter(({ habit }) => chosenHabitKeys.includes(habit.key))
-										.map(({ habit }) => (
+										.map(({ habit, identity }) => (
 											<span
 												key={habit.key}
-												className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3.5 text-ink text-small shadow-card"
+												className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5 text-ink text-small shadow-card"
 											>
-												<span className="font-emoji">{habit.emoji}</span>
-												{habit.name}
+												<span className="font-emoji">{identity.emoji}</span>
+												<span className="min-w-0 break-words">{habit.name}</span>
 											</span>
 										))}
 								</div>
@@ -460,11 +486,14 @@ function IdentityOption({
 
 function HabitOption({
 	habit,
+	emoji,
 	selected,
 	disabled,
 	onToggle,
 }: {
 	habit: HabitTemplate;
+	/** The icon the habit gets: its identity's (D12). */
+	emoji: string;
 	selected: boolean;
 	disabled: boolean;
 	onToggle(): void;
@@ -484,8 +513,11 @@ function HabitOption({
 					: "border-line hover:border-line-strong",
 			)}
 		>
-			<span className="grid size-11 shrink-0 place-items-center rounded-full bg-(--habit-soft) font-emoji text-xl">
-				{habit.emoji}
+			<span
+				aria-hidden="true"
+				className="grid size-11 shrink-0 place-items-center rounded-full bg-(--habit-soft) font-emoji text-xl"
+			>
+				{emoji}
 			</span>
 			<span className="min-w-0 flex-1">
 				<span className="block font-medium text-ink">{habit.name}</span>

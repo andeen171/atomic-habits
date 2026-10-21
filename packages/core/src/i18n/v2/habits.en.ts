@@ -46,6 +46,7 @@ export const habitsEn = {
 	"month.daysLeft.other": "{count} days left",
 	"month.span": "{from} – {to}",
 	"month.line": "{label} · {value}",
+	"month.paceMarker": "Pace for today: {count}",
 
 	// Level-up, the Goldilocks rule (Annex H §1.1.6, §7; spec D8b, D9).
 	"levelUp.eyebrow": "The Goldilocks rule",

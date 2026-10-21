@@ -1,12 +1,25 @@
-import { Check, Clock, Minus, Plus, ShieldOff, Sprout, X } from "@/components/icons";
+import { AiSuggestButton } from "@/components/ai/ai-suggest-button";
+import {
+	Check,
+	ChevronDown,
+	Clock,
+	Fingerprint,
+	Minus,
+	Plus,
+	RotateCcw,
+	ShieldOff,
+	Sprout,
+	X,
+} from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { TrackerBadge } from "@/components/trackers/tracker-badge";
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Stepper } from "@/components/ui/stepper";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
@@ -17,14 +30,17 @@ import {
 	type HabitKind,
 	type HabitTemplate,
 	type Identity,
+	type IdentityTemplate,
 	type Schedule,
 	TIMES_OF_DAY,
 	type TimeOfDay,
 	type Weekday,
+	identityTemplates,
+	matchIdentityTemplate,
 	orderedWeekdays,
 } from "@atomic/core";
-import { useAtomic } from "@atomic/core/react";
-import { type ReactNode, useState } from "react";
+import { useAtomic, useText } from "@atomic/core/react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
 /** Label + optional hint above a control. */
@@ -127,58 +143,141 @@ export function KindSummary({ value }: { value: HabitKind }) {
 	);
 }
 
+/** A habit icon that follows its identity until the user picks one (Annex H §1.2, D12). */
+export interface EmojiAuto {
+	/** The icon is the automatic one right now. */
+	on: boolean;
+	/** The identity's emoji, or the kind default (🌱 / 🚫) without an identity. */
+	source: "identity" | "default";
+	/** What the automatic icon is. */
+	emoji: string;
+	/** Back to the automatic icon. */
+	onReset: () => void;
+}
+
 export function EmojiPicker({
 	value,
 	onChange,
-}: { value: string; onChange: (emoji: string) => void }) {
+	auto,
+	offer,
+	label,
+	initiallyExpanded = false,
+}: {
+	value: string;
+	onChange: (emoji: string) => void;
+	/** Habit editor only: the "Matches your identity" caption, or a reset to it. */
+	auto?: EmojiAuto;
+	/** An emoji offered as a one-tap "Use 📖" chip (the applied template's, D12). */
+	offer?: { emoji: string; onUse: () => void } | null;
+	/** The grid's accessible name (default "Icon"). */
+	label?: string;
+	/** Show every choice at once (inside a sheet). */
+	initiallyExpanded?: boolean;
+}) {
 	const t = useT();
 	const { colors } = useTheme();
 	const styles = useStyles();
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, setExpanded] = useState(initiallyExpanded);
 	const choices: string[] = [...EMOJI_CHOICES];
 	if (!choices.includes(value)) choices.unshift(value);
 	const shown = expanded ? choices : choices.slice(0, 15);
+	const fromIdentity = auto?.source === "identity";
+	const caption = auto?.on ? t.t(fromIdentity ? "form.emojiAuto" : "form.emojiAutoKind") : null;
+	const CaptionIcon = fromIdentity ? Fingerprint : Check;
 	return (
-		<View
-			style={styles.emojiGrid}
-			accessibilityRole="radiogroup"
-			accessibilityLabel={t.t("form.emoji")}
-		>
-			{shown.map((emoji) => {
-				const selected = emoji === value;
-				return (
-					<Pressable
-						key={emoji}
-						onPress={() => {
-							haptics.selection();
-							onChange(emoji);
-						}}
-						accessibilityRole="radio"
-						accessibilityState={{ selected }}
-						accessibilityLabel={emoji}
-						style={[
-							styles.emojiCell,
-							selected && { backgroundColor: colors.surface, borderColor: colors.text },
-						]}
-					>
-						<Text style={styles.emoji} allowFontScaling={false}>
-							{emoji}
-						</Text>
-					</Pressable>
-				);
-			})}
-			<Pressable
-				onPress={() => setExpanded((v) => !v)}
-				accessibilityRole="button"
-				accessibilityLabel={t.t("common.more")}
-				style={[styles.emojiCell, styles.emojiMore]}
+		<View style={{ gap: 10 }}>
+			{auto || offer ? (
+				<View style={styles.emojiSource}>
+					{auto ? (
+						auto.on ? (
+							<View style={styles.emojiCaption} testID="emoji-auto-caption">
+								<CaptionIcon size={14} color={colors.textMuted} strokeWidth={2} />
+								<Text variant="small" tone="muted" style={{ flexShrink: 1 }}>
+									{caption}
+								</Text>
+							</View>
+						) : (
+							<PressableScale
+								scaleTo={0.97}
+								hitSlop={4}
+								onPress={() => {
+									haptics.selection();
+									auto.onReset();
+								}}
+								accessibilityRole="button"
+								accessibilityLabel={`${t.t(
+									fromIdentity ? "form.emojiUseIdentity" : "form.emojiUseDefault",
+								)} ${auto.emoji}`}
+								style={styles.emojiReset}
+								testID="emoji-reset"
+							>
+								<RotateCcw size={14} color={colors.textMuted} strokeWidth={2} />
+								<Text variant="small" weight="medium" style={{ flexShrink: 1 }}>
+									{t.t(fromIdentity ? "form.emojiUseIdentity" : "form.emojiUseDefault")}
+								</Text>
+								<Text style={styles.emojiInline} allowFontScaling={false}>
+									{auto.emoji}
+								</Text>
+							</PressableScale>
+						)
+					) : null}
+					{offer ? (
+						<Chip
+							label={t.t("form.emojiUseTemplate", { emoji: offer.emoji })}
+							onPress={() => {
+								haptics.selection();
+								offer.onUse();
+							}}
+							testID="emoji-use-template"
+						/>
+					) : null}
+				</View>
+			) : null}
+			<View
+				style={styles.emojiGrid}
+				accessibilityRole="radiogroup"
+				accessibilityLabel={`${label ?? t.t("form.emoji")}${caption ? ` · ${caption}` : ""}`}
 			>
-				{expanded ? (
-					<Minus size={18} color={colors.textMuted} />
-				) : (
-					<Plus size={18} color={colors.textMuted} />
+				{shown.map((emoji) => {
+					const selected = emoji === value;
+					return (
+						<Pressable
+							key={emoji}
+							onPress={() => {
+								haptics.selection();
+								onChange(emoji);
+							}}
+							accessibilityRole="radio"
+							accessibilityState={{ selected }}
+							accessibilityLabel={emoji}
+							style={({ pressed }) => [
+								styles.emojiCell,
+								pressed && { backgroundColor: colors.hover },
+								selected && { backgroundColor: colors.surface, borderColor: colors.text },
+							]}
+						>
+							<Text style={styles.emoji} allowFontScaling={false}>
+								{emoji}
+							</Text>
+						</Pressable>
+					);
+				})}
+				{initiallyExpanded ? null : (
+					<Pressable
+						onPress={() => setExpanded((v) => !v)}
+						accessibilityRole="button"
+						accessibilityLabel={t.t("common.more")}
+						accessibilityState={{ expanded }}
+						style={[styles.emojiCell, styles.emojiMore]}
+					>
+						{expanded ? (
+							<Minus size={18} color={colors.textMuted} />
+						) : (
+							<Plus size={18} color={colors.textMuted} />
+						)}
+					</Pressable>
 				)}
-			</Pressable>
+			</View>
 		</View>
 	);
 }
@@ -225,11 +324,14 @@ export function ColorPicker({
 export function TemplatePicker({
 	templates,
 	onPick,
+	selectedKey,
 }: {
 	templates: HabitTemplate[];
 	onPick: (template: HabitTemplate) => void;
+	/** The template applied last (outlined). */
+	selectedKey?: string | null;
 }) {
-	const { habit: toneOf } = useTheme();
+	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
 	return (
 		<ScrollView
@@ -239,6 +341,7 @@ export function TemplatePicker({
 		>
 			{templates.map((template) => {
 				const tone = toneOf(template.color);
+				const selected = template.key === selectedKey;
 				return (
 					<PressableScale
 						key={template.key}
@@ -249,8 +352,11 @@ export function TemplatePicker({
 							onPick(template);
 						}}
 						accessibilityRole="button"
-						accessibilityLabel={template.name}
-						style={styles.template}
+						accessibilityState={{ selected }}
+						accessibilityLabel={
+							template.twoMinute ? `${template.name}. ${template.twoMinute}` : template.name
+						}
+						style={[styles.template, selected && { borderColor: colors.text }]}
 					>
 						<View style={[styles.templateEmoji, { backgroundColor: tone.soft }]}>
 							<Text style={{ fontSize: 20, lineHeight: 26 }} allowFontScaling={false}>
@@ -273,11 +379,128 @@ export function TemplatePicker({
 	);
 }
 
+/**
+ * Template ideas for the "what" step (Annex H §1.2): with an identity that
+ * matches a template identity, its habits come first as "Ideas for
+ * “{identity}”" and the rest fold under "More ideas"; otherwise the plain
+ * "Need inspiration?" row of every template of the kind.
+ */
+export function TemplateIdeas({
+	ideas,
+	rest,
+	identity,
+	selectedKey,
+	onPick,
+}: {
+	/** The matched identity's templates of the habit's kind. */
+	ideas: HabitTemplate[];
+	/** Every other template of the kind. */
+	rest: HabitTemplate[];
+	/** The linked identity's statement (as shown), when it matched a template identity. */
+	identity: string | null;
+	selectedKey?: string | null;
+	onPick: (template: HabitTemplate) => void;
+}) {
+	const t = useT();
+	const { colors } = useTheme();
+	const styles = useStyles();
+	const [open, setOpen] = useState(false);
+	if (!ideas.length && !rest.length) return null;
+	if (!ideas.length || !identity) {
+		return (
+			<Field label={t.t("form.templates")} hint={t.t("form.templatesHint")}>
+				<TemplatePicker templates={rest} onPick={onPick} selectedKey={selectedKey} />
+			</Field>
+		);
+	}
+	return (
+		<View style={{ gap: 8 }} testID="template-ideas">
+			<Field label={t.t("form.templatesFor", { identity })} hint={t.t("form.templatesHint")}>
+				<TemplatePicker templates={ideas} onPick={onPick} selectedKey={selectedKey} />
+			</Field>
+			{rest.length ? (
+				<>
+					<Pressable
+						onPress={() => {
+							haptics.selection();
+							setOpen((value) => !value);
+						}}
+						accessibilityRole="button"
+						accessibilityState={{ expanded: open }}
+						accessibilityLabel={`${t.t("form.templatesMore")}, ${t.number(rest.length)}`}
+						style={({ pressed }) => [styles.moreIdeas, pressed && { opacity: 0.6 }]}
+						testID="template-more"
+					>
+						<ChevronDown
+							size={18}
+							color={colors.textMuted}
+							style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}
+						/>
+						<Text variant="small" weight="semibold" tone="muted">
+							{t.t("form.templatesMore")}
+						</Text>
+						<Text variant="small" tone="subtle" tabular>
+							{t.number(rest.length)}
+						</Text>
+					</Pressable>
+					{open ? (
+						<TemplatePicker templates={rest} onPick={onPick} selectedKey={selectedKey} />
+					) : null}
+				</>
+			) : null}
+		</View>
+	);
+}
+
+/** New identities get this icon when nothing else gives one (the store's default too). */
+export const NEW_IDENTITY_EMOJI = "🌱";
+
+let templateIdentities: IdentityTemplate[] | null = null;
+
+/** The identity template a statement (or emoji) matches, in en or pt, ignoring case and accents. */
+export function identityTemplateFor(identity: {
+	statement: string;
+	emoji?: string | null;
+}): IdentityTemplate | null {
+	const key = matchIdentityTemplate(identity);
+	if (!key) return null;
+	// Emoji and colors don't depend on the language.
+	templateIdentities ??= identityTemplates("en");
+	return templateIdentities.find((tpl) => tpl.key === key) ?? null;
+}
+
 export type IdentityChoice =
 	| { mode: "none" }
 	| { mode: "existing"; id: string }
-	| { mode: "new"; statement: string };
+	/** Created on save. `emoji`/`color` come from a suggestion chip or the icon sheet. */
+	| { mode: "new"; statement: string; emoji?: string; color?: HabitColor };
 
+/**
+ * The look of an identity the editor will create: the chosen icon and color,
+ * else those of the template identity its statement matches, else 🌱 and no
+ * color. Null while the statement is empty.
+ */
+export function newIdentityLook(choice: {
+	statement: string;
+	emoji?: string;
+	color?: HabitColor;
+}): { statement: string; emoji: string; color: HabitColor | null } | null {
+	const statement = choice.statement.trim();
+	if (!statement) return null;
+	const matched = identityTemplateFor({ statement });
+	return {
+		statement,
+		emoji: choice.emoji ?? matched?.emoji ?? NEW_IDENTITY_EMOJI,
+		color: choice.color ?? matched?.color ?? null,
+	};
+}
+
+/**
+ * Step 1 of the editor (Annex H §1.2): an existing identity, "No identity"
+ * (with its hint), or a new one written inline. A suggestion chip sets the
+ * new identity's statement, icon and color; the habit's auto icon and color
+ * follow whatever is chosen here.
+ */
 export function IdentityPicker({
 	identities,
 	value,
@@ -288,17 +511,44 @@ export function IdentityPicker({
 	onChange: (choice: IdentityChoice) => void;
 }) {
 	const t = useT();
+	const text = useText();
 	const { colors, habit: toneOf } = useTheme();
 	const styles = useStyles();
-	const row = (
-		key: string,
-		selected: boolean,
-		onPress: () => void,
-		leading: ReactNode,
-		label: string,
-	) => (
+	const [iconSheet, setIconSheet] = useState(false);
+	const suggestions = useMemo(() => {
+		const taken = new Set(identities.map((identity) => identityTemplateFor(identity)?.key));
+		return identityTemplates(t.locale).filter((tpl) => !taken.has(tpl.key));
+	}, [identities, t.locale]);
+	const creating = value.mode === "new";
+	const statement = value.mode === "new" ? value.statement : "";
+	const look = value.mode === "new" ? newIdentityLook(value) : null;
+	const newEmoji = value.mode === "new" ? (look?.emoji ?? value.emoji ?? NEW_IDENTITY_EMOJI) : "";
+	const newColor = look?.color ?? (value.mode === "new" ? value.color : undefined);
+	const setNew = (patch: Partial<Extract<IdentityChoice, { mode: "new" }>>) => {
+		const current = value.mode === "new" ? value : { mode: "new" as const, statement: "" };
+		onChange({ ...current, ...patch });
+	};
+
+	const row = ({
+		key,
+		selected,
+		onPress,
+		leading,
+		label,
+		hint,
+		dashed,
+	}: {
+		key: string;
+		selected: boolean;
+		onPress: () => void;
+		leading: ReactNode;
+		label: string;
+		hint?: string;
+		dashed?: boolean;
+	}) => (
 		<PressableScale
 			key={key}
+			testID={`identity-option-${key}`}
 			scaleTo={0.98}
 			onPress={() => {
 				haptics.selection();
@@ -307,12 +557,22 @@ export function IdentityPicker({
 			accessibilityRole="radio"
 			accessibilityState={{ selected }}
 			accessibilityLabel={label}
-			style={[styles.identity, selected && { borderColor: colors.text }]}
+			accessibilityHint={hint}
+			style={[
+				styles.identity,
+				dashed && !selected && styles.identityDashed,
+				selected && { borderColor: colors.text },
+			]}
 		>
 			{leading}
-			<Text weight="medium" style={{ flex: 1 }} numberOfLines={2}>
-				{label}
-			</Text>
+			<View style={{ flex: 1, gap: 2 }}>
+				<Text weight="medium">{label}</Text>
+				{hint ? (
+					<Text variant="small" tone="muted">
+						{hint}
+					</Text>
+				) : null}
+			</View>
 			<View
 				style={[
 					styles.radio,
@@ -323,49 +583,175 @@ export function IdentityPicker({
 			</View>
 		</PressableScale>
 	);
+
 	return (
-		<View style={{ gap: 8 }} accessibilityRole="radiogroup">
+		<View
+			style={{ gap: 8 }}
+			accessibilityRole="radiogroup"
+			accessibilityLabel={t.t("form.identity")}
+		>
 			{identities.map((identity) =>
-				row(
-					identity.id,
-					value.mode === "existing" && value.id === identity.id,
-					() => onChange({ mode: "existing", id: identity.id }),
-					<View style={[styles.identityEmoji, { backgroundColor: toneOf(identity.color).soft }]}>
-						<Text style={{ fontSize: 18, lineHeight: 24 }} allowFontScaling={false}>
-							{identity.emoji}
-						</Text>
-					</View>,
-					identity.statement,
+				row({
+					key: identity.id,
+					selected: value.mode === "existing" && value.id === identity.id,
+					onPress: () => onChange({ mode: "existing", id: identity.id }),
+					leading: (
+						<View style={[styles.identityEmoji, { backgroundColor: toneOf(identity.color).soft }]}>
+							<Text style={{ fontSize: 18, lineHeight: 24 }} allowFontScaling={false}>
+								{identity.emoji}
+							</Text>
+						</View>
+					),
+					label: text.identity(identity, "statement"),
+				}),
+			)}
+			{row({
+				key: "none",
+				selected: value.mode === "none",
+				onPress: () => onChange({ mode: "none" }),
+				leading: (
+					<View style={[styles.identityEmoji, { backgroundColor: colors.sunken }]}>
+						<View style={[styles.noneDot, { backgroundColor: colors.borderStrong }]} />
+					</View>
 				),
-			)}
-			{row(
-				"new",
-				value.mode === "new",
-				() => onChange({ mode: "new", statement: value.mode === "new" ? value.statement : "" }),
-				<View style={[styles.identityEmoji, { backgroundColor: colors.accentSoft }]}>
-					<Plus size={18} color={colors.accent} />
-				</View>,
-				t.t("form.identityNew"),
-			)}
+				label: t.t("form.identityNone"),
+				hint: t.t("form.identityNoneHint"),
+			})}
+			{row({
+				key: "new",
+				selected: creating,
+				// A new identity replaces whatever was linked before.
+				onPress: () => {
+					if (!creating) onChange({ mode: "new", statement: "" });
+				},
+				leading: (
+					<View style={[styles.identityEmoji, { backgroundColor: colors.sunken }]}>
+						<Plus size={18} color={colors.text} />
+					</View>
+				),
+				label: t.t("form.identityNew"),
+				dashed: true,
+			})}
 			{value.mode === "new" ? (
-				<TextField
-					value={value.statement}
-					onChangeText={(statement) => onChange({ mode: "new", statement })}
-					placeholder={t.t("form.identityPlaceholder")}
-					hint={t.x("editor.identityNewHint")}
-					autoFocus
-					maxLength={120}
-				/>
+				<View style={styles.newIdentity} testID="identity-new">
+					<View style={styles.newIdentityRow}>
+						<Pressable
+							onPress={() => setIconSheet(true)}
+							accessibilityRole="button"
+							accessibilityLabel={`${t.t("form.emoji")} · ${t.t("form.identityNew")}: ${newEmoji}`}
+							style={({ pressed }) => [
+								styles.newIdentityEmoji,
+								{ backgroundColor: newColor ? toneOf(newColor).soft : colors.sunken },
+								pressed && { opacity: 0.7 },
+							]}
+							testID="identity-new-emoji"
+						>
+							<Text style={{ fontSize: 24, lineHeight: 30 }} allowFontScaling={false}>
+								{newEmoji}
+							</Text>
+						</Pressable>
+						<SmartTextField
+							field="identity.statement"
+							value={statement}
+							onChangeText={(next) =>
+								// An emptied field forgets the chip's icon and color.
+								onChange(
+									next.trim() ? { ...value, statement: next } : { mode: "new", statement: next },
+								)
+							}
+							placeholder={t.t("form.identityPlaceholder")}
+							accessibilityLabel={t.t("form.identityNew")}
+							right={
+								<AiSuggestButton
+									kind="identity.statement"
+									label={t.t("form.identity")}
+									disabled={statement.trim().length < 2}
+									input={() => ({ goal: statement.trim().slice(0, 160) })}
+									onPick={(pick) => setNew({ statement: pick })}
+								/>
+							}
+							autoFocus={!statement}
+							maxLength={120}
+							containerStyle={{ flex: 1 }}
+							testID="identity-new-statement"
+						/>
+					</View>
+					<Text variant="small" tone="muted">
+						{t.x("editor.identityNewHint")}
+					</Text>
+					{suggestions.length ? (
+						<View style={{ gap: 8, marginTop: 4 }}>
+							<Text variant="label">{t.t("identity.suggestions")}</Text>
+							<View style={styles.suggestions}>
+								{suggestions.map((tpl) => {
+									const selected = statement.trim() === tpl.statement;
+									return (
+										<PressableScale
+											key={tpl.key}
+											scaleTo={0.96}
+											hitSlop={4}
+											onPress={() => {
+												haptics.selection();
+												onChange({
+													mode: "new",
+													statement: tpl.statement,
+													emoji: tpl.emoji,
+													color: tpl.color,
+												});
+											}}
+											accessibilityRole="button"
+											accessibilityState={{ selected }}
+											accessibilityLabel={tpl.statement}
+											style={[
+												styles.suggestion,
+												selected && { backgroundColor: colors.text, borderColor: colors.text },
+											]}
+											testID={`identity-suggestion-${tpl.key}`}
+										>
+											<View
+												style={[
+													styles.suggestionEmoji,
+													{ backgroundColor: toneOf(tpl.color).soft },
+												]}
+											>
+												<Text style={{ fontSize: 14, lineHeight: 18 }} allowFontScaling={false}>
+													{tpl.emoji}
+												</Text>
+											</View>
+											<Text
+												variant="small"
+												weight="medium"
+												color={selected ? colors.bg : colors.text}
+												style={{ flexShrink: 1 }}
+											>
+												{tpl.statement}
+											</Text>
+										</PressableScale>
+									);
+								})}
+							</View>
+						</View>
+					) : null}
+					<Sheet
+						open={iconSheet}
+						onClose={() => setIconSheet(false)}
+						title={t.t("form.emoji")}
+						subtitle={statement.trim() || t.t("form.identityNew")}
+						closeButton
+						scroll
+					>
+						<EmojiPicker
+							value={newEmoji}
+							initiallyExpanded
+							label={`${t.t("form.emoji")} · ${t.t("form.identityNew")}`}
+							onChange={(emoji) => {
+								setNew({ emoji });
+								setIconSheet(false);
+							}}
+						/>
+					</Sheet>
+				</View>
 			) : null}
-			{row(
-				"none",
-				value.mode === "none",
-				() => onChange({ mode: "none" }),
-				<View style={[styles.identityEmoji, { backgroundColor: colors.sunken }]}>
-					<X size={16} color={colors.textMuted} />
-				</View>,
-				t.t("form.identityNone"),
-			)}
 		</View>
 	);
 }
@@ -627,6 +1013,27 @@ const useStyles = makeStyles((t) => ({
 		borderStyle: "dashed",
 	},
 	emoji: { fontSize: 22, lineHeight: 28 },
+	emojiSource: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+	emojiCaption: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		minHeight: 36,
+		flexShrink: 1,
+	},
+	emojiReset: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		minHeight: 36,
+		paddingHorizontal: 12,
+		borderRadius: 999,
+		borderWidth: 1,
+		borderColor: t.colors.border,
+		backgroundColor: t.colors.surface,
+		flexShrink: 1,
+	},
+	emojiInline: { fontSize: 16, lineHeight: 20 },
 	colors: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 	swatchRing: {
 		width: 40,
@@ -650,7 +1057,7 @@ const useStyles = makeStyles((t) => ({
 		padding: 12,
 		gap: 6,
 		borderRadius: t.radii.lg,
-		borderWidth: 1,
+		borderWidth: 1.5,
 		borderColor: t.colors.border,
 		backgroundColor: t.colors.surface,
 	},
@@ -670,6 +1077,55 @@ const useStyles = makeStyles((t) => ({
 		borderWidth: 1.5,
 		borderColor: t.colors.border,
 		backgroundColor: t.colors.surface,
+	},
+	identityDashed: { borderStyle: "dashed", backgroundColor: t.colors.bg },
+	noneDot: { width: 8, height: 8, borderRadius: 4 },
+	newIdentity: {
+		gap: 8,
+		padding: 12,
+		marginTop: -2,
+		borderRadius: t.radii.lg,
+		backgroundColor: t.colors.surface,
+		borderWidth: 1,
+		borderColor: t.colors.border,
+	},
+	newIdentityRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+	newIdentityEmoji: {
+		width: 48,
+		height: 48,
+		borderRadius: t.radii.md,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+	suggestion: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+		minHeight: 40,
+		maxWidth: "100%",
+		paddingLeft: 5,
+		paddingRight: 12,
+		paddingVertical: 5,
+		borderRadius: 999,
+		borderWidth: 1,
+		borderColor: t.colors.border,
+		backgroundColor: t.colors.surface,
+	},
+	suggestionEmoji: {
+		width: 28,
+		height: 28,
+		borderRadius: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	moreIdeas: {
+		flexDirection: "row",
+		alignItems: "center",
+		alignSelf: "flex-start",
+		gap: 6,
+		minHeight: 44,
+		paddingRight: 8,
 	},
 	identityEmoji: {
 		width: 38,

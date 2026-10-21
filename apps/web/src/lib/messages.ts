@@ -38,7 +38,7 @@ const en = {
 	"habits.last7": "Last 7 days",
 	"habit.logged": "{habit} done",
 	"habit.vote": "+{count}",
-	"habit.completeHint": "Already done for today",
+	"habit.completeHint": "Done for today. Extra reps? Use “Log an extra rep” in the menu.",
 	"identity.thisWeek": "+{count} this week",
 	"identity.atoms": "Each dot is a vote",
 	"identity.atomsScaled": "Each dot is {count} votes",
@@ -121,7 +121,8 @@ const ptBR: Record<AppMessageKey, string> = {
 	"habits.last7": "Últimos 7 dias",
 	"habit.logged": "{habit} feito",
 	"habit.vote": "+{count}",
-	"habit.completeHint": "Já concluído hoje",
+	"habit.completeHint":
+		"Feito por hoje. Repetições extras? Use “Registrar repetição extra” no menu.",
 	"identity.thisWeek": "+{count} esta semana",
 	"identity.atoms": "Cada ponto é um voto",
 	"identity.atomsScaled": "Cada ponto vale {count} votos",
