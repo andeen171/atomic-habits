@@ -1,5 +1,4 @@
 import { useT } from "@/lib/messages";
-import { useMonthCelebration } from "@/lib/use-month-celebration";
 import type { ReactNode } from "react";
 import { CloudBanners } from "../account/cloud-banners";
 import { BottomTabs } from "./bottom-tabs";
@@ -9,7 +8,6 @@ import { Sidebar } from "./sidebar";
 /** Sidebar / rail on desktop and tablet, bottom tabs on mobile. */
 export function AppShell({ children }: { children: ReactNode }) {
 	const { at } = useT();
-	useMonthCelebration();
 	return (
 		<div className="min-h-dvh">
 			<button

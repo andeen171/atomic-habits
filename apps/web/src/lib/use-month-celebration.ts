@@ -25,7 +25,8 @@ function trophyIcon() {
 
 /**
  * Month-goal celebrations (spec §5.10, Annex H §1.1.4, D56). Owner: T1.
- * Mounted once, in `components/layout/app-shell.tsx`.
+ * Mounted once, in the root layout (`routes/__root.tsx`), so entries saved
+ * outside the shell (timer, writing pad) still celebrate.
  *
  * `watchMonthGoals` fires once per local crossing of a build habit's monthly
  * goal in the current month; remote and derived commits never fire. Each

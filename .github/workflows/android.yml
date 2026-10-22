@@ -29,6 +29,9 @@ jobs:
       # The official sync server baked into the release (spec §4.7): the
       # repository variable ATOMIC_SERVER_URL. Unset, the app asks for a URL.
       EXPO_PUBLIC_SERVER_URL: ${{ vars.ATOMIC_SERVER_URL }}
+      # Sideloaded previews, like the EAS preview profile: Stripe checkout opens
+      # in the browser. Only Play Store builds are status-only (D27).
+      EXPO_PUBLIC_BILLING_UI: external
     steps:
       - uses: actions/checkout@v4
 

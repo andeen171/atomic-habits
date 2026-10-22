@@ -6,6 +6,7 @@ import {
 	JournalReadOnly,
 	closeJournal,
 	useAccessibilityFocusOnMount,
+	wasDeletedHere,
 } from "@/components/journal/journal-editor";
 import { JournalHabitPicker, JournalKindPicker } from "@/components/journal/kind-picker";
 import { Button } from "@/components/ui/button";
@@ -100,10 +101,8 @@ export default function JournalEditorScreen() {
 
 function EntryScreen({ id }: { id: string }) {
 	const entry = useJournalEntry(id);
-	// Once open, the editor stays mounted while its own Delete leaves the screen.
-	const opened = useRef(false);
-	if (entry) opened.current = true;
-	if (!entry && !opened.current) return <JournalEntryNotFound />;
+	// The editor stays mounted only while its own Delete leaves the screen.
+	if (!wasDeletedHere(id, entry !== undefined) && !entry) return <JournalEntryNotFound />;
 	if (entry && !isJournalKind(entry.kind)) return <JournalReadOnly entry={entry} />;
 	return <JournalEditor entryId={id} />;
 }

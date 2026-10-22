@@ -3,6 +3,7 @@ import {
 	JournalFrame,
 	JournalReadOnly,
 	useCloseJournal,
+	wasDeletedHere,
 } from "@/components/journal/journal-editor";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,7 +11,6 @@ import { useT } from "@/lib/messages";
 import { isJournalKind } from "@atomic/core";
 import { useJournalEntry } from "@atomic/core/react";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useRef } from "react";
 
 export const Route = createFileRoute("/journal/$entryId")({
 	component: JournalEntryScreen,
@@ -24,10 +24,8 @@ export const Route = createFileRoute("/journal/$entryId")({
 function JournalEntryScreen() {
 	const { entryId } = Route.useParams();
 	const entry = useJournalEntry(entryId);
-	// Once open, the editor stays mounted while its own Delete navigates away.
-	const opened = useRef<string | null>(null);
-	if (entry) opened.current = entryId;
-	if (!entry && opened.current !== entryId) return <EntryNotFound />;
+	// The editor stays mounted only while its own Delete navigates away.
+	if (!wasDeletedHere(entryId, entry !== undefined) && !entry) return <EntryNotFound />;
 	if (entry && !isJournalKind(entry.kind)) return <JournalReadOnly entry={entry} />;
 	return <JournalEditor key={entryId} entryId={entryId} />;
 }

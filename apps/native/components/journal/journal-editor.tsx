@@ -67,6 +67,19 @@ import {
 import { type JournalBlockContext, JournalBlocks, JournalDaySheet } from "./journal-blocks";
 import { JournalKindIcon } from "./kind-icon";
 
+/**
+ * Entries this editor deleted itself. Its Delete closes the screen with the
+ * editor still mounted; any other deletion (another tab, another device)
+ * shows "not found" instead of an editor whose writes would be dropped.
+ */
+const deletedHere = new Set<string>();
+
+/** Whether the open entry went away through this editor's own Delete. */
+export function wasDeletedHere(id: string, exists: boolean): boolean {
+	if (exists) deletedHere.delete(id);
+	return deletedHere.has(id);
+}
+
 /** Back to where the user came from, else the Journal. */
 export function closeJournal(): void {
 	if (router.canGoBack()) router.back();
@@ -608,6 +621,7 @@ export function JournalEditor({ entryId, initial, onChangeHabit }: JournalEditor
 		setMenu(false);
 		if (!id) return;
 		flush();
+		deletedHere.add(id);
 		actions.deleteJournalEntry(id);
 		haptics.warning();
 		showToast(t.t("journal.deleted"), {

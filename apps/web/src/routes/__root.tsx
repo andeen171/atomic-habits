@@ -10,6 +10,7 @@ import { EntryComposerDialog } from "@/components/trackers/entry-composer";
 import { useArtifactCloudStatus } from "@/lib/artifact-cloud";
 import { focusPage, noteNavigation } from "@/lib/focus";
 import { type AppI18n, useT } from "@/lib/messages";
+import { useMonthCelebration } from "@/lib/use-month-celebration";
 import { useGlobalShortcuts } from "@/lib/use-shortcuts";
 import { useStoreNotices } from "@/lib/use-store-notices";
 import { useAtomic, useHydrated, useLocale } from "@atomic/core/react";
@@ -30,6 +31,8 @@ function RootLayout() {
 	const cloud = useArtifactCloudStatus();
 	useGlobalShortcuts();
 	useStoreNotices();
+	// Here, not in the shell: the timer and writing pad save entries outside it.
+	useMonthCelebration();
 
 	useEffect(() => {
 		document.documentElement.lang = locale;
