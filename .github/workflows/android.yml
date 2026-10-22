@@ -63,6 +63,25 @@ jobs:
         working-directory: apps/native
         run: npx expo prebuild --platform android --no-install --clean
 
+      # Runner images drop older NDKs, and the Android Gradle Plugin's own
+      # download has failed there ("Archive is not a ZIP archive"). Install
+      # React Native's NDK up front, with retries, so a bad download is retried
+      # instead of failing the build.
+      - name: Install Android NDK
+        working-directory: apps/native
+        run: |
+          RN_DIR="$(dirname "$(node -p "require.resolve('react-native/package.json')")")"
+          NDK="$(sed -n 's/^ndkVersion = "\(.*\)"$/\1/p' "$RN_DIR/gradle/libs.versions.toml")"
+          test -n "$NDK"
+          echo "Preinstalled NDKs: $(ls "$ANDROID_HOME/ndk" 2>/dev/null | tr '\n' ' ')"
+          for attempt in 1 2 3; do
+            if [ -f "$ANDROID_HOME/ndk/$NDK/source.properties" ]; then break; fi
+            rm -rf "$ANDROID_HOME/ndk/$NDK"
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK" > /dev/null || sleep 20
+          done
+          test -f "$ANDROID_HOME/ndk/$NDK/source.properties"
+          echo "NDK $NDK ready"
+
       - name: Build release (standalone) and debug (dev client) APKs
         working-directory: apps/native/android
         run: |
