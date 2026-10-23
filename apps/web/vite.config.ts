@@ -17,6 +17,7 @@ const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "ut
  * Two build targets:
  * - default (`vite build`)            → dist/ with an offline-ready PWA (also used by Tauri)
  * - artifact (`vite build --mode artifact`) → dist-artifact/index.html, one self-contained file
+ *   (or `$ARTIFACT_OUT_DIR`, so parallel builds in one tree don't overwrite each other)
  */
 export default defineConfig(({ mode }) => {
 	const artifact = mode === "artifact";
@@ -77,7 +78,7 @@ export default defineConfig(({ mode }) => {
 			alias: { "@": path.resolve(__dirname, "./src") },
 		},
 		build: {
-			outDir: artifact ? "dist-artifact" : "dist",
+			outDir: artifact ? (process.env.ARTIFACT_OUT_DIR ?? "dist-artifact") : "dist",
 			emptyOutDir: true,
 			target: "es2022",
 			chunkSizeWarningLimit: 1500,

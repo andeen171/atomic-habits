@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppIdentityRouteImport } from './routes/_app/identity'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
 import { Route as AppScorecardRouteImport } from './routes/_app/scorecard'
@@ -19,9 +20,14 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as AppYouRouteImport } from './routes/_app/you'
 import { Route as HabitsNewRouteImport } from './routes/habits/new'
+import { Route as JournalEntryIdRouteImport } from './routes/journal/$entryId'
+import { Route as JournalNewRouteImport } from './routes/journal/new'
 import { Route as AppHabitsIndexRouteImport } from './routes/_app/habits/index'
 import { Route as AppHabitsHabitIdRouteImport } from './routes/_app/habits/$habitId'
+import { Route as AppJournalIndexRouteImport } from './routes/_app/journal/index'
 import { Route as HabitsHabitIdEditRouteImport } from './routes/habits/$habitId.edit'
+import { Route as HabitsHabitIdTimerRouteImport } from './routes/habits/$habitId.timer'
+import { Route as HabitsHabitIdWriteRouteImport } from './routes/habits/$habitId.write'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -35,6 +41,11 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountRoute = AppAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
   getParentRoute: () => AppRoute,
 } as any)
 const AppIdentityRoute = AppIdentityRouteImport.update({
@@ -72,6 +83,16 @@ const HabitsNewRoute = HabitsNewRouteImport.update({
   path: '/habits/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JournalEntryIdRoute = JournalEntryIdRouteImport.update({
+  id: '/journal/$entryId',
+  path: '/journal/$entryId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JournalNewRoute = JournalNewRouteImport.update({
+  id: '/journal/new',
+  path: '/journal/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppHabitsIndexRoute = AppHabitsIndexRouteImport.update({
   id: '/habits/',
   path: '/habits/',
@@ -82,15 +103,31 @@ const AppHabitsHabitIdRoute = AppHabitsHabitIdRouteImport.update({
   path: '/habits/$habitId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppJournalIndexRoute = AppJournalIndexRouteImport.update({
+  id: '/journal/',
+  path: '/journal/',
+  getParentRoute: () => AppRoute,
+} as any)
 const HabitsHabitIdEditRoute = HabitsHabitIdEditRouteImport.update({
   id: '/habits/$habitId/edit',
   path: '/habits/$habitId/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HabitsHabitIdTimerRoute = HabitsHabitIdTimerRouteImport.update({
+  id: '/habits/$habitId/timer',
+  path: '/habits/$habitId/timer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HabitsHabitIdWriteRoute = HabitsHabitIdWriteRouteImport.update({
+  id: '/habits/$habitId/write',
+  path: '/habits/$habitId/write',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/onboarding': typeof OnboardingRoute
+  '/account': typeof AppAccountRoute
   '/identity': typeof AppIdentityRoute
   '/insights': typeof AppInsightsRoute
   '/scorecard': typeof AppScorecardRoute
@@ -98,12 +135,18 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof AppTasksRoute
   '/you': typeof AppYouRoute
   '/habits/new': typeof HabitsNewRoute
+  '/journal/$entryId': typeof JournalEntryIdRoute
+  '/journal/new': typeof JournalNewRoute
   '/habits/$habitId': typeof AppHabitsHabitIdRoute
   '/habits/$habitId/edit': typeof HabitsHabitIdEditRoute
+  '/habits/$habitId/timer': typeof HabitsHabitIdTimerRoute
+  '/habits/$habitId/write': typeof HabitsHabitIdWriteRoute
   '/habits/': typeof AppHabitsIndexRoute
+  '/journal/': typeof AppJournalIndexRoute
 }
 export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
+  '/account': typeof AppAccountRoute
   '/identity': typeof AppIdentityRoute
   '/insights': typeof AppInsightsRoute
   '/scorecard': typeof AppScorecardRoute
@@ -111,15 +154,21 @@ export interface FileRoutesByTo {
   '/tasks': typeof AppTasksRoute
   '/you': typeof AppYouRoute
   '/habits/new': typeof HabitsNewRoute
+  '/journal/$entryId': typeof JournalEntryIdRoute
+  '/journal/new': typeof JournalNewRoute
   '/': typeof AppIndexRoute
   '/habits/$habitId': typeof AppHabitsHabitIdRoute
   '/habits/$habitId/edit': typeof HabitsHabitIdEditRoute
+  '/habits/$habitId/timer': typeof HabitsHabitIdTimerRoute
+  '/habits/$habitId/write': typeof HabitsHabitIdWriteRoute
   '/habits': typeof AppHabitsIndexRoute
+  '/journal': typeof AppJournalIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/onboarding': typeof OnboardingRoute
+  '/_app/account': typeof AppAccountRoute
   '/_app/identity': typeof AppIdentityRoute
   '/_app/insights': typeof AppInsightsRoute
   '/_app/scorecard': typeof AppScorecardRoute
@@ -127,16 +176,22 @@ export interface FileRoutesById {
   '/_app/tasks': typeof AppTasksRoute
   '/_app/you': typeof AppYouRoute
   '/habits/new': typeof HabitsNewRoute
+  '/journal/$entryId': typeof JournalEntryIdRoute
+  '/journal/new': typeof JournalNewRoute
   '/_app/': typeof AppIndexRoute
   '/_app/habits/$habitId': typeof AppHabitsHabitIdRoute
   '/habits/$habitId/edit': typeof HabitsHabitIdEditRoute
+  '/habits/$habitId/timer': typeof HabitsHabitIdTimerRoute
+  '/habits/$habitId/write': typeof HabitsHabitIdWriteRoute
   '/_app/habits/': typeof AppHabitsIndexRoute
+  '/_app/journal/': typeof AppJournalIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/onboarding'
+    | '/account'
     | '/identity'
     | '/insights'
     | '/scorecard'
@@ -144,12 +199,18 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/you'
     | '/habits/new'
+    | '/journal/$entryId'
+    | '/journal/new'
     | '/habits/$habitId'
     | '/habits/$habitId/edit'
+    | '/habits/$habitId/timer'
+    | '/habits/$habitId/write'
     | '/habits/'
+    | '/journal/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/onboarding'
+    | '/account'
     | '/identity'
     | '/insights'
     | '/scorecard'
@@ -157,14 +218,20 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/you'
     | '/habits/new'
+    | '/journal/$entryId'
+    | '/journal/new'
     | '/'
     | '/habits/$habitId'
     | '/habits/$habitId/edit'
+    | '/habits/$habitId/timer'
+    | '/habits/$habitId/write'
     | '/habits'
+    | '/journal'
   id:
     | '__root__'
     | '/_app'
     | '/onboarding'
+    | '/_app/account'
     | '/_app/identity'
     | '/_app/insights'
     | '/_app/scorecard'
@@ -172,17 +239,26 @@ export interface FileRouteTypes {
     | '/_app/tasks'
     | '/_app/you'
     | '/habits/new'
+    | '/journal/$entryId'
+    | '/journal/new'
     | '/_app/'
     | '/_app/habits/$habitId'
     | '/habits/$habitId/edit'
+    | '/habits/$habitId/timer'
+    | '/habits/$habitId/write'
     | '/_app/habits/'
+    | '/_app/journal/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
   HabitsNewRoute: typeof HabitsNewRoute
+  JournalEntryIdRoute: typeof JournalEntryIdRoute
+  JournalNewRoute: typeof JournalNewRoute
   HabitsHabitIdEditRoute: typeof HabitsHabitIdEditRoute
+  HabitsHabitIdTimerRoute: typeof HabitsHabitIdTimerRoute
+  HabitsHabitIdWriteRoute: typeof HabitsHabitIdWriteRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -206,6 +282,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account': {
+      id: '/_app/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AppAccountRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/identity': {
@@ -257,6 +340,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HabitsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/journal/$entryId': {
+      id: '/journal/$entryId'
+      path: '/journal/$entryId'
+      fullPath: '/journal/$entryId'
+      preLoaderRoute: typeof JournalEntryIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/journal/new': {
+      id: '/journal/new'
+      path: '/journal/new'
+      fullPath: '/journal/new'
+      preLoaderRoute: typeof JournalNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/habits/': {
       id: '/_app/habits/'
       path: '/habits'
@@ -271,6 +368,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppHabitsHabitIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/journal/': {
+      id: '/_app/journal/'
+      path: '/journal'
+      fullPath: '/journal/'
+      preLoaderRoute: typeof AppJournalIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/habits/$habitId/edit': {
       id: '/habits/$habitId/edit'
       path: '/habits/$habitId/edit'
@@ -278,10 +382,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HabitsHabitIdEditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/habits/$habitId/timer': {
+      id: '/habits/$habitId/timer'
+      path: '/habits/$habitId/timer'
+      fullPath: '/habits/$habitId/timer'
+      preLoaderRoute: typeof HabitsHabitIdTimerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/habits/$habitId/write': {
+      id: '/habits/$habitId/write'
+      path: '/habits/$habitId/write'
+      fullPath: '/habits/$habitId/write'
+      preLoaderRoute: typeof HabitsHabitIdWriteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAccountRoute: typeof AppAccountRoute
   AppIdentityRoute: typeof AppIdentityRoute
   AppInsightsRoute: typeof AppInsightsRoute
   AppScorecardRoute: typeof AppScorecardRoute
@@ -291,9 +410,11 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppHabitsHabitIdRoute: typeof AppHabitsHabitIdRoute
   AppHabitsIndexRoute: typeof AppHabitsIndexRoute
+  AppJournalIndexRoute: typeof AppJournalIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAccountRoute: AppAccountRoute,
   AppIdentityRoute: AppIdentityRoute,
   AppInsightsRoute: AppInsightsRoute,
   AppScorecardRoute: AppScorecardRoute,
@@ -303,6 +424,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppHabitsHabitIdRoute: AppHabitsHabitIdRoute,
   AppHabitsIndexRoute: AppHabitsIndexRoute,
+  AppJournalIndexRoute: AppJournalIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -311,7 +433,11 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
   HabitsNewRoute: HabitsNewRoute,
+  JournalEntryIdRoute: JournalEntryIdRoute,
+  JournalNewRoute: JournalNewRoute,
   HabitsHabitIdEditRoute: HabitsHabitIdEditRoute,
+  HabitsHabitIdTimerRoute: HabitsHabitIdTimerRoute,
+  HabitsHabitIdWriteRoute: HabitsHabitIdWriteRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -7,6 +7,8 @@
  */
 
 export type DayKey = string;
+/** A calendar month, "YYYY-MM". */
+export type MonthKey = string;
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 const DAY_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -81,11 +83,18 @@ export function startOfMonth(key: DayKey): DayKey {
 	return `${y}-${pad(m)}-01`;
 }
 
-export function daysInMonth(key: DayKey): number {
-	const [y, m] = parts(key);
+/** Number of days in the month of a day key ("2026-02-10") or a month key ("2026-02"). */
+export function daysInMonth(key: DayKey | MonthKey): number {
+	const [y, m] = parts(key.length === 7 ? `${key}-01` : key);
 	return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
+/** The month a day belongs to: "2026-10-17" → "2026-10". */
+export function monthKeyOf(day: DayKey): MonthKey {
+	return day.slice(0, 7);
+}
+
+/** Moves a day by whole months, clamping to the last day of shorter months (Jan 31 + 1 → Feb 28). */
 export function addMonths(key: DayKey, amount: number): DayKey {
 	const [y, m, d] = parts(key);
 	const total = y * 12 + (m - 1) + amount;

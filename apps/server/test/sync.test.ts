@@ -1,24 +1,43 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { MAX_PULL_BATCH, MAX_PUSH_BATCH } from "@atomic/core/sync";
+import type { Plan } from "@atomic/core";
+import {
+	MAX_PULL_BATCH,
+	MAX_PUSH_BATCH,
+	canonicalJson,
+	compareVersions,
+	serializedBytes,
+} from "@atomic/core/sync";
+import type { InStatement } from "@libsql/client";
+import { type Config, loadConfig } from "../src/config";
+import type { Database } from "../src/db";
+import {
+	PULL_PAGE_BYTES,
+	TOMBSTONE_GROWTH_BYTES,
+	TOMBSTONE_SLACK_BYTES,
+	pullRecords,
+	syncUsage,
+} from "../src/sync/service";
 import {
 	BASE_URL,
 	type TestApp,
+	type TestServer,
 	bearer,
+	createTestServer,
 	habit,
 	pull,
 	pullOk,
 	push,
 	pushOk,
-	setupApp,
 	signUp,
 	task,
 	trpcData,
 } from "./helpers";
 
 let app: TestApp;
+let db: TestServer["db"];
 
 beforeAll(async () => {
-	app = await setupApp();
+	({ app, db } = await createTestServer());
 });
 
 describe("authentication", () => {
@@ -48,7 +67,13 @@ describe("push / pull", () => {
 		const { token } = await signUp(app);
 		const records = [habit("h1", 100), task("t1", 200, { title: "Plan week", priority: 2 })];
 		const pushed = await pushOk(app, token, records);
-		expect(pushed).toEqual({ accepted: 2, cursor: 2, rejected: [], conflicts: [] });
+		expect(pushed).toEqual({
+			accepted: 2,
+			cursor: 2,
+			rejected: [],
+			conflicts: [],
+			serverTime: expect.any(Number),
+		});
 
 		const page = await pullOk(app, token, { cursor: 0 });
 		expect(page.hasMore).toBe(false);
@@ -59,6 +84,7 @@ describe("push / pull", () => {
 			records: [],
 			cursor: 2,
 			hasMore: false,
+			serverTime: expect.any(Number),
 		});
 	});
 
@@ -69,11 +95,13 @@ describe("push / pull", () => {
 			cursor: 0,
 			rejected: [],
 			conflicts: [],
+			serverTime: expect.any(Number),
 		});
 		expect(await pullOk(app, token, { cursor: 0 })).toEqual({
 			records: [],
 			cursor: 0,
 			hasMore: false,
+			serverTime: expect.any(Number),
 		});
 	});
 
@@ -95,14 +123,14 @@ describe("push / pull", () => {
 });
 
 describe("last write wins", () => {
-	test("older and equal updates are ignored, newer ones win", async () => {
+	test("older updates and the same version are ignored, newer ones win", async () => {
 		const { token } = await signUp(app);
 		expect((await pushOk(app, token, [task("t1", 100, { title: "B" })])).accepted).toBe(1);
 
 		const older = await pushOk(app, token, [task("t1", 50, { title: "A" })]);
 		expect(older).toMatchObject({ accepted: 0, cursor: 1 });
-		const equal = await pushOk(app, token, [task("t1", 100, { title: "C" })]);
-		expect(equal).toMatchObject({ accepted: 0, cursor: 1 });
+		const same = await pushOk(app, token, [task("t1", 100, { title: "B" })]);
+		expect(same).toMatchObject({ accepted: 0, cursor: 1, conflicts: [] });
 		let page = await pullOk(app, token, { cursor: 0 });
 		expect(page.records.map((r) => r.data.title)).toEqual(["B"]);
 
@@ -112,6 +140,74 @@ describe("last write wins", () => {
 		expect(page.records).toHaveLength(1);
 		expect(page.records[0]?.data.title).toBe("D");
 		expect(page.cursor).toBe(2);
+	});
+
+	test("an equal updatedAt with other content is a tie broken by content, like the clients' compareVersions", async () => {
+		// Two devices that edit a future-dated version both stamp `prev + 1` (D45).
+		const { token } = await signUp(app);
+		const b = task("t1", 100, { title: "B" });
+		const a = task("t1", 100, { title: "A" });
+		const c = task("t1", 100, { title: "C" });
+		expect(compareVersions(c.data, b.data)).toBeGreaterThan(0);
+		expect(compareVersions(a.data, b.data)).toBeLessThan(0);
+		await pushOk(app, token, [b]);
+
+		// The losing copy is not stored and comes back with the stored winner.
+		const lost = await pushOk(app, token, [a]);
+		expect(lost).toMatchObject({ accepted: 0, cursor: 1 });
+		expect(lost.conflicts.map((r) => r.data.title)).toEqual(["B"]);
+		// The winning copy replaces it, with the next sequence number, and gets no conflict.
+		const won = await pushOk(app, token, [c]);
+		expect(won).toMatchObject({ accepted: 1, cursor: 2, conflicts: [] });
+		const page = await pullOk(app, token, { cursor: 1 });
+		expect(page.records.map((r) => r.data.title)).toEqual(["C"]);
+		// Within one batch, too.
+		const { token: other } = await signUp(app);
+		const batch = await pushOk(app, other, [b, c, a]);
+		expect(batch.conflicts).toEqual([]);
+		expect((await pullOk(app, other, { cursor: 0 })).records.map((r) => r.data.title)).toEqual([
+			"C",
+		]);
+	});
+
+	test("documents are stored as canonical JSON, so key order never decides a tie", async () => {
+		const { token, user } = await signUp(app);
+		const record = task("t1", 100, { title: "Same" });
+		const reordered = {
+			...record,
+			data: Object.fromEntries(Object.entries(record.data).reverse()),
+		};
+		await pushOk(app, token, [record]);
+		const row = await db.$client.execute({
+			sql: "SELECT data FROM sync_record WHERE user_id = ? AND id = ?",
+			args: [user.id, "t1"],
+		});
+		const stored = String(row.rows[0]?.data);
+		expect(stored).toBe(canonicalJson(JSON.parse(stored)));
+		expect(await pushOk(app, token, [reordered])).toMatchObject({ accepted: 0, conflicts: [] });
+	});
+
+	test("a tie with a row stored before documents were canonical is decided canonically", async () => {
+		const { token, user } = await signUp(app);
+		// Stored the old way: JSON.stringify in the pushed key order ("id" first).
+		const legacy = task("t1", 100, { aaa: 1 });
+		await pushOk(app, token, [legacy]);
+		await db.$client.execute({
+			sql: "UPDATE sync_record SET data = ? WHERE user_id = ? AND id = ?",
+			args: [JSON.stringify(legacy.data), user.id, "t1"],
+		});
+		// The same version in another key order: nothing to do.
+		expect(await pushOk(app, token, [legacy])).toMatchObject({ accepted: 0, conflicts: [] });
+		// Canonically greater ('{"completedAt…' > '{"aaa…'), although its text is smaller
+		// than the stored '{"id…': it wins, as it does on every client.
+		const winner = task("t1", 100);
+		expect(compareVersions(winner.data, legacy.data)).toBeGreaterThan(0);
+		expect(canonicalJson(winner.data) < JSON.stringify(legacy.data)).toBe(true);
+		expect(await pushOk(app, token, [winner])).toMatchObject({ accepted: 1, conflicts: [] });
+		const lost = await pushOk(app, token, [legacy]);
+		expect(lost).toMatchObject({ accepted: 0 });
+		expect(lost.conflicts).toHaveLength(1);
+		expect(lost.conflicts[0]?.data.aaa).toBeUndefined();
 	});
 
 	test("duplicates inside one batch resolve by updatedAt", async () => {
@@ -218,6 +314,88 @@ describe("pagination", () => {
 		expect(second.hasMore).toBe(false);
 	});
 
+	test("a 1000-limit pull over 64 KiB rows loads only the documents it returns", async () => {
+		// Regression: the pull loaded `limit + 1` whole rows (up to ~64 MiB) and
+		// only then cut the page at PULL_PAGE_BYTES.
+		const server = await createTestServer();
+		const { user } = await signUp(server.app);
+		const count = 120;
+		const pad = "x".repeat(60_000);
+		await server.db.$client.batch(
+			[
+				...Array.from({ length: count }, (_, i) => ({
+					sql: `INSERT INTO sync_record (user_id, collection, id, data, updated_at, deleted_at, seq)
+						VALUES (?, 'tasks', ?, ?, 1, NULL, ?)`,
+					args: [user.id, `big${i}`, canonicalJson(task(`big${i}`, 1, { notes: pad }).data), i + 1],
+				})),
+				{
+					sql: `INSERT INTO sync_cursor (user_id, seq) VALUES (?, ${count})
+						ON CONFLICT (user_id) DO UPDATE SET seq = ${count}`,
+					args: [user.id],
+				},
+			],
+			"write",
+		);
+		// Every document the pull loads (rows read with their `data` column).
+		let documentsRead = 0;
+		const execute = server.db.$client.execute.bind(server.db.$client);
+		const counting = {
+			$client: {
+				execute: async (statement: InStatement) => {
+					const result = await execute(statement);
+					if (result.columns.includes("data")) documentsRead += result.rows.length;
+					return result;
+				},
+			},
+		} as unknown as Database;
+
+		const ids: string[] = [];
+		let cursor = 0;
+		let pages = 0;
+		for (;;) {
+			documentsRead = 0;
+			const page = await pullRecords(counting, user.id, { cursor, limit: MAX_PULL_BATCH });
+			pages++;
+			const bytes = page.records.reduce((sum, r) => sum + serializedBytes(r.data), 0);
+			expect(bytes).toBeLessThanOrEqual(PULL_PAGE_BYTES);
+			expect(page.records.length).toBeGreaterThan(0);
+			expect(documentsRead).toBe(page.records.length);
+			ids.push(...page.records.map((r) => r.id));
+			cursor = page.cursor;
+			if (!page.hasMore) break;
+		}
+		expect(pages).toBeGreaterThan(1);
+		expect(ids).toEqual(Array.from({ length: count }, (_, i) => `big${i}`));
+		expect(cursor).toBe(count);
+	});
+
+	test("pages end at the limit or the byte cap, never empty, and say whether more follow", async () => {
+		const server = await createTestServer();
+		const { token, user } = await signUp(server.app);
+		await pushOk(
+			server.app,
+			token,
+			Array.from({ length: 10 }, (_, i) => task(`n${i}`, i + 1)),
+		);
+		// Exactly the limit: hasMore only when a row follows.
+		const first = await pullOk(server.app, token, { cursor: 0, limit: 5 });
+		expect(first.records.map((r) => r.id)).toEqual(["n0", "n1", "n2", "n3", "n4"]);
+		expect(first.hasMore).toBe(true);
+		const rest = await pullOk(server.app, token, { cursor: first.cursor, limit: 5 });
+		expect(rest.records.map((r) => r.id)).toEqual(["n5", "n6", "n7", "n8", "n9"]);
+		expect(rest.hasMore).toBe(false);
+		const caughtUp = await pullOk(server.app, token, { cursor: rest.cursor });
+		expect(caughtUp).toMatchObject({ records: [], cursor: rest.cursor, hasMore: false });
+		// One document bigger than the whole page still comes alone (the client makes progress).
+		await server.db.$client.execute({
+			sql: "UPDATE sync_record SET data = json_set(data, '$.notes', ?) WHERE user_id = ? AND id = 'n0'",
+			args: ["y".repeat(PULL_PAGE_BYTES), user.id],
+		});
+		const alone = await pullRecords(server.db, user.id, { cursor: 0, limit: 1000 });
+		expect(alone.records.map((r) => r.id)).toEqual(["n0"]);
+		expect(alone).toMatchObject({ cursor: 1, hasMore: true });
+	});
+
 	test("limits above MAX_PULL_BATCH are rejected", async () => {
 		const { token } = await signUp(app);
 		expect((await pull(app, token, { cursor: 0, limit: MAX_PULL_BATCH + 1 })).status).toBe(400);
@@ -255,7 +433,9 @@ describe("validation", () => {
 	test("malformed requests fail as a whole with 400", async () => {
 		const { token } = await signUp(app);
 		const malformed: unknown[][] = [
-			[{ ...task("a", 1), collection: "secrets" }],
+			// Not a collection name at all (a well-formed unknown name is rejected per record).
+			[{ ...task("a", 1), collection: "../secrets" }],
+			[{ ...task("a", 1), collection: "Tasks" }],
 			[{ collection: "tasks", id: "a", deletedAt: null, data: {} }],
 			[{ ...task("a", 1), id: "" }],
 			Array.from({ length: MAX_PUSH_BATCH + 1 }, (_, i) => task(`t${i}`, 1)),
@@ -286,6 +466,7 @@ describe("hardening", () => {
 			cursor: 0,
 			hasMore: false,
 			reset: true,
+			serverTime: expect.any(Number),
 		});
 		expect((await pullOk(app, token, { cursor: 1 })).reset).toBeUndefined();
 	});
@@ -312,5 +493,332 @@ describe("hardening", () => {
 		const { token } = await signUp(app);
 		const response = await push(app, token, [task("t1", 2 ** 60)]);
 		expect(response.status).toBe(400);
+	});
+});
+
+describe("protocol v2 (spec §2.7, §4.6)", () => {
+	test("an unknown collection is rejected per record with unknown-collection; the rest is stored", async () => {
+		const { token } = await signUp(app);
+		const future = { ...task("f1", 1), collection: "gardenBeds" };
+		const result = await pushOk(app, token, [future, task("ok", 1)]);
+		expect(result.accepted).toBe(1);
+		expect(result.rejected).toEqual([
+			{
+				collection: "gardenBeds",
+				id: "f1",
+				reason: "collection: unknown-collection",
+				code: "unknown-collection",
+			},
+		]);
+		const page = await pullOk(app, token, { cursor: 0 });
+		expect(page.records.map((r) => `${r.collection}/${r.id}`)).toEqual(["tasks/ok"]);
+	});
+
+	test("camelCase v2 collections are accepted", async () => {
+		const { token } = await signUp(app);
+		const log = {
+			collection: "taskLogs",
+			id: "t1:2026-10-17",
+			updatedAt: 5,
+			deletedAt: null,
+			data: {
+				id: "t1:2026-10-17",
+				createdAt: 5,
+				updatedAt: 5,
+				taskId: "t1",
+				date: "2026-10-17",
+				status: "done",
+				resolvedOn: "2026-10-17",
+			},
+		};
+		const result = await pushOk(app, token, [log]);
+		expect(result).toMatchObject({ accepted: 1, rejected: [] });
+		expect((await pullOk(app, token, { cursor: 0 })).records[0]?.collection).toBe("taskLogs");
+	});
+
+	test("updatedAt more than 10 minutes ahead is rejected with future-timestamp", async () => {
+		const { token } = await signUp(app);
+		const now = Date.now();
+		const result = await pushOk(app, token, [
+			task("ahead", now + 11 * 60_000),
+			task("skewed", now + 5 * 60_000),
+		]);
+		expect(result.accepted).toBe(1);
+		expect(result.rejected).toEqual([
+			{
+				collection: "tasks",
+				id: "ahead",
+				reason: "updatedAt: future-timestamp",
+				code: "future-timestamp",
+			},
+		]);
+	});
+
+	test("rejections carry a code and a content-free reason", async () => {
+		const { token } = await signUp(app);
+		const secret = "my-secret-title-canary";
+		const result = await pushOk(app, token, [
+			task("bad", 1, { priority: secret }),
+			task("big", 1, { notes: secret.repeat(4_000) }),
+		]);
+		expect(result.rejected.map((r) => [r.id, r.code])).toEqual([
+			["bad", "invalid"],
+			["big", "too-large"],
+		]);
+		expect(result.rejected[0]?.reason).toBe("priority: invalid_union");
+		expect(JSON.stringify(result.rejected)).not.toContain(secret);
+	});
+
+	test("push and pull answer with the server clock", async () => {
+		const { token } = await signUp(app);
+		const before = Date.now();
+		const pushed = await pushOk(app, token, [task("t1", 1)]);
+		const pulled = await pullOk(app, token, { cursor: 0 });
+		const after = Date.now();
+		for (const serverTime of [pushed.serverTime, pulled.serverTime]) {
+			expect(serverTime).toBeGreaterThanOrEqual(before);
+			expect(serverTime).toBeLessThanOrEqual(after);
+		}
+	});
+});
+
+/** The default plans with every plan's sync storage set to `syncBytes`. */
+function plansWith(
+	syncBytes: Partial<Record<Plan, number>>,
+	defaultPlan: Plan = "pro",
+): Config["plans"] {
+	const { limits } = loadConfig({ NODE_ENV: "test" }).plans;
+	return {
+		defaultPlan,
+		limits: {
+			free: { ...limits.free, syncBytes: syncBytes.free ?? limits.free.syncBytes },
+			pro: { ...limits.pro, syncBytes: syncBytes.pro ?? limits.pro.syncBytes },
+		},
+	};
+}
+
+/** A task whose stored JSON is about `bytes` long. */
+const sized = (id: string, updatedAt: number, bytes: number, patch: Record<string, unknown> = {}) =>
+	task(id, updatedAt, { notes: "n".repeat(Math.max(0, bytes - 200)), ...patch });
+
+describe("sync quota (spec §4.5, D54)", () => {
+	const LIMIT = 2_000;
+	let quota: TestServer;
+
+	beforeAll(async () => {
+		quota = await createTestServer({ config: { plans: plansWith({ pro: LIMIT }) } });
+	});
+
+	test("usage is the UTF-8 size of the stored documents, through inserts, updates and tombstones", async () => {
+		const { token, user } = await signUp(app);
+		await pushOk(app, token, [
+			task("a", 1, { title: "Ler à noite 📚" }),
+			task("b", 1, { notes: "x".repeat(500) }),
+			habit("h", 1),
+		]);
+		await pushOk(app, token, [
+			task("a", 2, { title: "Ler à noite 📚📚📚", notes: "ç".repeat(40) }),
+			task("b", 2, { notes: "short" }),
+			habit("h", 2, { deletedAt: 2 }),
+		]);
+		const { records } = await pullOk(app, token, { cursor: 0 });
+		const expected = records.reduce((sum, r) => sum + serializedBytes(r.data), 0);
+		expect(expected).toBeGreaterThan(0);
+		expect(await syncUsage(db, user.id)).toBe(expected);
+	});
+
+	test("a write past the limit is refused with quota; the rest of the batch is stored", async () => {
+		const { token, user } = await signUp(quota.app);
+		expect(await pushOk(quota.app, token, [sized("a", 1, 700), sized("b", 1, 700)])).toMatchObject({
+			accepted: 2,
+			rejected: [],
+		});
+		const used = await syncUsage(quota.db, user.id);
+		const result = await pushOk(quota.app, token, [
+			habit("small-1", 1),
+			sized("c", 1, 700),
+			habit("small-2", 1),
+		]);
+		expect(result.accepted).toBe(2);
+		expect(result.rejected).toEqual([
+			{ collection: "tasks", id: "c", reason: "$: quota", code: "quota" },
+		]);
+		expect(result.conflicts).toEqual([]);
+		const ids = (await pullOk(quota.app, token, { cursor: 0 })).records.map((r) => r.id);
+		expect(ids).toEqual(["a", "b", "small-1", "small-2"]);
+		expect(await syncUsage(quota.db, user.id)).toBeGreaterThan(used);
+		expect(await syncUsage(quota.db, user.id)).toBeLessThanOrEqual(LIMIT);
+	});
+
+	test("tombstones may go past the quota (within the slack); growing writes may not", async () => {
+		const { token, user } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 1, 900), sized("b", 1, 900)]);
+		// A deletion keeps the full entity (no compaction in v2), so it can grow the usage.
+		const deleted = await pushOk(quota.app, token, [
+			sized("gone", 5, 1500, { deletedAt: 5 }),
+			sized("a", 5, 1500, { deletedAt: 5 }),
+		]);
+		expect(deleted).toMatchObject({ accepted: 2, rejected: [] });
+		expect(await syncUsage(quota.db, user.id)).toBeGreaterThan(LIMIT);
+		// Over the quota: growing (or new) documents are refused…
+		const grow = await pushOk(quota.app, token, [sized("b", 6, 1200), habit("new", 6)]);
+		expect(grow.rejected.map((r) => [r.id, r.code])).toEqual([
+			["b", "quota"],
+			["new", "quota"],
+		]);
+		expect(grow.accepted).toBe(0);
+		// …while edits that don't grow are accepted, so the user can trim.
+		const trim = await pushOk(quota.app, token, [sized("b", 7, 300)]);
+		expect(trim).toMatchObject({ accepted: 1, rejected: [] });
+	});
+
+	test("tombstones can't store unlimited data: past the slack they are refused with quota", async () => {
+		// Regression: every tombstone passed, whatever its size or id, so one
+		// account could fill the disk with deletions of documents it never had.
+		const { token, user } = await signUp(quota.app);
+		// Unknown keys are kept (newer clients' fields), so any tombstone can carry ~64 KiB.
+		const big = (id: string, at: number) =>
+			task(id, at, { deletedAt: at, pad: "p".repeat(40_000) });
+		const count = Math.ceil(TOMBSTONE_SLACK_BYTES / 40_000) + 5;
+		const result = await pushOk(
+			quota.app,
+			token,
+			Array.from({ length: count }, (_, i) => big(`t${i}`, 10)),
+		);
+		const refused = result.rejected.filter((r) => r.code === "quota");
+		expect(refused.length).toBeGreaterThanOrEqual(5);
+		expect(result.accepted + refused.length).toBe(count);
+		expect(await syncUsage(quota.db, user.id)).toBeLessThanOrEqual(LIMIT + TOMBSTONE_SLACK_BYTES);
+		// Refused, not dropped: the same tombstone passes once there is room.
+		const rows = await quota.db.$client.execute({
+			sql: "SELECT count(*) AS n FROM sync_record WHERE user_id = ?",
+			args: [user.id],
+		});
+		expect(Number(rows.rows[0]?.n)).toBe(result.accepted);
+	});
+
+	test("far over the quota (as after a downgrade) live documents can still be deleted", async () => {
+		const { token, user } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 1, 900), sized("b", 1, 900), sized("c", 1, 300)]);
+		await pushOk(quota.app, token, [sized("c", 2, 300, { deletedAt: 2 })]);
+		// The plan's limit dropped far below what is stored.
+		await quota.db.$client.execute({
+			sql: "UPDATE sync_cursor SET bytes = bytes + ? WHERE user_id = ?",
+			args: [10 * TOMBSTONE_SLACK_BYTES, user.id],
+		});
+		const result = await pushOk(quota.app, token, [
+			// Deleting a live document: the deletedAt stamp and a new updatedAt.
+			sized("a", 3, 900, { deletedAt: 3 }),
+			// A deletion that also grows the document a lot.
+			sized("b", 3, 900 + TOMBSTONE_GROWTH_BYTES + 200, { deletedAt: 3 }),
+			// A tombstone for a document the server never had.
+			sized("new", 3, 300, { deletedAt: 3 }),
+			// A tombstone over a tombstone that grows it.
+			sized("c", 3, 300 + 100, { deletedAt: 3 }),
+		]);
+		expect(result.accepted).toBe(1);
+		expect(result.rejected.map((r) => [r.id, r.code])).toEqual([
+			["b", "quota"],
+			["new", "quota"],
+			["c", "quota"],
+		]);
+		const { records } = await pullOk(quota.app, token, { cursor: 0 });
+		expect(records.find((r) => r.id === "a")?.deletedAt).toBe(3);
+		expect(records.find((r) => r.id === "b")?.deletedAt).toBeNull();
+		// Trimming still works too.
+		expect(await pushOk(quota.app, token, [sized("b", 4, 300)])).toMatchObject({ accepted: 1 });
+		expect(await syncUsage(quota.db, user.id)).toBeGreaterThan(10 * TOMBSTONE_SLACK_BYTES);
+	});
+
+	test("a refused record is accepted once there is room (the client keeps it pending)", async () => {
+		const { token } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 1, 1500)]);
+		const refused = await pushOk(quota.app, token, [sized("c", 1, 700)]);
+		expect(refused.rejected.map((r) => r.code)).toEqual(["quota"]);
+		await pushOk(quota.app, token, [sized("a", 2, 400)]);
+		expect(await pushOk(quota.app, token, [sized("c", 1, 700)])).toMatchObject({
+			accepted: 1,
+			rejected: [],
+		});
+	});
+
+	test("a refused record that also lost last-write-wins comes back as a conflict, not quota", async () => {
+		const { token } = await signUp(quota.app);
+		await pushOk(quota.app, token, [sized("a", 500, 300), sized("filler", 1, 1600)]);
+		const result = await pushOk(quota.app, token, [sized("a", 100, 1200)]);
+		expect(result.rejected).toEqual([]);
+		expect(result.conflicts.map((r) => [r.id, r.updatedAt])).toEqual([["a", 500]]);
+	});
+
+	test("the limit is the user's plan's (DEFAULT_PLAN without billing)", async () => {
+		const free = await createTestServer({
+			config: { plans: plansWith({ free: 1_000, pro: 1_000_000 }, "free") },
+		});
+		const { token } = await signUp(free.app);
+		const result = await pushOk(free.app, token, [sized("a", 1, 700), sized("b", 1, 700)]);
+		expect(result.rejected.map((r) => [r.id, r.code])).toEqual([["b", "quota"]]);
+	});
+});
+
+describe("pull rate limit", () => {
+	test("past 120 pulls a minute a user gets 429 with Retry-After; others are unaffected", async () => {
+		let t = Date.now();
+		const limited = await createTestServer({ deps: { now: () => t } });
+		const ana = await signUp(limited.app, "Ana");
+		const ben = await signUp(limited.app, "Ben");
+		for (let i = 0; i < 120; i++) {
+			expect((await pull(limited.app, ana.token, { cursor: 0 })).status).toBe(200);
+		}
+		t += 15_000;
+		const response = await pull(limited.app, ana.token, { cursor: 0 });
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("45");
+		expect((await pull(limited.app, ben.token, { cursor: 0 })).status).toBe(200);
+		// Pushes keep their own budget.
+		expect((await push(limited.app, ana.token, [task("a", 1)])).status).toBe(200);
+		t += 45_000;
+		expect((await pull(limited.app, ana.token, { cursor: 0 })).status).toBe(200);
+	});
+});
+
+describe("push rate limit (D54)", () => {
+	test("past 60 pushes a minute a user gets 429 with Retry-After; others are unaffected", async () => {
+		let t = Date.now();
+		const limited = await createTestServer({ deps: { now: () => t } });
+		const ana = await signUp(limited.app, "Ana");
+		const ben = await signUp(limited.app, "Ben");
+		for (let i = 0; i < 60; i++) {
+			expect((await push(limited.app, ana.token, [task(`t${i}`, i + 1)])).status).toBe(200);
+		}
+		t += 20_000;
+		const response = await push(limited.app, ana.token, [task("late", 1)]);
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("40");
+		const body = (await response.json()) as {
+			error: { data: { code: string; atomic?: { reason: string; retryAt: number } } };
+		};
+		expect(body.error.data.code).toBe("TOO_MANY_REQUESTS");
+		expect(body.error.data.atomic?.reason).toBe("rate");
+
+		// Nothing was stored; pulls and other users still work.
+		const page = await pullOk(limited.app, ana.token, { cursor: 0 });
+		expect(page.records.map((r) => r.id)).not.toContain("late");
+		expect((await push(limited.app, ben.token, [task("b", 1)])).status).toBe(200);
+
+		// The next window.
+		t += 40_000;
+		expect(await pushOk(limited.app, ana.token, [task("late", 1)])).toMatchObject({ accepted: 1 });
+	});
+
+	test("malformed pushes count too", async () => {
+		let t = Date.now();
+		const limited = await createTestServer({ deps: { now: () => t } });
+		const { token } = await signUp(limited.app);
+		for (let i = 0; i < 60; i++) {
+			expect((await push(limited.app, token, [{ nonsense: true }])).status).toBe(400);
+		}
+		expect((await push(limited.app, token, [task("a", 1)])).status).toBe(429);
+		t += 60_000;
+		expect((await push(limited.app, token, [task("a", 1)])).status).toBe(200);
 	});
 });

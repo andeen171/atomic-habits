@@ -1,6 +1,15 @@
+import { AiSuggestButton } from "@/components/ai/ai-suggest-button";
+import { TranslatedText } from "@/components/ai/translated-text";
 import { ColorPicker, EmojiPicker, Field } from "@/components/editor/fields";
 import { EmptyState } from "@/components/empty-state";
-import { Ellipsis, Pencil, Plus, Trash2 } from "@/components/icons";
+import { Ellipsis, NotebookPen, Pencil, Plus, Trash2, Vote } from "@/components/icons";
+import {
+	IdentityJournalPreview,
+	IdentityJournalStrip,
+	writeEvidence,
+} from "@/components/journal/identity-journal";
+import { ValuesCard } from "@/components/journal/values-card";
+import { PrincipleQuote } from "@/components/principles/principle-quote";
 import { ActionList } from "@/components/sheet/action-list";
 import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { Sheet } from "@/components/sheet/sheet";
@@ -10,33 +19,52 @@ import { Chip } from "@/components/ui/chip";
 import { IconButton } from "@/components/ui/icon-button";
 import { Screen, ScreenTitle } from "@/components/ui/screen";
 import { SectionLabel } from "@/components/ui/section-label";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
-import { type HabitColor, type IdentityStats, identityTemplates } from "@atomic/core";
-import { useActions, useIdentityStats } from "@atomic/core/react";
+import {
+	type HabitColor,
+	type IdentityJournalStats,
+	type IdentityStats,
+	identityTemplates,
+	matchIdentityTemplate,
+} from "@atomic/core";
+import { useActions, useIdentityJournalStats, useIdentityStats, useText } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { type LayoutChangeEvent, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 
+/**
+ * Identity (spec §6, Annex J §1.5, §5): the book's "identity first"
+ * principle (D60), your values from the newest Integrity Report, each
+ * identity with its votes, its evidence and "+ Evidence", adding an
+ * identity, then the latest journal entries. Evidence is counted apart: it
+ * never adds votes. Owner: T3.
+ */
 export default function IdentityScreen() {
 	const t = useT();
+	const text = useText();
 	const styles = useStyles();
 	const actions = useActions();
 	const stats = useIdentityStats();
+	const journal = useIdentityJournalStats();
 	const [statement, setStatement] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const [editing, setEditing] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<string | null>(null);
 
+	// An identity counts as taken in either language (sample data written in
+	// English stays English after switching to Português), by statement only.
 	const suggestions = useMemo(() => {
-		const existing = new Set(stats.map((s) => s.identity.statement.toLowerCase()));
-		return identityTemplates(t.locale).filter((tpl) => !existing.has(tpl.statement.toLowerCase()));
+		const taken = new Set(
+			stats.flatMap((s) => matchIdentityTemplate({ statement: s.identity.statement }) ?? []),
+		);
+		return identityTemplates(t.locale).filter((tpl) => !taken.has(tpl.key));
 	}, [stats, t.locale]);
 
 	const add = (input: { statement: string; emoji?: string; color?: HabitColor }) => {
@@ -49,30 +77,45 @@ export default function IdentityScreen() {
 	const menuIdentity = stats.find((s) => s.identity.id === menuFor)?.identity;
 
 	return (
-		<Screen back title={t.t("identity.title")} keyboard testID="identity-screen">
+		<Screen
+			back
+			title={t.t("identity.title")}
+			keyboard
+			right={
+				<Button
+					label={t.t("nav.journal")}
+					icon={NotebookPen}
+					variant="secondary"
+					size="sm"
+					onPress={() => router.push("/journal")}
+					testID="identity-journal-button"
+				/>
+			}
+			testID="identity-screen"
+		>
 			<ScreenTitle title={t.t("identity.title")} subtitle={t.t("identity.subtitle")} />
-			<Card tone="accent" padding={20} style={styles.quote}>
-				<Text variant="display" italic>
-					{`“${t.t("identity.quote")}”`}
-				</Text>
-				<Text variant="small" weight="semibold" tone="muted">
-					{t.x("onboarding.attribution")}
-				</Text>
-			</Card>
+			<PrincipleQuote id="identity" variant="card" />
+			<ValuesCard style={styles.values} />
 
 			{stats.length === 0 ? (
 				<EmptyState compact title={t.t("identity.empty")} body={t.t("identity.emptyBody")} />
 			) : (
 				<View style={styles.list}>
 					{stats.map((s) => (
-						<IdentityCard key={s.identity.id} stats={s} onMenu={() => setMenuFor(s.identity.id)} />
+						<IdentityCard
+							key={s.identity.id}
+							stats={s}
+							journal={journal.get(s.identity.id)}
+							onMenu={() => setMenuFor(s.identity.id)}
+						/>
 					))}
 				</View>
 			)}
 
 			<SectionLabel>{t.t("identity.add")}</SectionLabel>
 			<Card padding={16} style={styles.addCard}>
-				<TextField
+				<SmartTextField
+					field="identity.statement"
 					value={statement}
 					onChangeText={setStatement}
 					placeholder={t.t("identity.placeholder")}
@@ -81,6 +124,14 @@ export default function IdentityScreen() {
 					maxLength={120}
 					accessibilityLabel={t.t("identity.add")}
 					testID="identity-input"
+					right={
+						<AiSuggestButton
+							kind="identity.statement"
+							label={t.t("identity.add")}
+							input={() => ({ goal: statement.trim() })}
+							onPick={setStatement}
+						/>
+					}
 				/>
 				<Button
 					label={t.t("identity.add")}
@@ -107,13 +158,25 @@ export default function IdentityScreen() {
 				) : null}
 			</Card>
 
+			<IdentityJournalPreview style={styles.journal} />
+
 			<Sheet
 				open={Boolean(menuFor)}
 				onClose={() => setMenuFor(null)}
-				title={menuIdentity?.statement}
+				title={menuIdentity ? text.identity(menuIdentity, "statement") : undefined}
 			>
 				<ActionList
 					actions={[
+						{
+							key: "evidence",
+							label: t.t("journal.emptyCta"),
+							icon: Vote,
+							onPress: () => {
+								const id = menuFor;
+								setMenuFor(null);
+								if (id) writeEvidence(id);
+							},
+						},
 						{
 							key: "edit",
 							label: t.t("common.edit"),
@@ -166,8 +229,18 @@ export default function IdentityScreen() {
 	);
 }
 
-function IdentityCard({ stats, onMenu }: { stats: IdentityStats; onMenu: () => void }) {
+function IdentityCard({
+	stats,
+	journal,
+	onMenu,
+}: {
+	stats: IdentityStats;
+	/** Evidence count and newest entry (Annex J §1.5). */
+	journal: IdentityJournalStats | undefined;
+	onMenu: () => void;
+}) {
 	const t = useT();
+	const text = useText();
 	const { habit: toneOf } = useTheme();
 	const styles = useStyles();
 	const { identity, votes, recentVotes, habits } = stats;
@@ -185,14 +258,22 @@ function IdentityCard({ stats, onMenu }: { stats: IdentityStats; onMenu: () => v
 						{identity.emoji}
 					</Text>
 				</View>
-				<Text variant="display" style={{ flex: 1 }}>
-					{identity.statement}
-				</Text>
+				<TranslatedText
+					collection="identities"
+					entity={identity}
+					field="statement"
+					variant="display"
+					accessibilityRole="header"
+					style={{ flex: 1 }}
+				/>
 				<IconButton
 					icon={Ellipsis}
 					size={34}
-					accessibilityLabel={t.t("common.more")}
+					accessibilityLabel={t.x("a11y.habitActions", {
+						habit: text.identity(identity, "statement"),
+					})}
 					onPress={onMenu}
+					testID={`identity-menu-${identity.id}`}
 				/>
 			</View>
 			<View style={styles.votesRow}>
@@ -211,34 +292,32 @@ function IdentityCard({ stats, onMenu }: { stats: IdentityStats; onMenu: () => v
 				) : null}
 			</View>
 			<AtomField votes={votes} color={tone.fill} />
-			{votes > 0 ? (
-				<Text variant="small" tone="muted">
-					{t.t("identity.evidenceBody", { votes: t.number(votes) })}
-				</Text>
-			) : null}
-			<View style={styles.habits}>
+			<IdentityJournalStrip identity={identity} stats={journal} />
+			<View style={styles.habitsBlock}>
+				<Text variant="label">{t.t("identity.habits")}</Text>
+				<View style={styles.habits}>
+					{habits.map((habit) => (
+						<Chip
+							key={habit.id}
+							size="sm"
+							label={`${habit.emoji} ${text.habit(habit, "name")}`}
+							onPress={() => router.push({ pathname: "/habit/[id]", params: { id: habit.id } })}
+						/>
+					))}
+					<Chip
+						size="sm"
+						icon={Plus}
+						label={t.t("identity.linkHabit")}
+						onPress={() =>
+							router.push({ pathname: "/habit/editor", params: { identityId: identity.id } })
+						}
+					/>
+				</View>
 				{habits.length === 0 ? (
 					<Text variant="small" tone="subtle">
 						{t.t("identity.noHabits")}
 					</Text>
-				) : (
-					habits.map((habit) => (
-						<Chip
-							key={habit.id}
-							size="sm"
-							label={`${habit.emoji} ${habit.name}`}
-							onPress={() => router.push({ pathname: "/habit/[id]", params: { id: habit.id } })}
-						/>
-					))
-				)}
-				<Chip
-					size="sm"
-					icon={Plus}
-					label={t.t("identity.linkHabit")}
-					onPress={() =>
-						router.push({ pathname: "/habit/editor", params: { identityId: identity.id } })
-					}
-				/>
+				) : null}
 			</View>
 		</Animated.View>
 	);
@@ -331,7 +410,8 @@ function EditIdentitySheet({
 		>
 			{value ? (
 				<View style={{ gap: 18 }}>
-					<TextField
+					<SmartTextField
+						field="identity.statement"
 						value={value.statement}
 						onChangeText={(statement) => setDraft({ ...value, statement })}
 						placeholder={t.t("identity.placeholder")}
@@ -351,7 +431,8 @@ function EditIdentitySheet({
 }
 
 const useStyles = makeStyles((t) => ({
-	quote: { gap: 10, marginBottom: 24 },
+	values: { marginBottom: 24 },
+	journal: { marginTop: 28 },
 	list: { gap: 14, marginBottom: 28 },
 	card: {
 		backgroundColor: t.colors.surface,
@@ -372,6 +453,12 @@ const useStyles = makeStyles((t) => ({
 	},
 	votesRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
 	recent: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, marginBottom: 8 },
+	habitsBlock: {
+		gap: 10,
+		paddingTop: 14,
+		borderTopWidth: 1,
+		borderTopColor: t.colors.border,
+	},
 	habits: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 	addCard: { gap: 12, marginBottom: 12 },
 	suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

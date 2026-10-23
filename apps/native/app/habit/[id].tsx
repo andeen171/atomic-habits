@@ -1,23 +1,37 @@
+import { TranslatedText } from "@/components/ai/translated-text";
 import { Heatmap } from "@/components/charts/heatmap";
 import { EmptyState } from "@/components/empty-state";
-import { BlueprintCard } from "@/components/habit/blueprint-card";
+import { BlueprintBoard } from "@/components/habit/blueprint-board";
+import { useDisplayHabit } from "@/components/habit/display-habit";
 import { HabitCalendar } from "@/components/habit/habit-calendar";
 import { HabitRing } from "@/components/habit/habit-ring";
+import { LevelUpCard } from "@/components/habit/level-up-card";
+import { LogAmountSheet } from "@/components/habit/log-amount-sheet";
+import { MonthGoalCard } from "@/components/habit/month-goal-card";
+import { SetupTasksCard } from "@/components/habit/setup-tasks-card";
 import {
 	Archive,
 	ArchiveRestore,
 	Ellipsis,
 	Flame,
 	Info,
+	Minus,
+	PenLine,
 	Pencil,
+	Plus,
 	ShieldAlert,
 	Trash2,
 	Trophy,
 	Undo2,
 } from "@/components/icons";
+import { HabitJournalSection } from "@/components/journal/habit-journal-section";
 import { ActionList } from "@/components/sheet/action-list";
 import { ConfirmSheet } from "@/components/sheet/confirm-sheet";
 import { Sheet } from "@/components/sheet/sheet";
+import { useTrackerOverflowRows } from "@/components/trackers/tracker-action-rows";
+import { TrackerEntriesList } from "@/components/trackers/tracker-entries-list";
+import { TrackerLogCard } from "@/components/trackers/tracker-log-card";
+import { TrackerPanel } from "@/components/trackers/tracker-panel";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
@@ -32,13 +46,18 @@ import { showToast, ui } from "@/lib/ui-store";
 import { useHabitLog } from "@/lib/use-habit-log";
 import {
 	type DayKey,
+	canExceedTarget,
 	dayState,
 	heatColor,
 	intensityOf,
+	isTrackerActive,
+	isTrackerDay,
 	logsFor,
 	progressLabel,
 	scheduleLabel,
 	streakLabel,
+	strengthLabel,
+	targetOn,
 } from "@atomic/core";
 import {
 	useActions,
@@ -46,12 +65,16 @@ import {
 	useHabit,
 	useHabitStats,
 	useIdentity,
+	useLevelUpSuggestion,
 	useLogIndex,
+	useText,
 	useToday,
 } from "@atomic/core/react";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
-import { View } from "react-native";
+import { type Ref, useState } from "react";
+import { type ScrollView, View } from "react-native";
+import type Animated from "react-native-reanimated";
+import { useAnimatedRef, useScrollOffset } from "react-native-reanimated";
 
 export default function HabitDetailScreen() {
 	const t = useT();
@@ -74,37 +97,50 @@ function HabitDetail({ habitId }: { habitId: string }) {
 	const styles = useStyles();
 	const actions = useActions();
 	const logger = useHabitLog();
+	const text = useText();
 	const today = useToday();
 	const habit = useHabit(habitId);
+	const shown = useDisplayHabit(habit);
 	const identity = useIdentity(habit?.identityId);
 	const stats = useHabitStats(habit);
+	// One suggestion for the card and the journal section: while the level-up card shows,
+	// the journal's "Still the right size?" check-in waits (D9); once dismissed, it can show.
+	const levelUp = useLevelUpSuggestion(habit);
 	const index = useLogIndex();
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
+	// Deleting a habit deletes its linked tasks too (D18); the confirmation says so.
+	const linkedTasks = useAtomic(
+		(s) =>
+			Object.values(s.data.tasks).filter((task) => !task.deletedAt && task.habitId === habitId)
+				.length,
+	);
 	const [menu, setMenu] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const [logging, setLogging] = useState(false);
 	const [shakeKey, setShakeKey] = useState(0);
+	const trackerMenuRows = useTrackerOverflowRows(habit, () => setMenu(false));
+	// The blueprint's law headers stick while their slots scroll by.
+	const scrollRef = useAnimatedRef<Animated.ScrollView>();
+	const scrollY = useScrollOffset(scrollRef);
 
 	const logs = habit ? logsFor(index, habit.id) : undefined;
-	const notes = useMemo(
-		() =>
-			logs
-				? [...logs.values()]
-						.filter((log) => log.note)
-						.sort((a, b) => b.date.localeCompare(a.date))
-						.slice(0, 12)
-				: [],
-		[logs],
-	);
 
-	if (!habit || !stats || !logs) return null;
+	if (!habit || !shown || !stats || !logs) return null;
 	const tone = theme.habit(habit.color);
 	const isBreak = habit.kind === "break";
+	const name = shown.name;
 	const todayLog = logs.get(today);
 	const count = todayLog?.count ?? 0;
 	const state = dayState(habit, today, todayLog, today);
-	const done = isBreak ? count === 0 : count >= habit.target;
+	const target = targetOn(habit, today);
+	const counted = !isBreak && target > 1;
+	const done = isBreak ? count === 0 : count >= target;
 	const archived = Boolean(habit.archivedAt);
-	const progress = isBreak ? (count > 0 ? 0 : 1) : Math.min(1, count / habit.target);
+	const progress = isBreak ? (count > 0 ? 0 : 1) : Math.min(1, count / target);
+	const extra = isBreak ? 0 : Math.max(0, count - target);
+	// Extra reps and "Log amount…" (D11): build habits whose extra reps count, not on tracker days.
+	const canExtra = !isBreak && !isTrackerDay(habit, today) && canExceedTarget(habit);
+	const plusIsExtra = done && canExtra;
 
 	const meta = [
 		isBreak ? t.t("habits.filter.break") : scheduleLabel(habit, t, weekStartsOn),
@@ -132,6 +168,25 @@ function HabitDetail({ habitId }: { habitId: string }) {
 		if (logger.tap(habit, today, count, identity) === "full") setShakeKey((k) => k + 1);
 	};
 
+	/** "+": one more rep below the target; at it, an extra rep with Undo (D11). */
+	const plus = () => {
+		if (plusIsExtra) logger.extraRep(habit, today);
+		else logger.tap(habit, today, count, identity, { manual: true });
+	};
+	const minus = () => {
+		if (count <= 0) return;
+		actions.increment(habit.id, today, -1);
+		haptics.selection();
+	};
+
+	const caption = isBreak
+		? streakLabel(habit, stats.streak, t)
+		: counted
+			? progressLabel(shown, count, t)
+			: count > 1
+				? `${t.tp("common.times", count)} · ${streakLabel(habit, stats.streak, t)}`
+				: streakLabel(habit, stats.streak, t);
+
 	const describe = (day: DayKey) => {
 		const date = t.formatDayShort(day);
 		if (day < habit.startDate) return date;
@@ -143,7 +198,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 				: t.t(isToday ? "habit.cleanToday" : "habit.cleanDay")
 			: log?.skipped
 				? t.t("habit.skipped")
-				: progressLabel(habit, log?.count ?? 0, t);
+				: progressLabel(shown, log?.count ?? 0, t);
 		return `${date} · ${value}`;
 	};
 
@@ -156,7 +211,8 @@ function HabitDetail({ habitId }: { habitId: string }) {
 	return (
 		<Screen
 			back
-			title={habit.name}
+			title={name}
+			scrollRef={scrollRef as unknown as Ref<ScrollView>}
 			right={
 				<IconButton
 					icon={Ellipsis}
@@ -183,9 +239,13 @@ function HabitDetail({ habitId }: { habitId: string }) {
 						{habit.emoji}
 					</Text>
 				</View>
-				<Text variant="title" accessibilityRole="header">
-					{habit.name}
-				</Text>
+				<TranslatedText
+					collection="habits"
+					entity={habit}
+					field="name"
+					variant="title"
+					accessibilityRole="header"
+				/>
 				<Text variant="small" tone="muted">
 					{meta}
 				</Text>
@@ -197,13 +257,15 @@ function HabitDetail({ habitId }: { habitId: string }) {
 					</Text>
 					{identity ? (
 						<Text weight="medium" color={tone.text}>
-							{`${identity.emoji} ${identity.statement}`}
+							{`${identity.emoji} ${text.identity(identity, "statement")}`}
 						</Text>
 					) : null}
 				</View>
 			</View>
 
-			{archived ? null : (
+			{archived ? null : isTrackerActive(habit) ? (
+				<TrackerLogCard habit={habit} day={today} />
+			) : isBreak ? (
 				<Card padding={16} style={[styles.block, styles.logCard]}>
 					<HabitRing
 						habit={habit}
@@ -214,26 +276,121 @@ function HabitDetail({ habitId }: { habitId: string }) {
 						onPress={onRing}
 						onLongPress={() => ui.openHabitActions(habit.id, today)}
 						shakeKey={shakeKey}
-						accessibilityLabel={`${habit.name}, ${isBreak ? logLabel : progressLabel(habit, count, t)}`}
+						accessibilityLabel={`${name}, ${logLabel}`}
 						testID="detail-ring"
 					/>
 					<View style={{ flex: 1, gap: 2 }}>
 						<Text variant="h3">{logLabel}</Text>
 						<Text variant="small" tone="muted">
-							{isBreak ? streakLabel(habit, stats.streak, t) : progressLabel(habit, count, t)}
+							{caption}
 						</Text>
 					</View>
-					{isBreak ? (
-						<Button
-							label={count > 0 ? t.t("habit.undoSlip") : t.t("habit.logSlip")}
-							icon={count > 0 ? Undo2 : ShieldAlert}
-							variant={count > 0 ? "soft" : "secondary"}
-							size="sm"
-							onPress={() => logger.tap(habit, today, count)}
+					<Button
+						label={count > 0 ? t.t("habit.undoSlip") : t.t("habit.logSlip")}
+						icon={count > 0 ? Undo2 : ShieldAlert}
+						variant={count > 0 ? "soft" : "secondary"}
+						size="sm"
+						onPress={() => logger.tap(habit, today, count)}
+					/>
+				</Card>
+			) : (
+				/*
+				 * The ring stops at the target (a shake and a hint); "+" then logs an
+				 * extra rep with Undo, binary habits get "Log an extra rep", and "Log
+				 * amount…" sets the day's count. None of these show where extra reps
+				 * don't count (D11, spec §6).
+				 */
+				<Card padding={18} style={[styles.block, styles.logBuild]} testID="detail-log-card">
+					<View style={styles.ringRow}>
+						{counted ? (
+							<IconButton
+								icon={Minus}
+								variant="soft"
+								size={44}
+								accessibilityLabel={t.t("habit.decrement")}
+								disabled={count <= 0}
+								onPress={minus}
+								testID="detail-decrement"
+							/>
+						) : null}
+						<HabitRing
+							habit={habit}
+							count={count}
+							progress={progress}
+							state={state}
+							size={76}
+							target={target}
+							extra={extra}
+							onPress={onRing}
+							onLongPress={() => ui.openHabitActions(habit.id, today)}
+							shakeKey={shakeKey}
+							accessibilityLabel={`${name}, ${counted ? progressLabel(shown, count, t) : logLabel}`}
+							testID="detail-ring"
 						/>
+						{counted ? (
+							<IconButton
+								icon={Plus}
+								variant="soft"
+								size={44}
+								accessibilityLabel={plusIsExtra ? t.t("month.extraRep") : t.t("habit.increment")}
+								disabled={done && !canExtra}
+								onPress={plus}
+								testID="detail-increment"
+							/>
+						) : null}
+					</View>
+					<View style={styles.caption}>
+						<Text variant="h3" align="center">
+							{logLabel}
+						</Text>
+						<Text variant="small" tone="muted" align="center" tabular>
+							{caption}
+						</Text>
+					</View>
+					{canExtra ? (
+						<View style={styles.logActions}>
+							{!counted && done ? (
+								<Button
+									label={t.t("month.extraRep")}
+									icon={Plus}
+									variant="secondary"
+									size="sm"
+									accessibilityHint={t.t("month.extraRepHint")}
+									onPress={() => logger.extraRep(habit, today)}
+									testID="detail-extra-rep"
+								/>
+							) : null}
+							<Button
+								label={t.t("habit.logAmount")}
+								icon={PenLine}
+								variant="secondary"
+								size="sm"
+								onPress={() => setLogging(true)}
+								testID="detail-log-amount"
+							/>
+						</View>
 					) : null}
 				</Card>
 			)}
+			{canExtra ? (
+				<LogAmountSheet
+					habit={habit}
+					day={today}
+					open={logging}
+					onClose={() => setLogging(false)}
+				/>
+			) : null}
+
+			{/* Section order is fixed (spec §6, D36). */}
+			<TrackerPanel habit={habit} />
+			<LevelUpCard habit={habit} suggestion={levelUp} variant="card" style={styles.block} />
+			{/* A direct child of the scroll content (sticky law headers); keyed so another habit starts closed. */}
+			<BlueprintBoard key={habit.id} habit={habit} scrollY={scrollY} />
+
+			<TrackerEntriesList habit={habit} limit={5} />
+			<SetupTasksCard habit={habit} />
+
+			<MonthGoalCard habit={habit} style={styles.block} />
 
 			<SectionLabel>{t.x("detail.stats")}</SectionLabel>
 			<View style={[styles.grid, styles.block]}>
@@ -255,7 +412,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 					icon={Trophy}
 				/>
 				<StatTile
-					label={t.t("detail.strength")}
+					label={strengthLabel(habit, t, "detail").label}
 					value={t.percent(stats.strength)}
 					color={tone.text}
 				/>
@@ -270,7 +427,8 @@ function HabitDetail({ habitId }: { habitId: string }) {
 				<View style={styles.hintRow}>
 					<Info size={15} color={colors.textMuted} style={{ marginTop: 2 }} />
 					<Text variant="small" tone="muted" style={{ flex: 1 }}>
-						{t.t("detail.strengthHint")}
+						{/* "Freedom" and its hint for break habits (D61). */}
+						{strengthLabel(habit, t, "detail").hint}
 					</Text>
 				</View>
 				{isBreak ? null : (
@@ -306,45 +464,12 @@ function HabitDetail({ habitId }: { habitId: string }) {
 				<HabitCalendar habit={habit} />
 			</Card>
 
-			<SectionLabel
-				right={
-					<Button
-						label={t.t("common.edit")}
-						icon={Pencil}
-						variant="ghost"
-						size="sm"
-						onPress={() => router.push({ pathname: "/habit/editor", params: { id: habit.id } })}
-					/>
-				}
-			>
-				{t.t("detail.blueprint")}
-			</SectionLabel>
-			<View style={styles.block}>
-				<BlueprintCard habit={habit} identity={identity} />
-			</View>
-
-			<SectionLabel>{t.t("detail.notes")}</SectionLabel>
-			<Card padding={notes.length ? 0 : 16} style={styles.block}>
-				{notes.length === 0 ? (
-					<Text variant="small" tone="subtle">
-						{t.t("detail.noNotes")}
-					</Text>
-				) : (
-					notes.map((log, i) => (
-						<View key={log.id} style={[styles.note, i > 0 && styles.noteSeparator]}>
-							<Text variant="tiny" weight="semibold" tone="subtle">
-								{t.formatRelativeDay(log.date, today)}
-							</Text>
-							<Text>{log.note}</Text>
-						</View>
-					))
-				)}
-			</Card>
+			<HabitJournalSection habit={habit} levelUpVisible={levelUp !== null} />
 			<Text variant="tiny" tone="subtle" align="center">
 				{t.t("detail.started", { date: t.formatDayLong(habit.startDate) })}
 			</Text>
 
-			<Sheet open={menu} onClose={() => setMenu(false)} title={habit.name}>
+			<Sheet open={menu} onClose={() => setMenu(false)} title={name}>
 				<ActionList
 					actions={[
 						{
@@ -356,6 +481,7 @@ function HabitDetail({ habitId }: { habitId: string }) {
 								router.push({ pathname: "/habit/editor", params: { id: habit.id } });
 							},
 						},
+						...trackerMenuRows,
 						{
 							key: "archive",
 							label: archived ? t.t("common.unarchive") : t.t("common.archive"),
@@ -391,7 +517,11 @@ function HabitDetail({ habitId }: { habitId: string }) {
 			<ConfirmSheet
 				open={confirmDelete}
 				title={t.t("habit.deleteTitle")}
-				body={t.t("habit.deleteBody")}
+				body={
+					linkedTasks > 0
+						? `${t.t("habit.deleteBody")} ${t.tp("setup.deleteNote", linkedTasks)}`
+						: t.t("habit.deleteBody")
+				}
 				confirmLabel={t.t("common.delete")}
 				destructive
 				onClose={() => setConfirmDelete(false)}
@@ -429,9 +559,17 @@ const useStyles = makeStyles((t) => ({
 		alignSelf: "stretch",
 	},
 	logCard: { flexDirection: "row", alignItems: "center", gap: 16 },
+	logBuild: { alignItems: "center" },
+	ringRow: { flexDirection: "row", alignItems: "center", gap: 18 },
+	caption: { marginTop: 12, gap: 2, alignItems: "center" },
+	logActions: {
+		marginTop: 14,
+		flexDirection: "row",
+		flexWrap: "wrap",
+		justifyContent: "center",
+		gap: 8,
+	},
 	grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
 	hints: { gap: 10 },
 	hintRow: { flexDirection: "row", gap: 10 },
-	note: { padding: 16, gap: 4 },
-	noteSeparator: { borderTopWidth: 1, borderTopColor: t.colors.border },
 }));

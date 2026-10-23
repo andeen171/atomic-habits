@@ -1,14 +1,18 @@
+import { AccountSection } from "@/components/account/account-section";
+import { AiSettingsSection } from "@/components/account/ai-settings-section";
+import { TypingSettingsRows } from "@/components/account/typing-settings-rows";
 import { LogoMark } from "@/components/brand/logo";
 import { ShortcutList } from "@/components/dialogs/shortcuts-dialog";
 import { Page, PageHeader } from "@/components/layout/page";
 import { DataSection } from "@/components/settings/data-section";
+import { ReflectionPromptsRow } from "@/components/settings/reflection-prompts-row";
 import { SettingsRow, SettingsSection } from "@/components/settings/settings-section";
-import { SyncSection } from "@/components/settings/sync-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { SegmentedControl } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/lib/messages";
+import { isArtifactBuild } from "@/lib/runtime";
 import { useUI } from "@/lib/ui";
 import type { LocaleSetting, ThemeSetting } from "@atomic/core";
 import { useActions, useSettings } from "@atomic/core/react";
@@ -29,7 +33,9 @@ function SettingsScreen() {
 				<ProfileSection />
 				<AppearanceSection />
 				<PreferencesSection />
-				<SyncSection />
+				{/* No accounts or AI in the artifact build (spec §1.3). */}
+				{isArtifactBuild ? null : <AccountSection />}
+				{isArtifactBuild ? null : <AiSettingsSection />}
 				<DataSection />
 				<SettingsSection title={t("settings.shortcuts")}>
 					<div className="px-5 py-2">
@@ -140,6 +146,8 @@ function PreferencesSection() {
 					onCheckedChange={(celebrations) => actions.updateSettings({ celebrations })}
 				/>
 			</SettingsRow>
+			<ReflectionPromptsRow />
+			<TypingSettingsRows />
 		</SettingsSection>
 	);
 }

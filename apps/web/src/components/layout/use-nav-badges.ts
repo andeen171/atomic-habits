@@ -1,15 +1,10 @@
-import { tasksForDay } from "@atomic/core";
-import { useDayAgenda, useTasks, useToday } from "@atomic/core/react";
-import { useMemo } from "react";
+import { useDayAgenda, useOpenTaskCount, useToday } from "@atomic/core/react";
 
 /** Remaining habits and open tasks for today (sidebar / tab badges). */
 export function useNavBadges() {
 	const today = useToday();
 	const agenda = useDayAgenda(today);
-	const tasks = useTasks();
-	const openTasks = useMemo(
-		() => tasksForDay(tasks, today, today).filter((task) => !task.completedAt).length,
-		[tasks, today],
-	);
-	return { today: Math.max(0, agenda.score.due - agenda.score.done), tasks: openTasks };
+	// Open, actionable one-offs and series occurrences due today or overdue (Annex T §4.1).
+	const tasks = useOpenTaskCount();
+	return { today: Math.max(0, agenda.score.due - agenda.score.done), tasks };
 }

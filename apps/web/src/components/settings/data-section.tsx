@@ -1,11 +1,12 @@
 import { downloadJson } from "@/lib/download";
 import { useT } from "@/lib/messages";
 import { syncController } from "@/lib/sync";
-import { useActions, useLocale, useToday } from "@atomic/core/react";
+import { useActions, useLocale, useSyncState, useToday } from "@atomic/core/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Download, FlaskConical, RotateCcw, Upload } from "lucide-react";
 import { type ChangeEvent, useRef, useState } from "react";
 import { toast } from "sonner";
+import { usePhotosOnlyHere } from "../account/sync-rows";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 import { SettingsRow, SettingsSection } from "./settings-section";
@@ -18,6 +19,8 @@ export function DataSection() {
 	const navigate = useNavigate();
 	const fileRef = useRef<HTMLInputElement>(null);
 	const [confirm, setConfirm] = useState<"demo" | "reset" | null>(null);
+	const signedIn = useSyncState(syncController).user !== null;
+	const photosOnlyHere = usePhotosOnlyHere();
 
 	const exportBackup = async () => {
 		const saved = await downloadJson(`atomic-backup-${today}.json`, actions.exportData());
@@ -42,8 +45,17 @@ export function DataSection() {
 	};
 
 	return (
-		<SettingsSection title={t("settings.data")} description={t("settings.dataHint")}>
-			<SettingsRow label={t("settings.export")} stack>
+		<SettingsSection
+			title={t("settings.data")}
+			// Signed in, the account keeps a copy too (Annex C §4).
+			description={signedIn ? t("sync.dataHintSignedIn") : t("settings.dataHint")}
+		>
+			<SettingsRow
+				label={t("settings.export")}
+				// JSON backups leave photos out (D23); say so while they live only on this device.
+				hint={photosOnlyHere ? t("sync.photosNotInBackups") : undefined}
+				stack
+			>
 				<Button variant="secondary" size="sm" onClick={() => void exportBackup()}>
 					<Download />
 					{t("settings.export")}

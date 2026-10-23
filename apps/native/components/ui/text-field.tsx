@@ -112,6 +112,8 @@ const useStyles = makeStyles((t) => ({
 	prefix: { marginRight: 6 },
 	input: {
 		flex: 1,
+		// v2:T4 — lets the input shrink beside a unit or prefix (RN-web inputs keep a ~20-character minimum width).
+		minWidth: 0,
 		fontFamily: fonts.regular,
 		fontSize: 15,
 		color: t.colors.text,

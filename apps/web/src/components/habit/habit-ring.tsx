@@ -13,6 +13,8 @@ interface HabitRingProps {
 	size?: number;
 	/** Hide the emoji (e.g. tiny rings in lists). */
 	showEmoji?: boolean;
+	/** Reps above the day's target (build habits), drawn as a "+N" pill (Annex H §1.1.5). */
+	extra?: number;
 	className?: string;
 }
 
@@ -29,6 +31,7 @@ export function HabitRingGraphic({
 	state,
 	size = 44,
 	showEmoji = true,
+	extra = 0,
 	className,
 }: HabitRingProps) {
 	const style = useHabitStyle(habit.color);
@@ -136,6 +139,25 @@ export function HabitRingGraphic({
 					</motion.span>
 				) : null}
 			</AnimatePresence>
+			{/* The accessible label already says "13/10 pages"; the pill is visual only. */}
+			<AnimatePresence initial={false}>
+				{!isBreak && extra > 0 ? (
+					<motion.span
+						key="extra"
+						aria-hidden="true"
+						className={cn(
+							"absolute grid h-5 min-w-5 place-items-center rounded-full bg-(--habit) px-1 font-semibold text-(--habit-on-text) text-[10px] tabular-nums leading-none ring-2 ring-surface",
+							size >= 56 ? "top-0 right-0" : "-top-1 -right-1",
+						)}
+						initial={{ scale: 0.5, opacity: 0 }}
+						animate={{ scale: 1, opacity: 1 }}
+						exit={{ scale: 0.5, opacity: 0 }}
+						transition={spring}
+					>
+						+{extra > 99 ? "99" : extra}
+					</motion.span>
+				) : null}
+			</AnimatePresence>
 		</span>
 	);
 }
@@ -156,6 +178,7 @@ export function HabitRingButton({
 	state,
 	size = 44,
 	showEmoji,
+	extra,
 	label,
 	checkbox,
 	checked,
@@ -184,6 +207,7 @@ export function HabitRingButton({
 				state={state}
 				size={size}
 				showEmoji={showEmoji}
+				extra={extra}
 			/>
 		</motion.button>
 	);

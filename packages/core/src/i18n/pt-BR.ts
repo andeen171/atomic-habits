@@ -1,4 +1,11 @@
 import type { Messages } from "./en";
+import { cloudPtBR } from "./v2/cloud.pt-BR";
+import { habitsPtBR } from "./v2/habits.pt-BR";
+import { journalPtBR } from "./v2/journal.pt-BR";
+import { serverPtBR } from "./v2/server.pt-BR";
+import { sharedPtBR } from "./v2/shared.pt-BR";
+import { tasksPtBR } from "./v2/tasks.pt-BR";
+import { trackersPtBR } from "./v2/trackers.pt-BR";
 
 export const ptBR: Messages = {
 	"app.name": "Atomic",
@@ -250,7 +257,7 @@ export const ptBR: Messages = {
 	"form.step.whatBreak": "O que você quer parar?",
 	"form.step.identity": "Quem você quer se tornar?",
 	"form.step.identityHint":
-		"O objetivo não é ler um livro, é se tornar um leitor. Vincule este hábito a uma identidade.",
+		"O objetivo não é ler um livro, é se tornar um leitor. Comece por quem você quer se tornar — o hábito leva o ícone dessa identidade.",
 	"form.step.obvious": "Torne-o óbvio",
 	"form.step.obviousHint":
 		"Defina quando e onde. Planos vagos falham; planos específicos acontecem.",
@@ -380,7 +387,7 @@ export const ptBR: Messages = {
 	"insights.activeHabits": "Hábitos ativos",
 	"insights.compoundTitle": "1% melhor a cada dia",
 	"insights.compoundBody":
-		"Você está construindo seu sistema há {days}. Melhorar 1% ao dia acumula {better}× — piorar 1% encolhe para {worse}×.",
+		"Você está construindo seu sistema há {days}. Melhorar 1% ao dia acumula {better}×. Ficar igual mantém você em 1×. Piorar 1% ao dia encolhe para {worse}×.",
 	"insights.compoundBetter": "1% melhor",
 	"insights.compoundWorse": "1% pior",
 	"insights.yearTitle": "Seu ano em hábitos",
@@ -424,7 +431,7 @@ export const ptBR: Messages = {
 	"settings.language.en": "English",
 	"settings.language.pt-BR": "Português (Brasil)",
 	"settings.preferences": "Preferências",
-	"settings.weekStartsOn": "A semana começa no",
+	"settings.weekStartsOn": "Início da semana",
 	"settings.celebrations": "Celebrações",
 	"settings.celebrationsHint": "Confete e animações ao concluir o dia.",
 	"settings.haptics": "Vibração ao tocar",
@@ -441,11 +448,11 @@ export const ptBR: Messages = {
 	"settings.demo": "Carregar dados de exemplo",
 	"settings.demoHint": "Substitui seus dados por um exemplo realista.",
 	"settings.demoConfirm":
-		"Isso substitui todos os seus hábitos, tarefas e histórico por dados de exemplo.",
+		"Isso substitui todos os seus hábitos, tarefas, diário e histórico por dados de exemplo.",
 	"settings.reset": "Apagar todos os dados",
 	"settings.resetHint": "Excluir tudo neste aparelho.",
 	"settings.resetConfirm":
-		"Isso exclui todos os hábitos, histórico, tarefas e ajustes deste aparelho. Exporte um backup antes se quiser guardá-los.",
+		"Isso exclui todos os hábitos, histórico, tarefas, diário e ajustes deste aparelho. Exporte um backup antes se quiser guardá-los.",
 	"settings.about": "Sobre",
 	"settings.version": "Versão {version}",
 	"settings.shortcuts": "Atalhos de teclado",
@@ -532,4 +539,13 @@ export const ptBR: Messages = {
 	"error.reload": "Recarregar",
 	"notFound.title": "Página não encontrada",
 	"notFound.body": "Esta página se perdeu. Vamos voltar para hoje.",
+
+	// v2 per-area catalogs (spec §7). Never define one of their keys above.
+	...sharedPtBR,
+	...habitsPtBR,
+	...tasksPtBR,
+	...journalPtBR,
+	...trackersPtBR,
+	...cloudPtBR,
+	...serverPtBR,
 };

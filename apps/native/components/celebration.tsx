@@ -1,6 +1,6 @@
 import { useReduceMotion } from "@/lib/motion";
-import { useUI } from "@/lib/ui-store";
-import { HABIT_COLORS } from "@atomic/core";
+import { ui, useUI } from "@/lib/ui-store";
+import { HABIT_COLORS, type HabitColor } from "@atomic/core";
 import { useAtomic } from "@atomic/core/react";
 import { habitColors } from "@atomic/core/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -28,31 +28,58 @@ interface Particle {
 	delay: number;
 }
 
+/** The hue of the next burst (`celebrateIn`); null = every habit color. */
+let nextHue: HabitColor | null = null;
+
+/**
+ * Confetti in one habit's color (a monthly goal reached, Annex H §1.1.4).
+ * Same rules as `ui.celebrate()`: nothing when celebrations are off or
+ * motion is reduced.
+ */
+export function celebrateIn(color: HabitColor) {
+	nextHue = color;
+	ui.celebrate();
+}
+
 /** One-time "atoms" confetti for a perfect day (respects settings and reduce motion). */
 export function Celebration() {
 	const token = useUI((s) => s.celebration);
 	const enabled = useAtomic((s) => s.settings.celebrations);
 	const reduceMotion = useReduceMotion();
-	const [active, setActive] = useState(0);
+	const [active, setActive] = useState<{ token: number; hue: HabitColor | null } | null>(null);
+	// Only a new token bursts (turning celebrations back on never replays the last one).
+	const seen = useRef(token);
 	useEffect(() => {
-		if (token && enabled && !reduceMotion) setActive(token);
+		if (token === seen.current) return;
+		seen.current = token;
+		const hue = nextHue;
+		nextHue = null;
+		if (enabled && !reduceMotion) setActive({ token, hue });
 	}, [token, enabled, reduceMotion]);
 	if (!active) return null;
-	return <Confetti key={active} onDone={() => setActive(0)} />;
+	return <Confetti key={active.token} hue={active.hue} onDone={() => setActive(null)} />;
 }
 
-function Confetti({ onDone }: { onDone: () => void }) {
+/** A habit's hue in three shades, or every habit color. */
+function paletteFor(hue: HabitColor | null): string[] {
+	if (hue) {
+		const c = habitColors[hue] ?? habitColors.ember;
+		return [c.base, c.light, c.dark];
+	}
+	return HABIT_COLORS.filter((c) => c !== "stone").map((c) => habitColors[c].base);
+}
+
+function Confetti({ hue, onDone }: { hue: HabitColor | null; onDone: () => void }) {
 	const { width, height } = useWindowDimensions();
 	const progress = useSharedValue(0);
 	const particles = useMemo<Particle[]>(() => {
-		const hues = HABIT_COLORS.filter((c) => c !== "stone");
+		const colors = paletteFor(hue);
 		return Array.from({ length: COUNT }, (_, id) => {
 			const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.1;
 			const speed = 0.55 + Math.random() * 0.6;
-			const hue = hues[id % hues.length] ?? "ember";
 			return {
 				id,
-				color: habitColors[hue].base,
+				color: colors[id % colors.length] ?? habitColors.ember.base,
 				size: 6 + Math.random() * 8,
 				ring: id % 3 === 0,
 				vx: Math.cos(angle) * speed * width * 0.9,
@@ -61,7 +88,7 @@ function Confetti({ onDone }: { onDone: () => void }) {
 				delay: Math.random() * 0.08,
 			};
 		});
-	}, [width, height]);
+	}, [width, height, hue]);
 
 	const doneRef = useRef(onDone);
 	doneRef.current = onDone;

@@ -1,13 +1,11 @@
-import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { nowMs as now } from "./common";
 
 /**
  * Better Auth 1.7 core tables (user, session, account, verification), matching
  * the schema its CLI generates for SQLite. Property names are what Better Auth
  * addresses; column names are snake_case.
  */
-
-const now = sql`(cast(unixepoch('subsecond') * 1000 as integer))`;
 
 const createdAt = () => integer("created_at", { mode: "timestamp_ms" }).default(now).notNull();
 const updatedAt = () =>
@@ -24,6 +22,11 @@ export const user = sqliteTable("user", {
 	image: text("image"),
 	createdAt: createdAt(),
 	updatedAt: updatedAt(),
+	/** Stripe plugin field (`@better-auth/stripe`); created lazily at first checkout. */
+	stripeCustomerId: text("stripe_customer_id"),
+	/** AI consent (Better Auth `additionalFields`, `input: false`): set only by `ai.setConsent`. */
+	aiConsentAt: integer("ai_consent_at", { mode: "timestamp_ms" }),
+	aiTranslate: integer("ai_translate", { mode: "boolean" }).default(false).notNull(),
 });
 
 export const session = sqliteTable(

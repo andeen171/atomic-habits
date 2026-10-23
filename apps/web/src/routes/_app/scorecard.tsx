@@ -4,10 +4,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { SmartInput } from "@/components/ui/smart-input";
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { SCORECARD_RATINGS, type ScorecardItem, type ScorecardRating } from "@atomic/core";
-import { useActions, useScorecard } from "@atomic/core/react";
+import { useActions, useScorecard, useText } from "@atomic/core/react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ClipboardList, Ellipsis, Plus, ShieldOff, Sprout, Trash } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -120,7 +121,8 @@ function AddBehavior() {
 					onChange={(event) => setTime(event.target.value)}
 					className="sm:w-32"
 				/>
-				<Input
+				<SmartInput
+					field="scorecard.label"
 					value={label}
 					maxLength={160}
 					aria-label={t("scorecard.add")}
@@ -222,8 +224,11 @@ function ScorecardRow({ item }: { item: ScorecardItem }) {
 	const { t, at } = useT();
 	const actions = useActions();
 	const navigate = useNavigate();
+	const text = useText();
 	const [editing, setEditing] = useState(false);
 	const [label, setLabel] = useState(item.label);
+	// Shown in the content language (template text, AI translation); edits change the original.
+	const shown = text.scorecard(item, "label");
 
 	const commit = () => {
 		setEditing(false);
@@ -278,22 +283,25 @@ function ScorecardRow({ item }: { item: ScorecardItem }) {
 				) : (
 					<button
 						type="button"
-						onClick={() => setEditing(true)}
+						onClick={() => {
+							setLabel(item.label);
+							setEditing(true);
+						}}
 						className="line-clamp-2 min-w-0 flex-1 break-words rounded-sm py-1.5 text-left text-ink leading-snug"
 					>
-						{item.label}
+						{shown}
 					</button>
 				)}
 				<RatingPicker
 					value={item.rating}
-					itemLabel={item.label}
+					itemLabel={shown}
 					onChange={(rating) => actions.updateScorecardItem(item.id, { rating })}
 				/>
 			</div>
 			<Menu modal={false}>
 				<MenuTrigger asChild>
 					<IconButton
-						label={at("common.moreFor", { name: item.label })}
+						label={at("common.moreFor", { name: shown })}
 						size="sm"
 						tooltip={false}
 						className="-mr-1.5 mt-0.5 text-ink-subtle sm:mt-0"
@@ -304,7 +312,7 @@ function ScorecardRow({ item }: { item: ScorecardItem }) {
 				<MenuContent>
 					<MenuItem
 						icon={kind === "break" ? <ShieldOff /> : <Sprout />}
-						onSelect={() => navigate({ to: "/habits/new", search: { name: item.label, kind } })}
+						onSelect={() => navigate({ to: "/habits/new", search: { name: shown, kind } })}
 					>
 						{kind === "break" ? t("scorecard.breakHabit") : t("scorecard.makeHabit")}
 					</MenuItem>

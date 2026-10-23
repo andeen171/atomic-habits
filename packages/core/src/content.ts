@@ -1,6 +1,9 @@
 import { type DayKey, diffDays } from "./dates";
-import type { Locale } from "./i18n";
+import { FEATURES, type FeatureFlag } from "./flags";
+import type { Locale, MessageKey } from "./i18n";
 import type { HabitColor, HabitKind, Schedule, TimeOfDay } from "./model";
+import { collapseSpaces, foldText } from "./text";
+import type { TrackerConfigInput } from "./trackers/schema";
 
 type Localized = { en: string; pt: string };
 const pick = (value: Localized, locale: Locale) => (locale === "pt-BR" ? value.pt : value.en);
@@ -268,6 +271,38 @@ export function principles(locale: Locale): Principle[] {
 	}));
 }
 
+/** One principle by id in the given language; null for an unknown id. */
+export function principleById(id: string, locale: Locale): Principle | null {
+	const p = PRINCIPLES.find((item) => item.id === id);
+	return p
+		? { id: p.id, law: p.law, title: pick(p.title, locale), body: pick(p.body, locale) }
+		: null;
+}
+
+/**
+ * The book principle behind a law (spec §3.2), shown as the blueprint
+ * header's quote for the weakest law. Build: intention, bundling,
+ * two-minute, immediate. Break: invisible, reframe, difficult, accountability.
+ */
+export function lawPrinciple(law: 1 | 2 | 3 | 4, kind: HabitKind): string {
+	const ids =
+		kind === "break"
+			? (["invisible", "reframe", "difficult", "accountability"] as const)
+			: (["intention", "bundling", "two-minute", "immediate"] as const);
+	return ids[law - 1] ?? ids[0];
+}
+
+/**
+ * The law chip of a principle (PrincipleHero, PrincipleQuote): laws 1–4 use
+ * the law's name, law 5 (breaking bad habits) the "Breaking" filter label,
+ * and general principles (law 0) have no chip.
+ */
+export function principleLawKey(law: Principle["law"]): MessageKey | null {
+	if (law === 0) return null;
+	if (law === 5) return "habits.filter.break";
+	return `law.${law}.name` as MessageKey;
+}
+
 /** A stable principle for each calendar day. */
 export function principleOfTheDay(day: DayKey, locale: Locale): Principle {
 	const list = principles(locale);
@@ -292,6 +327,10 @@ export interface HabitTemplate {
 	bundle: string | null;
 	reward: string | null;
 	environment: string | null;
+	/** Tracker preset (Annex K §1.9); set only while the `requires` flag is on. */
+	tracker: TrackerConfigInput | null;
+	/** The feature flag that gates this template's tracker preset; null for plain templates. */
+	requires: FeatureFlag | null;
 }
 
 export interface IdentityTemplate {
@@ -318,6 +357,19 @@ interface RawHabit {
 	bundle?: Localized;
 	reward?: Localized;
 	environment?: Localized;
+	/**
+	 * Tracker preset and the overrides that come with it (spec §3.1). They
+	 * apply only while `requires` is on; otherwise the template is plain.
+	 */
+	tracker?: {
+		requires: FeatureFlag;
+		preset: (locale: Locale) => TrackerConfigInput;
+		target?: number;
+		unit?: Localized;
+		twoMinute?: Localized;
+	};
+	/** Listed only while this flag is on (templates that only make sense as trackers). */
+	onlyWhen?: FeatureFlag;
 }
 
 interface RawIdentity {
@@ -337,6 +389,10 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "read",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "reading", measure: "pages" }),
+				},
 				name: { en: "Read 10 pages", pt: "Ler 10 páginas" },
 				emoji: "📖",
 				target: 10,
@@ -361,6 +417,7 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "workout",
+				tracker: { requires: "templateTrackers", preset: () => ({ type: "workout" }) },
 				name: { en: "Work out", pt: "Treinar" },
 				emoji: "💪",
 				schedule: { type: "weekly", times: 3 },
@@ -372,11 +429,28 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "walk",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "workout", defaultActivity: "walk" }),
+				},
 				name: { en: "Take a walk", pt: "Caminhar" },
 				emoji: "🚶",
 				timeOfDay: "afternoon",
 				stackAfter: { en: "finish lunch", pt: "terminar o almoço" },
 				twoMinute: { en: "Walk to the end of the street", pt: "Andar até o fim da rua" },
+			},
+			{
+				key: "progressPhoto",
+				name: { en: "Progress photo", pt: "Foto de progresso" },
+				emoji: "📸",
+				schedule: { type: "weekly", times: 1 },
+				timeOfDay: "morning",
+				twoMinute: {
+					en: "One photo, same spot, same light",
+					pt: "Uma foto, mesmo lugar, mesma luz",
+				},
+				onlyWhen: "trackerPhotos",
+				tracker: { requires: "trackerPhotos", preset: () => ({ type: "photo", compare: true }) },
 			},
 		],
 	},
@@ -388,6 +462,18 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "meditate",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({
+						type: "session",
+						measure: "minutes",
+						preset: 2,
+						prompt: "felt",
+						bell: true,
+					}),
+					target: 2,
+					unit: { en: "min", pt: "min" },
+				},
 				name: { en: "Meditate", pt: "Meditar" },
 				emoji: "🧘",
 				timeOfDay: "morning",
@@ -397,6 +483,14 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "journal",
+				tracker: {
+					requires: "templateTrackers",
+					preset: (locale) => ({
+						type: "writing",
+						measure: "entries",
+						prompt: locale === "pt-BR" ? "Uma linha sobre o dia" : "One line about today",
+					}),
+				},
 				name: { en: "Journal", pt: "Escrever no diário" },
 				emoji: "📓",
 				timeOfDay: "evening",
@@ -423,6 +517,14 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "vegetables",
+				tracker: {
+					requires: "trackerPhotos",
+					preset: (locale) => ({
+						type: "photo",
+						photoRequired: false,
+						prompt: locale === "pt-BR" ? "O que você comeu?" : "What did you eat?",
+					}),
+				},
 				name: { en: "Eat vegetables", pt: "Comer vegetais" },
 				emoji: "🥦",
 				timeOfDay: "afternoon",
@@ -430,6 +532,10 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "sleep",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "sleep", bedtime: "23:00", grace: 0 }),
+				},
 				name: { en: "In bed by 11pm", pt: "Deitar até 23h" },
 				emoji: "😴",
 				timeOfDay: "evening",
@@ -446,6 +552,12 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "write",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "writing", measure: "words" }),
+					target: 300,
+					unit: { en: "words", pt: "palavras" },
+				},
 				name: { en: "Write 300 words", pt: "Escrever 300 palavras" },
 				emoji: "✍️",
 				schedule: { type: "weekdays", days: [1, 2, 3, 4, 5] },
@@ -464,6 +576,10 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "language",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "session", measure: "minutes", preset: 15, prompt: "learned" }),
+				},
 				name: { en: "Practice a language", pt: "Praticar um idioma" },
 				emoji: "🗣️",
 				target: 15,
@@ -474,6 +590,10 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "instrument",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "session", measure: "sessions", preset: null }),
+				},
 				name: { en: "Practice an instrument", pt: "Tocar um instrumento" },
 				emoji: "🎸",
 				schedule: { type: "weekly", times: 4 },
@@ -494,6 +614,10 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "wake",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "wake", time: "06:30", grace: 10 }),
+				},
 				name: { en: "Wake up at 6:30", pt: "Acordar às 6h30" },
 				emoji: "⏰",
 				timeOfDay: "morning",
@@ -514,6 +638,7 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "plan",
+				tracker: { requires: "trackerPhaseB", preset: () => ({ type: "plan", size: 3 }) },
 				name: { en: "Plan tomorrow", pt: "Planejar o amanhã" },
 				emoji: "🗒️",
 				schedule: { type: "weekdays", days: [1, 2, 3, 4, 5] },
@@ -523,6 +648,12 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "tidy",
+				tracker: {
+					requires: "templateTrackers",
+					preset: () => ({ type: "session", measure: "minutes", preset: 5 }),
+					target: 5,
+					unit: { en: "min", pt: "min" },
+				},
 				name: { en: "Tidy up for 5 minutes", pt: "Arrumar por 5 minutos" },
 				emoji: "🧹",
 				timeOfDay: "evening",
@@ -538,6 +669,13 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "expenses",
+				tracker: {
+					requires: "templateTrackers",
+					preset: (locale) => ({
+						type: "expense",
+						currency: locale === "pt-BR" ? "BRL" : "USD",
+					}),
+				},
 				name: { en: "Log expenses", pt: "Anotar gastos" },
 				emoji: "🧾",
 				timeOfDay: "evening",
@@ -548,6 +686,7 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "impulse",
+				tracker: { requires: "templateTrackers", preset: () => ({ type: "slip", cost: "money" }) },
 				name: { en: "Impulse buying", pt: "Compras por impulso" },
 				emoji: "🛍️",
 				kind: "break",
@@ -569,6 +708,7 @@ const IDENTITIES: RawIdentity[] = [
 		habits: [
 			{
 				key: "doomscroll",
+				tracker: { requires: "templateTrackers", preset: () => ({ type: "slip", cost: "time" }) },
 				name: { en: "Doomscrolling", pt: "Rolar o feed sem parar" },
 				emoji: "📵",
 				kind: "break",
@@ -586,6 +726,7 @@ const IDENTITIES: RawIdentity[] = [
 			},
 			{
 				key: "call",
+				tracker: { requires: "templateTrackers", preset: () => ({ type: "connection" }) },
 				name: { en: "Call someone I love", pt: "Ligar para alguém que amo" },
 				emoji: "📞",
 				schedule: { type: "weekly", times: 2 },
@@ -598,42 +739,98 @@ const IDENTITIES: RawIdentity[] = [
 
 function localizeHabit(raw: RawHabit, color: HabitColor, locale: Locale): HabitTemplate {
 	const opt = (v: Localized | undefined) => (v ? pick(v, locale) : null);
+	const tracker = raw.tracker && FEATURES[raw.tracker.requires] ? raw.tracker : null;
 	return {
 		key: raw.key,
 		name: pick(raw.name, locale),
 		emoji: raw.emoji,
 		color,
 		kind: raw.kind ?? "build",
-		target: raw.target ?? 1,
-		unit: opt(raw.unit),
+		target: tracker?.target ?? raw.target ?? 1,
+		unit: opt(tracker?.unit ?? raw.unit),
 		schedule: raw.schedule ?? { type: "daily" },
 		timeOfDay: raw.timeOfDay,
 		cueTime: raw.cueTime ?? null,
 		cueLocation: opt(raw.cueLocation),
 		stackAfter: opt(raw.stackAfter),
-		twoMinute: opt(raw.twoMinute),
+		twoMinute: opt(tracker?.twoMinute ?? raw.twoMinute),
 		bundle: opt(raw.bundle),
 		reward: opt(raw.reward),
 		environment: opt(raw.environment),
+		tracker: tracker ? tracker.preset(locale) : null,
+		requires: raw.tracker?.requires ?? null,
 	};
 }
 
+/**
+ * Identities with their starter habits. Flag-gated templates (the progress
+ * photo) are listed only while their flag is on, and tracker presets apply
+ * only while theirs is (spec §3.1).
+ */
 export function identityTemplates(locale: Locale): IdentityTemplate[] {
 	return IDENTITIES.map((identity) => ({
 		key: identity.key,
 		statement: pick(identity.statement, locale),
 		emoji: identity.emoji,
 		color: identity.color,
-		habits: identity.habits.map((h) => localizeHabit(h, identity.color, locale)),
+		habits: identity.habits
+			.filter((h) => !h.onlyWhen || FEATURES[h.onlyWhen])
+			.map((h) => localizeHabit(h, identity.color, locale)),
 	}));
+}
+
+/** Case-, accent-, punctuation- and space-insensitive form of a statement. */
+function statementKey(statement: string): string {
+	return collapseSpaces(foldText(statement).replace(/[^a-z0-9\s]+/g, " "));
+}
+
+/**
+ * The identity template an identity matches (Annex H §1.2): its statement
+ * compared in both languages, ignoring case, accents and punctuation; else
+ * its emoji. Drives "Ideas for “{identity}”" in the editor.
+ */
+export function matchIdentityTemplate(identity: {
+	statement: string;
+	emoji?: string | null;
+}): string | null {
+	const key = statementKey(identity.statement ?? "");
+	if (key) {
+		for (const raw of IDENTITIES) {
+			if (statementKey(raw.statement.en) === key || statementKey(raw.statement.pt) === key) {
+				return raw.key;
+			}
+		}
+	}
+	const emoji = identity.emoji?.trim();
+	if (emoji) {
+		const byEmoji = IDENTITIES.find((raw) => raw.emoji === emoji);
+		if (byEmoji) return byEmoji.key;
+	}
+	return null;
 }
 
 export function habitTemplates(locale: Locale): HabitTemplate[] {
 	return identityTemplates(locale).flatMap((identity) => identity.habits);
 }
 
+/** Habit icon when no identity gives one (spec §3.1, Annex H §1.2). */
+export const DEFAULT_HABIT_EMOJI: Record<HabitKind, string> = { build: "🌱", break: "🚫" };
+
+/**
+ * The icon of an `emojiAuto` habit: the linked identity's emoji (for break
+ * habits too), else the kind default.
+ */
+export function autoHabitEmoji(kind: HabitKind, identityEmoji?: string | null): string {
+	// Raw records (kept by hydration rule 2) may hold anything here.
+	const own = typeof identityEmoji === "string" ? identityEmoji.trim() : "";
+	if (own) return own;
+	return kind === "break" ? DEFAULT_HABIT_EMOJI.break : DEFAULT_HABIT_EMOJI.build;
+}
+
 /** Curated emoji for the habit/identity picker. */
 export const EMOJI_CHOICES = [
+	"🌱",
+	"🚫",
 	"✨",
 	"📖",
 	"📚",

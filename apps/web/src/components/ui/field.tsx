@@ -1,15 +1,11 @@
 import { cn } from "@/lib/utils";
 import { type ComponentProps, type ReactNode, useId } from "react";
+import { controlClass } from "./control";
 
-const controlBase =
-	"w-full rounded-md border border-line bg-sunken/60 px-3.5 text-body text-ink transition-[border-color,box-shadow,background-color] duration-(--atomic-duration-fast) placeholder:text-ink-subtle hover:border-line-strong focus-visible:border-accent focus-visible:bg-surface focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-accent/15 disabled:opacity-60 aria-invalid:border-danger";
+export { Textarea } from "./textarea";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
-	return <input className={cn(controlBase, "h-11", className)} {...props} />;
-}
-
-export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
-	return <textarea className={cn(controlBase, "min-h-24 resize-y py-2.5", className)} {...props} />;
+	return <input className={cn(controlClass, "h-11", className)} {...props} />;
 }
 
 interface FieldProps {

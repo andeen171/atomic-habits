@@ -8,7 +8,7 @@ export default defineConfig({
 		starlight({
 			title: "Atomic",
 			description:
-				"Tiny habits. Remarkable results. A local-first habit app inspired by Atomic Habits.",
+				"Tiny habits. Remarkable results. A local-first habit, task and journal app inspired by Atomic Habits.",
 			logo: { src: "./src/assets/logo.svg", alt: "Atomic" },
 			favicon: "/favicon.svg",
 			customCss: ["./src/styles/theme.css"],
@@ -31,6 +31,9 @@ export default defineConfig({
 					items: [
 						{ slug: "guides/getting-started" },
 						{ slug: "guides/method" },
+						{ slug: "guides/journal" },
+						{ slug: "guides/trackers" },
+						{ slug: "guides/account" },
 						{ slug: "guides/self-hosting" },
 					],
 				},

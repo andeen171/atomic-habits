@@ -8,14 +8,14 @@ import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Screen, ScreenTitle } from "@/components/ui/screen";
 import { SectionLabel } from "@/components/ui/section-label";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { type Theme, makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
 import type { ScorecardItem, ScorecardRating } from "@atomic/core";
-import { useActions, useScorecard } from "@atomic/core/react";
+import { useActions, useScorecard, useText } from "@atomic/core/react";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
@@ -39,6 +39,9 @@ export default function ScorecardScreen() {
 	const styles = useStyles();
 	const actions = useActions();
 	const items = useScorecard();
+	// Labels show in the content language (template text, AI translation); the menu and
+	// "Make it a habit" use what the user sees, and editing changes the original.
+	const text = useText();
 	const [label, setLabel] = useState("");
 	const [time, setTime] = useState<string | null>(null);
 	const [menu, setMenu] = useState<ScorecardItem | null>(null);
@@ -96,13 +99,15 @@ export default function ScorecardScreen() {
 									{item.time ?? "—"}
 								</Text>
 								<Text weight="medium" style={{ flex: 1 }}>
-									{item.label}
+									{text.scorecard(item, "label")}
 								</Text>
 								<IconButton
 									icon={Ellipsis}
 									size={32}
 									iconSize={18}
-									accessibilityLabel={t.t("common.more")}
+									accessibilityLabel={t.x("a11y.habitActions", {
+										habit: text.scorecard(item, "label"),
+									})}
 									onPress={() => setMenu(item)}
 								/>
 							</View>
@@ -150,7 +155,8 @@ export default function ScorecardScreen() {
 
 			<SectionLabel>{t.t("scorecard.add")}</SectionLabel>
 			<Card padding={16} style={styles.add}>
-				<TextField
+				<SmartTextField
+					field="scorecard.label"
 					value={label}
 					onChangeText={setLabel}
 					placeholder={t.t("scorecard.placeholder")}
@@ -166,7 +172,11 @@ export default function ScorecardScreen() {
 				<Button label={t.t("scorecard.add")} icon={Plus} disabled={!label.trim()} onPress={add} />
 			</Card>
 
-			<Sheet open={Boolean(menu)} onClose={() => setMenu(null)} title={menu?.label}>
+			<Sheet
+				open={Boolean(menu)}
+				onClose={() => setMenu(null)}
+				title={menu ? text.scorecard(menu, "label") : undefined}
+			>
 				{menu ? (
 					<ActionList
 						actions={[
@@ -180,7 +190,7 @@ export default function ScorecardScreen() {
 											setMenu(null);
 											router.push({
 												pathname: "/habit/editor",
-												params: { name: menu.label, kind: "break" },
+												params: { name: text.scorecard(menu, "label"), kind: "break" },
 											});
 										},
 									}
@@ -193,7 +203,7 @@ export default function ScorecardScreen() {
 											setMenu(null);
 											router.push({
 												pathname: "/habit/editor",
-												params: { name: menu.label, kind: "build" },
+												params: { name: text.scorecard(menu, "label"), kind: "build" },
 											});
 										},
 									},

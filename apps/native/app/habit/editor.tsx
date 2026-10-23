@@ -1,3 +1,4 @@
+import { AiSuggestButton } from "@/components/ai/ai-suggest-button";
 import {
 	ColorPicker,
 	EmojiPicker,
@@ -7,23 +8,31 @@ import {
 	KindSummary,
 	KindToggle,
 	ScheduleField,
-	TemplatePicker,
+	TemplateIdeas,
 	TimeField,
 	TimeOfDayField,
+	identityTemplateFor,
+	newIdentityLook,
 } from "@/components/editor/fields";
+import { createDraftSetupTasks } from "@/components/editor/setup-shared";
+import { SetupTaskAdder } from "@/components/editor/setup-task-adder";
+import { SetupTaskToggle } from "@/components/editor/setup-task-toggle";
+import { SetupTasksReview } from "@/components/editor/setup-tasks-review";
 import { BlueprintCard } from "@/components/habit/blueprint-card";
 import { HabitRing } from "@/components/habit/habit-ring";
 import { ArrowLeft, ArrowRight, BellRing, Check, X } from "@/components/icons";
+import { TrackerField, draftTracker } from "@/components/trackers/tracker-picker";
+import { TrackerReviewLine } from "@/components/trackers/tracker-review-line";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Screen } from "@/components/ui/screen";
 import { SectionLabel } from "@/components/ui/section-label";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SmartTextField } from "@/components/ui/smart-text-field";
 import { Stepper } from "@/components/ui/stepper";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
-import { TextField } from "@/components/ui/text-field";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { useReduceMotion } from "@/lib/motion";
@@ -31,28 +40,60 @@ import { useNotificationPermission } from "@/lib/reminders";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { showToast } from "@/lib/ui-store";
 import {
+	DEFAULT_HABIT_EMOJI,
 	HABIT_COLORS,
 	type Habit,
 	type HabitColor,
 	type HabitKind,
 	type HabitTemplate,
+	type Identity,
 	type Schedule,
+	type SetupTaskDraft,
 	type TimeOfDay,
+	type TrackerConfigInput,
+	type Translator,
+	autoHabitEmoji,
 	blueprintLines,
 	habitTemplates,
+	identityTemplates,
+	knownTracker,
+	pruneSetupDrafts,
 	scheduleLabel,
+	trackerMeta,
+	trackerUnitWord,
 } from "@atomic/core";
-import { useActions, useAtomic, useHabit, useIdentities, useToday } from "@atomic/core/react";
+import {
+	useActions,
+	useAtomic,
+	useHabit,
+	useIdentities,
+	useText,
+	useToday,
+} from "@atomic/core/react";
 import { router, useLocalSearchParams } from "expo-router";
-import { type ReactNode, useMemo, useRef, useState } from "react";
-import { Platform, type ScrollView, View } from "react-native";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { AccessibilityInfo, Platform, type ScrollView, View } from "react-native";
 import Animated, { FadeIn, FadeInRight, LinearTransition } from "react-native-reanimated";
 
 interface Draft {
 	kind: HabitKind;
 	name: string;
+	/**
+	 * The icon. The rendered draft always holds the resolved one (`withLook`):
+	 * while `emojiAuto`, the identity's emoji or the kind default (🌱 / 🚫).
+	 */
 	emoji: string;
+	/** Resolved like `emoji`: while `colorAuto`, the identity's color (else the template's, else the kind's). */
 	color: HabitColor;
+	/** The icon follows the identity (or the kind default) until the user picks one (D12). */
+	emojiAuto: boolean;
+	/** The color follows the identity until the user picks one. Draft only: never stored. */
+	colorAuto: boolean;
+	/**
+	 * The template applied last. Its emoji is offered as a one-tap "Use 📖"
+	 * chip and never replaces an auto icon on its own (D12).
+	 */
+	template: { key: string; emoji: string; color: HabitColor } | null;
 	identity: IdentityChoice;
 	schedule: Schedule;
 	timeOfDay: TimeOfDay;
@@ -67,10 +108,19 @@ interface Draft {
 	reward: string;
 	why: string;
 	environment: string;
+	/** How it is logged (Annex K): null = simple check-off. Saved by T1/T4. */
+	tracker: TrackerConfigInput | null;
+	/** Setup tasks to create on save (Annex T §5.4). Saved by T1/T2. */
+	setupTasks: SetupTaskDraft[];
 }
 
-type StepKey = "what" | "identity" | "obvious" | "easy" | "satisfying" | "review";
-const STEPS: StepKey[] = ["what", "identity", "obvious", "easy", "satisfying", "review"];
+/** Identity first (Annex H §1.2): "The goal is not to read a book, it's to become a reader." */
+type StepKey = "identity" | "what" | "obvious" | "easy" | "satisfying" | "review";
+const STEPS: StepKey[] = ["identity", "what", "obvious", "easy", "satisfying", "review"];
+const WHAT_STEP = STEPS.indexOf("what");
+
+/** Break habits' color when nothing else gives one (build habits rotate through the palette). */
+const BREAK_COLOR: HabitColor = "rose";
 
 function fromHabit(habit: Habit): Draft {
 	return {
@@ -78,6 +128,11 @@ function fromHabit(habit: Habit): Draft {
 		name: habit.name,
 		emoji: habit.emoji,
 		color: habit.color,
+		// Legacy "✨" habits arrive here already upgraded to auto (spec §2.3, D12).
+		emojiAuto: habit.emojiAuto === true,
+		// An existing habit keeps its color when its identity changes.
+		colorAuto: false,
+		template: null,
 		identity: habit.identityId ? { mode: "existing", id: habit.identityId } : { mode: "none" },
 		schedule: habit.schedule,
 		timeOfDay: habit.timeOfDay,
@@ -92,16 +147,26 @@ function fromHabit(habit: Habit): Draft {
 		reward: habit.reward ?? "",
 		why: habit.why ?? "",
 		environment: habit.environment ?? "",
+		tracker: knownTracker(habit),
+		setupTasks: [],
 	};
 }
 
+/**
+ * Apply a template while keeping the chosen identity, the icon and color
+ * choices and the setup task drafts (spec §5.4, amends Annex H): an auto
+ * icon stays the identity's, and the template's emoji is offered as a chip.
+ */
 function applyTemplate(draft: Draft, template: HabitTemplate): Draft {
 	return {
 		...draft,
 		kind: template.kind,
 		name: template.name,
-		emoji: template.emoji,
-		color: template.color,
+		template: { key: template.key, emoji: template.emoji, color: template.color },
+		setupTasks:
+			template.kind === draft.kind
+				? draft.setupTasks
+				: pruneSetupDrafts(draft.setupTasks, template.kind),
 		schedule: template.schedule,
 		timeOfDay: template.timeOfDay,
 		cueTime: template.cueTime,
@@ -113,18 +178,94 @@ function applyTemplate(draft: Draft, template: HabitTemplate): Draft {
 		bundle: template.bundle ?? "",
 		reward: template.reward ?? "",
 		environment: template.environment ?? "",
+		tracker: template.tracker,
+	};
+}
+
+/** The identity a draft links (or will create on save), as far as its look goes. */
+interface DraftIdentity {
+	statement: string;
+	emoji: string;
+	color: HabitColor | null;
+	/** The stored identity; absent for one the save will create. */
+	identity?: Identity;
+}
+
+function draftIdentity(draft: Draft, identities: readonly Identity[]): DraftIdentity | null {
+	const choice = draft.identity;
+	if (choice.mode === "new") return newIdentityLook(choice);
+	if (choice.mode === "none") return null;
+	const identity = identities.find((item) => item.id === choice.id);
+	return identity
+		? { statement: identity.statement, emoji: identity.emoji, color: identity.color, identity }
+		: null;
+}
+
+interface DraftLook {
+	emoji: string;
+	color: HabitColor;
+	/** The icon auto gives: the identity's emoji (break habits too), else 🌱 / 🚫. */
+	autoEmoji: string;
+	/** Where the auto icon comes from, for the picker's caption and reset. */
+	source: "identity" | "default";
+}
+
+/**
+ * The icon and color the habit gets, following `emojiAuto` / `colorAuto`
+ * (Annex H §1.2). Auto color: the identity's, else the applied template's,
+ * else the rotating palette color for build habits (spec §6) or rose.
+ */
+function resolveLook(
+	draft: Draft,
+	identities: readonly Identity[],
+	buildColor: HabitColor,
+): DraftLook {
+	const identity = draftIdentity(draft, identities);
+	const autoEmoji = autoHabitEmoji(draft.kind, identity?.emoji);
+	const autoColor =
+		identity?.color ?? draft.template?.color ?? (draft.kind === "break" ? BREAK_COLOR : buildColor);
+	return {
+		emoji: draft.emojiAuto ? autoEmoji : draft.emoji || autoEmoji,
+		color: draft.colorAuto ? autoColor : draft.color,
+		autoEmoji,
+		source: identity ? "identity" : "default",
 	};
 }
 
 const nul = (value: string) => (value.trim() ? value.trim() : null);
 
-/** The habit input the store receives (and the preview renders). */
+/**
+ * How the goal field adapts to the draft's tracker (Annex K §4.1, as on web):
+ * hidden for trackers measured in days or by a deadline (their goal is 1, set
+ * by `goalFor`); for sums and entry counts the tracker owns the unit, so the
+ * label reads "Daily goal · words" and the free unit field goes away.
+ */
+function trackerGoal(
+	tracker: TrackerConfigInput | null,
+	t: Translator,
+): { hidden: boolean; label: string; trackerUnit: boolean } {
+	const label = t.t("form.target");
+	const config = draftTracker(tracker);
+	if (!config) return { hidden: false, label, trackerUnit: false };
+	const meta = trackerMeta(config);
+	const measure = meta.measure(config);
+	if (measure === "days" || measure === "threshold")
+		return { hidden: true, label, trackerUnit: true };
+	const unit = trackerUnitWord(meta.unit(config), config, t);
+	return { hidden: false, label: unit ? `${label} · ${unit}` : label, trackerUnit: true };
+}
+
+/**
+ * The habit input the store receives (pass the resolved draft). An auto icon
+ * is sent resolved, and the store derives it again from the saved identity.
+ */
 function toInput(draft: Draft) {
 	const isBreak = draft.kind === "break";
 	return {
 		kind: draft.kind,
 		name: draft.name.trim(),
-		emoji: draft.emoji,
+		emoji: draft.emoji || DEFAULT_HABIT_EMOJI[draft.kind],
+		emojiAuto: draft.emojiAuto,
 		color: draft.color,
 		schedule: isBreak ? ({ type: "daily" } as Schedule) : draft.schedule,
 		timeOfDay: draft.timeOfDay,
@@ -139,11 +280,14 @@ function toInput(draft: Draft) {
 		reward: nul(draft.reward),
 		why: isBreak ? null : nul(draft.why),
 		environment: nul(draft.environment),
+		// Sent only when set: an absent key leaves the habit's tracker (known or foreign) as it is.
+		...(draft.tracker ? { tracker: draft.tracker } : {}),
 	};
 }
 
 export default function HabitEditorScreen() {
 	const t = useT();
+	const text = useText();
 	const params = useLocalSearchParams<{
 		id?: string;
 		template?: string;
@@ -157,21 +301,36 @@ export default function HabitEditorScreen() {
 	const today = useToday();
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	const habitCount = useAtomic((s) => Object.keys(s.data.habits).length);
+	const allHabits = useAtomic((s) => s.data.habits);
 	const styles = useStyles();
 	const reduceMotion = useReduceMotion();
 	const scroll = useRef<ScrollView>(null);
 	const templates = useMemo(() => habitTemplates(t.locale), [t.locale]);
 	const isEdit = Boolean(existing);
 	const { permission, request: requestNotifications } = useNotificationPermission();
+	// The rotating palette color, kept for build habits with no identity (spec §6); fixed for this visit.
+	const [buildColor] = useState<HabitColor>(
+		() => HABIT_COLORS[habitCount % HABIT_COLORS.length] ?? "ember",
+	);
+	// Only a live identity: a stale link starts at the identity step instead (Annex H §1.2).
+	const [linkedFromRoute] = useState(() =>
+		!existing && identities.some((identity) => identity.id === params.identityId)
+			? (params.identityId ?? null)
+			: null,
+	);
 
-	const [draft, setDraft] = useState<Draft>(() => {
+	const [rawDraft, setDraft] = useState<Draft>(() => {
 		if (existing) return fromHabit(existing);
+		const kind: HabitKind = params.kind === "break" ? "break" : "build";
 		const base: Draft = {
-			kind: params.kind === "break" ? "break" : "build",
+			kind,
 			name: params.name ?? "",
-			emoji: params.kind === "break" ? "📵" : "✨",
-			color: HABIT_COLORS[habitCount % HABIT_COLORS.length] ?? "ember",
-			identity: params.identityId ? { mode: "existing", id: params.identityId } : { mode: "none" },
+			emoji: DEFAULT_HABIT_EMOJI[kind],
+			color: kind === "break" ? BREAK_COLOR : buildColor,
+			emojiAuto: true,
+			colorAuto: true,
+			template: null,
+			identity: linkedFromRoute ? { mode: "existing", id: linkedFromRoute } : { mode: "none" },
 			schedule: { type: "daily" },
 			timeOfDay: "anytime",
 			cueTime: null,
@@ -185,38 +344,89 @@ export default function HabitEditorScreen() {
 			reward: "",
 			why: "",
 			environment: "",
+			tracker: null,
+			setupTasks: [],
 		};
 		const template = templates.find((tpl) => tpl.key === params.template);
 		return template ? applyTemplate(base, template) : base;
 	});
+	// The icon and color follow the identity while auto (D12), including one edited elsewhere meanwhile.
+	const look = useMemo(
+		() => resolveLook(rawDraft, identities, buildColor),
+		[rawDraft, identities, buildColor],
+	);
+	const draft = useMemo<Draft>(
+		() =>
+			look.emoji === rawDraft.emoji && look.color === rawDraft.color
+				? rawDraft
+				: { ...rawDraft, emoji: look.emoji, color: look.color },
+		[rawDraft, look],
+	);
 	const [mode, setMode] = useState<"guided" | "quick">(isEdit ? "quick" : "guided");
-	const [step, setStep] = useState(0);
+	// Coming from an identity, its choice is made: start at "what" (Annex H §1.2).
+	const [step, setStep] = useState(linkedFromRoute ? WHAT_STEP : 0);
 	const [nameError, setNameError] = useState<string | null>(null);
 
 	const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
 		setDraft((d) => ({ ...d, [key]: value }));
 		if (key === "name") setNameError(null);
 	};
+	/** Merges a patch (the tracker and setup-task components edit the draft through it). */
+	const update = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
+	const habitId = existing?.id ?? null;
+	/** The user's other build habits: candidate anchors for habit stacking (Annex C §1.6). */
+	const stackAnchors = useMemo(
+		() =>
+			Object.values(allHabits)
+				.filter((h) => !h.deletedAt && !h.archivedAt && h.kind === "build" && h.id !== habitId)
+				.map((h) => h.name.slice(0, 80))
+				.slice(0, 10),
+		[allHabits, habitId],
+	);
 
 	const isBreak = draft.kind === "break";
-	const identity =
-		draft.identity.mode === "existing"
-			? identities.find((i) => i.id === (draft.identity as { id: string }).id)
-			: draft.identity.mode === "new" && draft.identity.statement.trim()
-				? {
-						id: "new",
-						statement: draft.identity.statement.trim(),
-						emoji: "🌱",
-						color: draft.color,
-						order: 0,
-						createdAt: 0,
-						updatedAt: 0,
-						deletedAt: null,
-					}
-				: undefined;
+	const goal = trackerGoal(draft.tracker, t);
+	const linked = draftIdentity(draft, identities);
+	const identityStatement = linked
+		? linked.identity
+			? text.identity(linked.identity, "statement")
+			: linked.statement
+		: null;
+	/** The linked identity as the review and preview show it. */
+	const identity: Identity | undefined = linked
+		? {
+				id: linked.identity?.id ?? "new",
+				order: 0,
+				lang: null,
+				createdAt: 0,
+				updatedAt: 0,
+				deletedAt: null,
+				...linked.identity,
+				statement: identityStatement ?? linked.statement,
+				emoji: linked.emoji,
+				color: linked.color ?? draft.color,
+			}
+		: undefined;
 
-	const preview: Habit = useMemo(
-		() => ({
+	// Templates of the kind: the matched identity's first ("Ideas for …"), then the rest.
+	const matchedKey = linked ? (identityTemplateFor(linked)?.key ?? null) : null;
+	const { ideas, rest } = useMemo(() => {
+		const ofKind = templates.filter((tpl) => tpl.kind === draft.kind);
+		const matched = matchedKey
+			? identityTemplates(t.locale).find((tpl) => tpl.key === matchedKey)
+			: undefined;
+		const keys = new Set(
+			matched?.habits.filter((tpl) => tpl.kind === draft.kind).map((tpl) => tpl.key),
+		);
+		return {
+			ideas: ofKind.filter((tpl) => keys.has(tpl.key)),
+			rest: ofKind.filter((tpl) => !keys.has(tpl.key)),
+		};
+	}, [templates, t.locale, draft.kind, matchedKey]);
+
+	const preview: Habit = useMemo(() => {
+		const { tracker: _tracker, ...input } = toInput(draft);
+		return {
 			...(existing ?? {
 				id: "preview",
 				createdAt: 0,
@@ -226,38 +436,49 @@ export default function HabitEditorScreen() {
 				startDate: today,
 				archivedAt: null,
 				order: 0,
+				goalHistory: [],
+				levelUp: null,
+				tracker: null,
+				lang: null,
 			}),
-			...toInput(draft),
+			...input,
 			name: draft.name.trim() || t.x("editor.previewEmpty"),
-		}),
-		[draft, existing, today, t],
-	);
+		};
+	}, [draft, existing, today, t]);
 
 	const save = () => {
 		if (!draft.name.trim()) {
 			setNameError(t.t("form.nameRequired"));
 			haptics.warning();
-			if (mode === "guided") setStep(0);
+			if (mode === "guided") setStep(WHAT_STEP);
 			scroll.current?.scrollTo({ y: 0, animated: true });
 			return;
 		}
-		let identityId: string | null = null;
-		if (draft.identity.mode === "existing") identityId = draft.identity.id;
-		if (draft.identity.mode === "new" && draft.identity.statement.trim()) {
-			// No emoji: the identity gets the 🌱 default the review step previews.
+		// 1. The new identity, with the icon and color it was given (a chip, the sheet, a match).
+		let identityId: string | null = linked?.identity?.id ?? null;
+		if (draft.identity.mode === "new" && linked) {
 			identityId = actions.createIdentity({
-				statement: draft.identity.statement.trim(),
-				color: draft.color,
+				statement: linked.statement,
+				emoji: linked.emoji,
+				color: linked.color ?? draft.color,
 			}).id;
 		}
+		// 2. The habit; an auto icon is derived again from the saved identity by the store.
 		const input = { ...toInput(draft), identityId };
+		let savedId: string;
 		if (existing) {
 			actions.updateHabit(existing.id, input);
-			showToast(t.t("common.saved"), { tone: "success" });
+			savedId = existing.id;
 		} else {
-			actions.createHabit(input);
-			showToast(t.x("editor.created", { habit: input.name }), { tone: "success" });
+			savedId = actions.createHabit(input).id;
 		}
+		// 3. Setup tasks drafted with the habit (Annex T §4.4). 4. The retitle offer (edit mode)
+		// comes from the setup-task pieces (`useSetupRetitleOnSave`). 5. Toasts.
+		const created = createDraftSetupTasks(actions, savedId, draft);
+		const headline = existing ? t.t("common.saved") : t.x("editor.created", { habit: input.name });
+		showToast(created ? `${headline}\n${t.tp("setup.created", created)}` : headline, {
+			tone: "success",
+		});
 		haptics.success();
 		router.canGoBack() ? router.back() : router.replace("/");
 	};
@@ -277,7 +498,7 @@ export default function HabitEditorScreen() {
 		set("reminder", true);
 	};
 
-	const stepKey = STEPS[step] ?? "what";
+	const stepKey = STEPS[step] ?? "identity";
 	const goTo = (next: number) => {
 		haptics.selection();
 		setStep(next);
@@ -292,49 +513,25 @@ export default function HabitEditorScreen() {
 		if (step === STEPS.length - 1) save();
 		else goTo(step + 1);
 	};
+	const pickTemplate = (template: HabitTemplate) => {
+		setDraft((d) => applyTemplate(d, template));
+		setNameError(null);
+	};
+	const changeKind = (kind: HabitKind) => {
+		if (kind === rawDraft.kind) return;
+		// Auto icon and color follow the kind (🌱 / 🚫); the other kind's template doesn't apply.
+		setDraft((d) => ({
+			...d,
+			kind,
+			template: null,
+			setupTasks: pruneSetupDrafts(d.setupTasks, kind),
+		}));
+	};
+	// The applied template's emoji, offered while the habit wears another icon (D12).
+	const offerEmoji =
+		draft.template?.emoji && draft.template.emoji !== draft.emoji ? draft.template.emoji : null;
 
 	// ── Sections ──────────────────────────────────────────────
-	const whatSection = (
-		<View style={styles.section}>
-			{isEdit ? (
-				<Field label={t.t("form.kind")} hint={t.x("editor.kindLocked")}>
-					<KindSummary value={draft.kind} />
-				</Field>
-			) : (
-				<Field label={t.t("form.kind")}>
-					<KindToggle value={draft.kind} onChange={(kind) => set("kind", kind)} />
-				</Field>
-			)}
-			<TextField
-				label={t.t("form.name")}
-				value={draft.name}
-				onChangeText={(name) => set("name", name)}
-				placeholder={isBreak ? t.t("form.namePlaceholderBreak") : t.t("form.namePlaceholder")}
-				error={nameError}
-				maxLength={120}
-				size="lg"
-				testID="editor-name"
-			/>
-			<Field label={t.t("form.emoji")}>
-				<EmojiPicker value={draft.emoji} onChange={(emoji) => set("emoji", emoji)} />
-			</Field>
-			<Field label={t.t("form.color")}>
-				<ColorPicker value={draft.color} onChange={(color) => set("color", color)} />
-			</Field>
-			{isEdit ? null : (
-				<Field label={t.t("form.templates")} hint={t.t("form.templatesHint")}>
-					<TemplatePicker
-						templates={templates.filter((tpl) => tpl.kind === draft.kind)}
-						onPick={(template) => {
-							setDraft((d) => applyTemplate(d, template));
-							setNameError(null);
-						}}
-					/>
-				</Field>
-			)}
-		</View>
-	);
-
 	const identitySection = (
 		<View style={styles.section}>
 			<IdentityPicker
@@ -345,23 +542,124 @@ export default function HabitEditorScreen() {
 		</View>
 	);
 
+	const whatSection = (
+		<View style={styles.section}>
+			{isEdit ? (
+				<Field label={t.t("form.kind")} hint={t.x("editor.kindLocked")}>
+					<KindSummary value={draft.kind} />
+				</Field>
+			) : (
+				<Field label={t.t("form.kind")}>
+					<KindToggle value={draft.kind} onChange={changeKind} />
+				</Field>
+			)}
+			<SmartTextField
+				field="habit.name"
+				label={t.t("form.name")}
+				right={
+					<AiSuggestButton
+						kind="habit.name"
+						label={t.t("form.name")}
+						input={() => ({
+							partial: draft.name.trim().slice(0, 80) || undefined,
+							identity: linked?.statement.slice(0, 120),
+							kind: draft.kind,
+						})}
+						onPick={(name) => set("name", name)}
+					/>
+				}
+				value={draft.name}
+				onChangeText={(name) => set("name", name)}
+				placeholder={isBreak ? t.t("form.namePlaceholderBreak") : t.t("form.namePlaceholder")}
+				error={nameError}
+				maxLength={120}
+				size="lg"
+				returnKeyType={mode === "guided" ? "next" : "done"}
+				onSubmitEditing={mode === "guided" ? next : undefined}
+				testID="editor-name"
+			/>
+			<Field label={t.t("form.emoji")}>
+				<EmojiPicker
+					value={draft.emoji}
+					onChange={(emoji) => update({ emoji, emojiAuto: false })}
+					auto={{
+						on: draft.emojiAuto,
+						source: look.source,
+						emoji: look.autoEmoji,
+						onReset: () => update({ emojiAuto: true }),
+					}}
+					offer={
+						offerEmoji
+							? { emoji: offerEmoji, onUse: () => update({ emoji: offerEmoji, emojiAuto: false }) }
+							: null
+					}
+				/>
+			</Field>
+			<Field label={t.t("form.color")}>
+				<ColorPicker
+					value={draft.color}
+					onChange={(color) => update({ color, colorAuto: false })}
+				/>
+			</Field>
+		</View>
+	);
+
+	const templatesSection = isEdit ? null : (
+		<TemplateIdeas
+			ideas={ideas}
+			rest={rest}
+			identity={matchedKey ? identityStatement : null}
+			selectedKey={draft.template?.key ?? null}
+			onPick={pickTemplate}
+		/>
+	);
+
+	/** "Fill the four laws" (AI, Beta): written only into the fields that are still empty (spec §5.4). */
+	const fillLaws = (
+		<AiSuggestButton
+			kind="habit.laws"
+			label={t.t("form.fillLaws")}
+			disabled={!draft.name.trim()}
+			input={() => ({
+				habit: draft.name.trim().slice(0, 120),
+				kind: draft.kind,
+				identity: linked?.statement.slice(0, 120),
+			})}
+			onPick={(laws) => {
+				const patch: Partial<Draft> = {};
+				// Break habits get the inverted laws in the same slots.
+				if (!draft.environment.trim()) patch.environment = laws.obvious;
+				if (!draft.bundle.trim()) patch.bundle = laws.attractive;
+				if (!draft.twoMinute.trim()) patch.twoMinute = laws.easy;
+				if (!draft.reward.trim()) patch.reward = laws.satisfying;
+				if (Object.keys(patch).length) update(patch);
+			}}
+		/>
+	);
+
 	const obviousSection = isBreak ? (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.cueLocation"
 				label={t.t("form.trigger")}
 				value={draft.cueLocation}
 				onChangeText={(v) => set("cueLocation", v)}
 				placeholder={t.t("form.triggerPlaceholder")}
 				maxLength={120}
 			/>
-			<TextField
-				label={t.t("form.invisible")}
-				value={draft.environment}
-				onChangeText={(v) => set("environment", v)}
-				placeholder={t.t("form.invisiblePlaceholder")}
-				maxLength={280}
-				multiline
-			/>
+			<View style={styles.fieldGroup}>
+				<SmartTextField
+					field="habit.environment"
+					label={t.t("form.invisible")}
+					value={draft.environment}
+					onChangeText={(v) => set("environment", v)}
+					placeholder={t.t("form.invisiblePlaceholder")}
+					maxLength={280}
+					multiline
+				/>
+				<SetupTaskToggle field="environment" draft={draft} update={update} habitId={habitId} />
+			</View>
+			<SetupTaskAdder law={1} draft={draft} update={update} />
 		</View>
 	) : (
 		<View style={styles.section}>
@@ -379,15 +677,42 @@ export default function HabitEditorScreen() {
 					}
 				/>
 			</Field>
-			<TextField
+			<SmartTextField
+				field="habit.cueLocation"
 				label={t.t("form.cueLocation")}
+				right={
+					<AiSuggestButton
+						kind="habit.intention"
+						label={t.t("form.cueLocation")}
+						input={() => ({
+							habit: draft.name.trim(),
+							kind: draft.kind,
+							timeOfDay: draft.timeOfDay,
+						})}
+						onPick={(intention) =>
+							update({
+								cueLocation: intention.location,
+								...(intention.time ? { cueTime: intention.time } : {}),
+							})
+						}
+					/>
+				}
 				value={draft.cueLocation}
 				onChangeText={(v) => set("cueLocation", v)}
 				placeholder={t.t("form.cueLocationPlaceholder")}
 				maxLength={120}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.stackAfter"
 				label={t.t("form.stackAfter")}
+				right={
+					<AiSuggestButton
+						kind="habit.stack"
+						label={t.t("form.stackAfter")}
+						input={() => ({ habit: draft.name.trim(), anchors: stackAnchors })}
+						onPick={(stackAfter) => set("stackAfter", stackAfter)}
+					/>
+				}
 				hint={t.t("form.stackAfterHint")}
 				prefix={t.t("form.stackAfterPrefix")}
 				value={draft.stackAfter}
@@ -423,54 +748,92 @@ export default function HabitEditorScreen() {
 					/>
 				</Card>
 			)}
+			{/* Law 1 includes designing the environment (D13, the book's "Motivation is overrated"). */}
+			<View style={styles.fieldGroup}>
+				<SmartTextField
+					field="habit.environment"
+					label={t.t("form.environment")}
+					value={draft.environment}
+					onChangeText={(v) => set("environment", v)}
+					placeholder={t.t("form.environmentPlaceholder")}
+					maxLength={280}
+					multiline
+					testID="editor-environment"
+				/>
+				<SetupTaskToggle field="environment" draft={draft} update={update} habitId={habitId} />
+			</View>
+			<SetupTaskAdder law={1} draft={draft} update={update} />
 		</View>
 	);
 
 	const easySection = isBreak ? (
 		<View style={styles.section}>
-			<TextField
-				label={t.t("form.difficult")}
-				value={draft.twoMinute}
-				onChangeText={(v) => set("twoMinute", v)}
-				placeholder={t.t("form.difficultPlaceholder")}
-				maxLength={160}
-				multiline
-			/>
+			<View style={styles.fieldGroup}>
+				<SmartTextField
+					field="habit.twoMinute"
+					label={t.t("form.difficult")}
+					value={draft.twoMinute}
+					onChangeText={(v) => set("twoMinute", v)}
+					placeholder={t.t("form.difficultPlaceholder")}
+					maxLength={160}
+					multiline
+				/>
+				<SetupTaskToggle field="twoMinute" draft={draft} update={update} habitId={habitId} />
+			</View>
+			<TrackerField draft={draft} update={update} />
+			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</View>
 	) : (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.twoMinute"
 				label={t.t("form.twoMinute")}
+				right={
+					<AiSuggestButton
+						kind="habit.twoMinute"
+						label={t.t("form.twoMinute")}
+						input={() => ({ habit: draft.name.trim(), kind: draft.kind })}
+						onPick={(twoMinute) => set("twoMinute", twoMinute)}
+					/>
+				}
 				value={draft.twoMinute}
 				onChangeText={(v) => set("twoMinute", v)}
 				placeholder={t.t("form.twoMinutePlaceholder")}
 				maxLength={160}
 			/>
-			<Field label={t.t("form.target")} hint={t.t("form.targetHint")}>
-				<View style={styles.goalRow}>
-					<Stepper
-						value={draft.target}
-						min={1}
-						max={10_000}
-						onChange={(v) => set("target", v)}
-						accessibilityLabel={t.t("form.target")}
-					/>
-					<TextField
-						value={draft.unit}
-						onChangeText={(v) => set("unit", v)}
-						placeholder={t.t("form.unitPlaceholder")}
-						accessibilityLabel={t.t("form.unit")}
-						maxLength={24}
-						containerStyle={{ flex: 1 }}
-					/>
-				</View>
-			</Field>
+			<TrackerField draft={draft} update={update} />
+			{goal.hidden ? null : (
+				<Field label={goal.label} hint={t.t("form.targetHint")}>
+					<View style={styles.goalRow}>
+						<Stepper
+							value={draft.target}
+							min={1}
+							max={10_000}
+							onChange={(v) => set("target", v)}
+							accessibilityLabel={goal.label}
+						/>
+						{goal.trackerUnit ? null : (
+							<SmartTextField
+								field="habit.unit"
+								value={draft.unit}
+								onChangeText={(v) => set("unit", v)}
+								placeholder={t.t("form.unitPlaceholder")}
+								accessibilityLabel={t.t("form.unit")}
+								maxLength={24}
+								containerStyle={{ flex: 1 }}
+							/>
+						)}
+					</View>
+				</Field>
+			)}
+			<SetupTaskAdder law={3} draft={draft} update={update} />
 		</View>
 	);
 
 	const satisfyingSection = isBreak ? (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.bundle"
 				label={t.t("form.unattractive")}
 				value={draft.bundle}
 				onChangeText={(v) => set("bundle", v)}
@@ -478,18 +841,25 @@ export default function HabitEditorScreen() {
 				maxLength={160}
 				multiline
 			/>
-			<TextField
-				label={t.t("form.unsatisfying")}
-				value={draft.reward}
-				onChangeText={(v) => set("reward", v)}
-				placeholder={t.t("form.unsatisfyingPlaceholder")}
-				maxLength={160}
-				multiline
-			/>
+			<View style={styles.fieldGroup}>
+				<SmartTextField
+					field="habit.reward"
+					label={t.t("form.unsatisfying")}
+					value={draft.reward}
+					onChangeText={(v) => set("reward", v)}
+					placeholder={t.t("form.unsatisfyingPlaceholder")}
+					maxLength={160}
+					multiline
+				/>
+				<SetupTaskToggle field="reward" draft={draft} update={update} habitId={habitId} />
+			</View>
+			<SetupTaskAdder law={2} draft={draft} update={update} />
+			<SetupTaskAdder law={4} draft={draft} update={update} />
 		</View>
 	) : (
 		<View style={styles.section}>
-			<TextField
+			<SmartTextField
+				field="habit.bundle"
 				label={t.t("form.bundle")}
 				hint={t.t("form.bundleHint")}
 				value={draft.bundle}
@@ -497,7 +867,8 @@ export default function HabitEditorScreen() {
 				placeholder={t.t("form.bundlePlaceholder")}
 				maxLength={160}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.reward"
 				label={t.t("form.reward")}
 				hint={t.t("form.rewardHint")}
 				value={draft.reward}
@@ -505,7 +876,8 @@ export default function HabitEditorScreen() {
 				placeholder={t.t("form.rewardPlaceholder")}
 				maxLength={160}
 			/>
-			<TextField
+			<SmartTextField
+				field="habit.why"
 				label={t.t("form.why")}
 				value={draft.why}
 				onChangeText={(v) => set("why", v)}
@@ -513,14 +885,8 @@ export default function HabitEditorScreen() {
 				maxLength={280}
 				multiline
 			/>
-			<TextField
-				label={t.t("form.environment")}
-				value={draft.environment}
-				onChangeText={(v) => set("environment", v)}
-				placeholder={t.t("form.environmentPlaceholder")}
-				maxLength={280}
-				multiline
-			/>
+			<SetupTaskAdder law={2} draft={draft} update={update} />
+			<SetupTaskAdder law={4} draft={draft} update={update} />
 		</View>
 	);
 
@@ -536,30 +902,36 @@ export default function HabitEditorScreen() {
 					.filter(Boolean)
 					.join(" · ")}
 			</Text>
+			<TrackerReviewLine draft={draft} />
+			<SetupTasksReview draft={draft} update={update} habitId={habitId} />
 		</View>
 	);
 
-	const stepMeta: Record<StepKey, { title: string; hint?: string; body: ReactNode }> = {
-		what: {
-			title: isBreak ? t.t("form.step.whatBreak") : t.t("form.step.what"),
-			body: whatSection,
-		},
+	const stepMeta: Record<
+		StepKey,
+		{ title: string; hint?: string; action?: ReactNode; body: ReactNode }
+	> = {
 		identity: {
 			title: t.t("form.step.identity"),
 			hint: t.t("form.step.identityHint"),
 			body: identitySection,
 		},
-		obvious: isBreak
-			? {
-					title: t.t("form.step.invisible"),
-					hint: t.t("form.step.invisibleHint"),
-					body: obviousSection,
-				}
-			: {
-					title: t.t("form.step.obvious"),
-					hint: t.t("form.step.obviousHint"),
-					body: obviousSection,
-				},
+		what: {
+			title: isBreak ? t.t("form.step.whatBreak") : t.t("form.step.what"),
+			body: (
+				<View style={{ gap: 28 }}>
+					{whatSection}
+					{templatesSection}
+				</View>
+			),
+		},
+		obvious: {
+			...(isBreak
+				? { title: t.t("form.step.invisible"), hint: t.t("form.step.invisibleHint") }
+				: { title: t.t("form.step.obvious"), hint: t.t("form.step.obviousHint") }),
+			action: fillLaws,
+			body: obviousSection,
+		},
 		easy: isBreak
 			? {
 					title: t.t("form.step.difficult"),
@@ -587,6 +959,16 @@ export default function HabitEditorScreen() {
 	const current = stepMeta[stepKey];
 	const isLast = step === STEPS.length - 1;
 
+	// Screen readers hear the new step: its fields replaced the ones that had focus.
+	const announced = useRef(step);
+	useEffect(() => {
+		if (mode !== "guided" || announced.current === step) return;
+		announced.current = step;
+		AccessibilityInfo.announceForAccessibility(
+			`${t.t("form.step", { current: step + 1, total: STEPS.length })}. ${current.title}`,
+		);
+	}, [step, mode, current.title, t]);
+
 	const footer =
 		mode === "guided" ? (
 			<View style={styles.footerRow}>
@@ -598,6 +980,7 @@ export default function HabitEditorScreen() {
 						size="lg"
 						onPress={() => goTo(step - 1)}
 						style={{ flex: 1 }}
+						testID="editor-back"
 					/>
 				) : null}
 				<Button
@@ -669,41 +1052,83 @@ export default function HabitEditorScreen() {
 								style={[styles.progressFill, { width: `${((step + 1) / STEPS.length) * 100}%` }]}
 							/>
 						</View>
-						<Text variant="display" accessibilityRole="header">
+						<Text variant="display" accessibilityRole="header" testID="editor-step-title">
 							{current.title}
 						</Text>
-						{current.hint ? <Text tone="muted">{current.hint}</Text> : null}
+						{current.hint || current.action ? (
+							<View style={styles.hintRow}>
+								<Text tone="muted" style={{ flex: 1 }}>
+									{current.hint}
+								</Text>
+								{current.action}
+							</View>
+						) : null}
 					</View>
 					{current.body}
 				</Animated.View>
 			) : (
 				<Animated.View
 					entering={reduceMotion ? undefined : FadeIn.duration(200)}
-					style={{ gap: 28 }}
+					style={{ gap: 32 }}
 				>
-					{whatSection}
 					<View>
 						<SectionLabel>{t.t("form.identity")}</SectionLabel>
+						<Text variant="small" tone="muted" style={styles.quickHint}>
+							{t.t("form.step.identity")}
+						</Text>
 						{identitySection}
 					</View>
 					<View>
-						<SectionLabel>{isBreak ? t.t("law.1.inverse") : t.x("editor.whenWhere")}</SectionLabel>
-						{obviousSection}
+						<SectionLabel>
+							{isBreak ? t.t("form.step.whatBreak") : t.t("form.step.what")}
+						</SectionLabel>
+						{whatSection}
 					</View>
-					<View>
-						<SectionLabel>{isBreak ? t.t("law.3.inverse") : t.x("editor.goal")}</SectionLabel>
-						{easySection}
+					<View style={{ gap: 28 }}>
+						<View>
+							<SectionLabel right={fillLaws}>{t.t("form.advanced")}</SectionLabel>
+							<Text variant="small" tone="muted" style={[styles.quickHint, { marginBottom: 0 }]}>
+								{t.t("form.advancedHint")}
+							</Text>
+						</View>
+						<LawBlock law="1" title={t.t(isBreak ? "form.step.invisible" : "form.step.obvious")}>
+							{obviousSection}
+						</LawBlock>
+						<LawBlock law="3" title={t.t(isBreak ? "form.step.difficult" : "form.step.easy")}>
+							{easySection}
+						</LawBlock>
+						<LawBlock
+							law="2 · 4"
+							title={t.t(isBreak ? "form.step.unsatisfying" : "form.step.satisfying")}
+						>
+							{satisfyingSection}
+						</LawBlock>
 					</View>
-					<View>
-						<SectionLabel>{t.t("form.advanced")}</SectionLabel>
-						<Text variant="small" tone="muted" style={{ marginBottom: 12, marginTop: -4 }}>
-							{t.t("form.advancedHint")}
-						</Text>
-						{satisfyingSection}
-					</View>
+					<SetupTasksReview draft={draft} update={update} habitId={habitId} />
+					{templatesSection}
 				</Animated.View>
 			)}
 		</Screen>
+	);
+}
+
+/** A law's numbered header in quick mode. */
+function LawBlock({ law, title, children }: { law: string; title: string; children: ReactNode }) {
+	const styles = useStyles();
+	return (
+		<View>
+			<View style={styles.lawHeader}>
+				<View style={styles.lawBadge}>
+					<Text variant="tiny" weight="bold" tabular>
+						{law}
+					</Text>
+				</View>
+				<Text variant="h3" accessibilityRole="header" style={{ flex: 1 }}>
+					{title}
+				</Text>
+			</View>
+			{children}
+		</View>
 	);
 }
 
@@ -767,6 +1192,19 @@ const useStyles = makeStyles((t) => ({
 	},
 	progressFill: { height: 4, borderRadius: 2, backgroundColor: t.colors.accent },
 	section: { gap: 20 },
+	fieldGroup: { gap: 8 },
+	hintRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+	quickHint: { marginTop: -4, marginBottom: 14 },
+	lawHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
+	lawBadge: {
+		minWidth: 26,
+		height: 26,
+		paddingHorizontal: 7,
+		borderRadius: 13,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: t.colors.accentSoft,
+	},
 	reminder: { flexDirection: "row", alignItems: "center", gap: 12 },
 	allow: { alignSelf: "flex-start", marginTop: 8 },
 	goalRow: { flexDirection: "row", alignItems: "center", gap: 14 },

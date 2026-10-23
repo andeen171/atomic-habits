@@ -114,12 +114,15 @@ interface SidebarLinkProps {
 }
 
 function SidebarLink({ item, label, expanded, badge = 0 }: SidebarLinkProps) {
+	const { t } = useT();
 	const Icon = item.icon;
 	const link = (
 		<Link
 			to={item.to}
 			activeOptions={{ exact: item.exact, includeSearch: false }}
-			aria-label={expanded ? undefined : label}
+			aria-label={
+				badge > 0 ? t("nav.withCount", { label, count: badge }) : expanded ? undefined : label
+			}
 			className={cn(
 				"group relative flex items-center rounded-md font-medium text-ink-muted text-small transition-colors duration-(--atomic-duration-fast) hover:bg-hover hover:text-ink data-[status=active]:bg-surface data-[status=active]:text-ink data-[status=active]:shadow-card dark:data-[status=active]:bg-hover",
 				expanded ? "h-10 gap-3 px-3" : "size-11 justify-center",
@@ -132,7 +135,10 @@ function SidebarLink({ item, label, expanded, badge = 0 }: SidebarLinkProps) {
 			{expanded ? <span className="flex-1 truncate">{label}</span> : null}
 			{badge > 0 ? (
 				expanded ? (
-					<span className="min-w-5 rounded-full bg-sunken px-1.5 text-center font-semibold text-ink-muted text-tiny tabular-nums leading-5 group-data-[status=active]:bg-accent-soft group-data-[status=active]:text-ink">
+					<span
+						aria-hidden="true"
+						className="min-w-5 rounded-full bg-sunken px-1.5 text-center font-semibold text-ink-muted text-tiny tabular-nums leading-5 group-data-[status=active]:bg-accent-soft group-data-[status=active]:text-ink"
+					>
 						{badge}
 					</span>
 				) : (

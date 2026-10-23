@@ -6,7 +6,7 @@ import { useKeyboardHeight } from "@/lib/keyboard";
 import { useReduceMotion } from "@/lib/motion";
 import { makeStyles, useTheme } from "@/lib/theme";
 import { ui } from "@/lib/ui-store";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
 	BackHandler,
 	type LayoutChangeEvent,
@@ -31,6 +31,13 @@ import { scheduleOnRN } from "react-native-worklets";
 import { Portal } from "./portal";
 
 const SPRING = { damping: 26, stiffness: 260, mass: 0.9 } as const;
+
+/**
+ * Open sheets, oldest first. Escape (web) and the Android back button close
+ * only the newest, so a sheet opened from another never takes its parent
+ * with it.
+ */
+const openStack: object[] = [];
 
 export interface SheetProps {
 	open: boolean;
@@ -118,22 +125,39 @@ function SheetFrame({
 		return ui.trackSheet(Boolean(inline));
 	}, [open, inline]);
 
-	// Android back button closes the sheet; on web, Escape does.
+	// Android back button closes the sheet; on web, Escape does. Only the newest open sheet
+	// answers (`openStack`); a ref keeps re-renders from re-registering the handler.
+	const closeRef = useRef(onClose);
+	closeRef.current = onClose;
 	useEffect(() => {
 		if (!open) return;
+		const token = {};
+		openStack.push(token);
+		const isTop = () => openStack[openStack.length - 1] === token;
+		const leave = () => {
+			const at = openStack.indexOf(token);
+			if (at >= 0) openStack.splice(at, 1);
+		};
 		if (Platform.OS === "web") {
 			const onKey = (event: KeyboardEvent) => {
-				if (event.key === "Escape") onClose();
+				if (event.key === "Escape" && isTop()) closeRef.current();
 			};
 			globalThis.addEventListener?.("keydown", onKey);
-			return () => globalThis.removeEventListener?.("keydown", onKey);
+			return () => {
+				globalThis.removeEventListener?.("keydown", onKey);
+				leave();
+			};
 		}
 		const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-			onClose();
+			if (!isTop()) return false;
+			closeRef.current();
 			return true;
 		});
-		return () => sub.remove();
-	}, [open, onClose]);
+		return () => {
+			sub.remove();
+			leave();
+		};
+	}, [open]);
 
 	const pan = Gesture.Pan()
 		.activeOffsetY([-8, 8])

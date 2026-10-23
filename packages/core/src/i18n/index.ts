@@ -1,4 +1,11 @@
-import { type DayKey, type Weekday, diffDays, parseDayKey, weekdayOf } from "../dates";
+import {
+	type DayKey,
+	type MonthKey,
+	type Weekday,
+	diffDays,
+	parseDayKey,
+	weekdayOf,
+} from "../dates";
 import type { LocaleSetting } from "../model";
 import { type MessageKey, type Messages, en } from "./en";
 import { ptBR } from "./pt-BR";
@@ -137,8 +144,14 @@ export interface Translator {
 	formatDayLong(day: DayKey): string;
 	/** "Oct 17" / "17 de out". */
 	formatDayShort(day: DayKey): string;
-	/** "October 2026" / "outubro de 2026". */
-	formatMonth(day: DayKey): string;
+	/** "October 2026" / "Outubro de 2026", from a day or a month key ("2026-10"). */
+	formatMonth(day: DayKey | MonthKey): string;
+	/** "Oct 2026" / "Out de 2026", from a day or a month key ("2026-10"). */
+	formatMonthShort(month: DayKey | MonthKey): string;
+	/** "1 h 05 min", "25 min", "4 min 30 s", "45 s" (`duration.*`; whole seconds, floored). */
+	formatDuration(seconds: number): string;
+	/** "a, b, and c" / "a, b e c"; `"or"`: "a, b, or c" / "a, b ou c". */
+	formatList(items: readonly string[], type?: ListType): string;
 	/** Today / Yesterday / Tomorrow, or the long date. */
 	formatRelativeDay(day: DayKey, today: DayKey): string;
 	/** "5 minutes ago" from a timestamp. */
@@ -202,12 +215,21 @@ export function createTranslator(
 			return locale === "pt-BR" ? `${date.getDate()} de ${month}` : `${month} ${date.getDate()}`;
 		},
 		formatMonth(day) {
-			const date = parseDayKey(day);
+			const date = parseDayKey(dayOfMonthKey(day));
 			const month = names.months[date.getMonth()] ?? "";
 			return locale === "pt-BR"
 				? `${capitalize(month)} de ${date.getFullYear()}`
 				: `${month} ${date.getFullYear()}`;
 		},
+		formatMonthShort(month) {
+			const date = parseDayKey(dayOfMonthKey(month));
+			const name = names.monthsShort[date.getMonth()] ?? "";
+			return locale === "pt-BR"
+				? `${capitalize(name)} de ${date.getFullYear()}`
+				: `${name} ${date.getFullYear()}`;
+		},
+		formatDuration: (seconds) => formatDuration(seconds, translator),
+		formatList: (items, type) => formatList(items, translator, type),
 		formatRelativeDay(day, today) {
 			const diff = diffDays(day, today);
 			if (diff === 0) return lookup("common.today");
@@ -225,6 +247,52 @@ export function createTranslator(
 		},
 	};
 	return translator;
+}
+
+/** A month key ("2026-10") becomes its first day; a day key passes through. */
+function dayOfMonthKey(key: DayKey | MonthKey): DayKey {
+	return /^\d{4}-\d{2}$/.test(key) ? `${key}-01` : key;
+}
+
+const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
+
+/**
+ * A duration in the `duration.*` copy (Annex K §1.10): "1 h 05 min" from an
+ * hour up (seconds dropped), "25 min" on whole minutes, "4 min 30 s", and
+ * "45 s" under a minute. Whole seconds, floored like the session tracker's
+ * minutes; negative or non-finite values read as 0. Deterministic (no
+ * `Intl`), so web and Hermes agree.
+ */
+export function formatDuration(seconds: number, t: Translator): string {
+	const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const s = total % 60;
+	if (h > 0) return t.t("duration.hm", { h: t.number(h), m: pad2(m) });
+	if (s === 0) return t.t("duration.m", { m: t.number(m) });
+	if (m === 0) return t.t("duration.s", { s: t.number(s) });
+	return t.t("duration.ms", { m: t.number(m), s: pad2(s) });
+}
+
+export type ListType = "and" | "or";
+
+/**
+ * Joins items for a sentence: "Coffee and Lunch", "a, b, and c" / "a, b e c"
+ * (`list.*` copy; English keeps the serial comma, Portuguese doesn't).
+ * Empty items are skipped; no items give "".
+ */
+export function formatList(
+	items: readonly string[],
+	t: Translator,
+	type: ListType = "and",
+): string {
+	const list = items.filter((item) => item.length > 0);
+	if (list.length <= 1) return list[0] ?? "";
+	const last = list[list.length - 1] as string;
+	if (list.length === 2) {
+		return t.t(`list.${type}.pair`, { first: list[0] as string, second: last });
+	}
+	return t.t(`list.${type}.last`, { rest: list.slice(0, -1).join(", "), last });
 }
 
 /** Greeting key for the hour of day. */

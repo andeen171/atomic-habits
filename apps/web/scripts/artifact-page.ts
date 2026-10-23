@@ -5,12 +5,15 @@
  * scripts followed by the app root — no document wrapper of our own.
  *
  * Usage: bun scripts/artifact-page.ts  →  dist-artifact/atomic.html
+ * With `ARTIFACT_OUT_DIR` set (as for `vite build --mode artifact`), it reads
+ * and writes that directory instead, so parallel builds don't collide.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const TITLE = "Atomic Habit Tracker";
-const dir = path.resolve(import.meta.dir, "../dist-artifact");
+const root = path.resolve(import.meta.dir, "..");
+const dir = path.resolve(root, process.env.ARTIFACT_OUT_DIR || "dist-artifact");
 const html = readFileSync(path.join(dir, "index.html"), "utf8");
 
 const section = (tag: "head" | "body") => {
@@ -30,6 +33,9 @@ const classic = headScripts.filter((s) => !/type=["']?module/i.test(s));
 const modules = headScripts.filter((s) => /type=["']?module/i.test(s));
 
 const page = [
+	// First, so the file decodes as UTF-8 even when opened on its own (core's regexes
+	// hold non-ASCII ranges such as À-ɏ); the host's own skeleton declares it too.
+	'<meta charset="utf-8">',
 	`<title>${TITLE}</title>`,
 	...styles,
 	...classic,

@@ -1,0 +1,126 @@
+/**
+ * v2 strings for tasks (repeat.*, tasks.series.*, setup.*, …) (spec §7). Owner: T2. Copy source: Annex T §7.
+ * Spread into `en.ts`; every key also lives in `tasks.pt-BR.ts`.
+ *
+ * In month labels `{day}` is `dayOfMonthLabel` ("20th"); `{days}` is weekday
+ * short names joined with " · " (`repeat-labels.ts`). Completion counts reuse
+ * `common.times`.
+ */
+export const tasksEn = {
+	// Repeat rules, the picker and its custom editor (Annex T §7, group repeat.*).
+	"repeat.label": "Repeat",
+	"repeat.none": "Doesn't repeat",
+	"repeat.once": "Once",
+	"repeat.custom": "Custom…",
+	"repeat.daily": "Every day",
+	"repeat.everyDays.one": "Every day",
+	"repeat.everyDays.other": "Every {count} days",
+	"repeat.weekdays": "Every weekday",
+	"repeat.weekends": "Weekends",
+	"repeat.everyWeeks.one": "Weekly on {days}",
+	"repeat.everyWeeks.other": "Every {count} weeks on {days}",
+	"repeat.everyMonths.one": "Monthly on the {day}",
+	"repeat.everyMonths.other": "Every {count} months on the {day}",
+	"repeat.everyMonthsLast.one": "Monthly on the last day",
+	"repeat.everyMonthsLast.other": "Every {count} months on the last day",
+	"repeat.yearly": "Every year on {date}",
+	"repeat.after.days.one": "{count} day after done",
+	"repeat.after.days.other": "{count} days after done",
+	"repeat.after.weeks.one": "{count} week after done",
+	"repeat.after.weeks.other": "{count} weeks after done",
+	"repeat.after.months.one": "{count} month after done",
+	"repeat.after.months.other": "{count} months after done",
+	"repeat.until": "until {date}",
+	"repeat.mode.schedule": "On a schedule",
+	"repeat.mode.after": "After I finish",
+	"repeat.every": "Every",
+	"repeat.unit.days": "days",
+	"repeat.unit.weeks": "weeks",
+	"repeat.unit.months": "months",
+	"repeat.onDays": "On these days",
+	"repeat.onDay": "Day of the month",
+	"repeat.clampHint": "In shorter months it falls on the last day.",
+	"repeat.ends": "Ends",
+	"repeat.ends.never": "Never",
+	"repeat.ends.on": "On a date",
+	"repeat.ends.after": "After a number of times",
+	"repeat.next": "Next: {dates}",
+	"repeat.starts": "Starts",
+	"repeat.needsDate": "Repeating tasks need a start date.",
+	"repeat.sameAsHabit": "Same days as the habit",
+
+	// Series rows, toasts, the occurrence bar and history (Annex T §7, group tasks.series.*).
+	"tasks.series.skip": "Skip this time",
+	"tasks.series.skipped": "Skipped",
+	"tasks.series.doneToast": "Done · next {date}",
+	"tasks.series.skippedToast": "Skipped · next {date}",
+	"tasks.series.lastDone": "Done — that was the last one",
+	"tasks.series.end": "Stop repeating",
+	"tasks.series.ended": "Repeating stopped",
+	"tasks.series.resume": "Resume",
+	"tasks.series.finished": "Finished",
+	"tasks.series.missed.one": "{count} missed",
+	"tasks.series.missed.other": "{count} missed",
+	"tasks.series.late.one": "{count} day late",
+	"tasks.series.late.other": "{count} days late",
+	"tasks.series.onTime": "On time",
+	"tasks.series.thisOne": "This occurrence · {date}",
+	"tasks.series.history": "History",
+	"tasks.series.historyEmpty": "No completions yet.",
+	"tasks.series.doneCount.one": "Done {count} time",
+	"tasks.series.doneCount.other": "Done {count} times",
+	"tasks.series.projected": "Coming up — finish the current one first.",
+	"tasks.series.a11yProjected": "{task}, coming up on {date}",
+	"tasks.series.paused": "Paused while “{habit}” is archived",
+	"tasks.series.unsupported": "This repeat rule needs a newer version of Atomic.",
+	// Occurrence actions named in the dialog and history anatomy (Annex T §4.3, §5.3).
+	"tasks.series.reopen": "Mark as not done",
+	"tasks.series.reopenDate": "Mark {date} as not done",
+	"tasks.series.markDone": "Mark done",
+	"tasks.series.missedState": "Missed",
+	// Web task UI (T2-A): toasts, the custom repeat dialog and the "ends after" stepper.
+	"tasks.series.resumedToast": "Repeating again",
+	// An occurrence's state ("Done · 2 days late"); `common.done` is the action ("Concluir").
+	"tasks.series.doneState": "Done",
+	"repeat.customTitle": "Custom repeat",
+	"repeat.count": "Number of times",
+	"repeat.timesUnit.one": "time",
+	"repeat.timesUnit.other": "times",
+
+	// Task fields (Annex T §7, group tasks.*).
+	"tasks.habit": "Habit",
+	"tasks.habitNone": "Not linked",
+	"tasks.habitSupports": "Supports {habit}",
+	"tasks.time": "Time",
+
+	// Setup tasks (Annex T §7, group setup.*; spec §7 adds setup.updateTitle).
+	"setup.title": "Setup tasks",
+	"setup.hint": "Small one-time or repeating actions that make this habit obvious and easy.",
+	"setup.hintBreak": "Actions that hide the cue and add friction.",
+	"setup.toggle": "Also create a task",
+	"setup.makeTask": "Make it a task",
+	"setup.add": "Add setup task",
+	"setup.titlePlaceholder": "e.g. Put the book on my pillow",
+	"setup.titlePlaceholderBreak": "e.g. Uninstall the app",
+	"setup.empty": "Design your environment: turn your plan into a small task.",
+	"setup.reviewEmpty": "No setup tasks. You can add them later from the habit page.",
+	"setup.created.one": "{count} setup task added",
+	"setup.created.other": "{count} setup tasks added",
+	"setup.linked": "Task: {repeat}",
+	"setup.paused": "Paused",
+	"setup.done.one": "{count} done",
+	"setup.done.other": "{count} done",
+	// Annex T calls this `setup.other`; keys ending in `.other` are plural forms here.
+	"setup.otherGroup": "Other",
+	"setup.suggested": "Suggested",
+	"setup.deleteNote.one": "Its setup task is deleted too.",
+	"setup.deleteNote.other": "Its {count} setup tasks are deleted too.",
+	"setup.updateTitle": "Update the linked task too?",
+	// Web T2-B: the free-form row's input and remove button, and the retitle toast's action.
+	"setup.titleLabel": "Setup task",
+	"setup.remove": "Remove setup task",
+	"setup.updateTitleAction": "Update task",
+
+	// Native task reminders (Annex T §5.5, milestone D).
+	"notify.taskBody": "A small step for your system.",
+} as const;

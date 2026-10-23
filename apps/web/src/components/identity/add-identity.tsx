@@ -1,10 +1,11 @@
 import { useT } from "@/lib/messages";
-import { identityTemplates } from "@atomic/core";
+import { identityTemplates, matchIdentityTemplate } from "@atomic/core";
 import { useActions, useIdentities, useLocale } from "@atomic/core/react";
 import { Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
+import { AiSuggest } from "../ai/ai-suggest";
 import { Button } from "../ui/button";
-import { Input } from "../ui/field";
+import { SmartInput } from "../ui/smart-input";
 
 /** Inline form + suggestions from the identity templates. */
 export function AddIdentity() {
@@ -13,9 +14,13 @@ export function AddIdentity() {
 	const locale = useLocale();
 	const identities = useIdentities();
 	const [statement, setStatement] = useState("");
+	// An identity counts as taken in either language (sample data written in
+	// English stays English after switching to Português), by statement only.
 	const suggestions = useMemo(() => {
-		const existing = new Set(identities.map((i) => i.statement.toLowerCase()));
-		return identityTemplates(locale).filter((tpl) => !existing.has(tpl.statement.toLowerCase()));
+		const taken = new Set(
+			identities.flatMap((i) => matchIdentityTemplate({ statement: i.statement }) ?? []),
+		);
+		return identityTemplates(locale).filter((tpl) => !taken.has(tpl.key));
 	}, [identities, locale]);
 
 	const submit = (event: FormEvent) => {
@@ -29,12 +34,19 @@ export function AddIdentity() {
 		<section className="rounded-xl border border-line border-dashed bg-surface/60 p-5 md:p-6">
 			<h2 className="mb-3 font-semibold text-h3 text-ink">{t("identity.add")}</h2>
 			<form onSubmit={submit} className="flex gap-2">
-				<Input
+				<SmartInput
+					field="identity.statement"
 					value={statement}
 					maxLength={120}
 					aria-label={t("identity.add")}
 					placeholder={t("identity.placeholder")}
 					onChange={(event) => setStatement(event.target.value)}
+				/>
+				<AiSuggest
+					kind="identity.statement"
+					label={t("identity.add")}
+					input={() => ({ goal: statement.trim() })}
+					onPick={setStatement}
 				/>
 				<Button type="submit" disabled={!statement.trim()} className="h-11">
 					<Plus />

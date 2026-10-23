@@ -4,6 +4,7 @@
 		"lib": ["ESNext", "DOM"],
 		"module": "ESNext",
 		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
 		"verbatimModuleSyntax": true,
 		"strict": true,
 		"noUncheckedIndexedAccess": true,
@@ -12,5 +13,5 @@
 		"noEmit": true,
 		"types": ["bun"]
 	},
-	"include": ["src", "test", "drizzle.config.ts"]
+	"include": ["src", "test", "scripts", "drizzle.config.ts"]
 }

@@ -5,10 +5,12 @@ import {
 	ClipboardList,
 	ListChecks,
 	type LucideIcon,
+	NotebookPen,
 	Orbit,
 	Settings,
 	Sprout,
 	Sun,
+	UserRound,
 } from "lucide-react";
 
 export type NavKey =
@@ -16,10 +18,12 @@ export type NavKey =
 	| "habits"
 	| "tasks"
 	| "identity"
+	| "journal"
 	| "insights"
 	| "scorecard"
 	| "settings"
-	| "you";
+	| "you"
+	| "account";
 
 export interface NavItem {
 	key: NavKey;
@@ -33,10 +37,13 @@ export const NAV: Record<NavKey, NavItem> = {
 	habits: { key: "habits", to: "/habits", icon: Orbit },
 	tasks: { key: "tasks", to: "/tasks", icon: ListChecks },
 	identity: { key: "identity", to: "/identity", icon: Sprout },
+	journal: { key: "journal", to: "/journal", icon: NotebookPen },
 	insights: { key: "insights", to: "/insights", icon: ChartColumn },
 	scorecard: { key: "scorecard", to: "/scorecard", icon: ClipboardList },
 	settings: { key: "settings", to: "/settings", icon: Settings },
 	you: { key: "you", to: "/you", icon: CircleUserRound },
+	// Reached from Settings and the You screen; not in the sidebar (spec §5.10).
+	account: { key: "account", to: "/account", icon: UserRound },
 };
 
 export const SIDEBAR_ITEMS: NavKey[] = [
@@ -44,7 +51,8 @@ export const SIDEBAR_ITEMS: NavKey[] = [
 	"habits",
 	"tasks",
 	"identity",
+	"journal",
 	"insights",
 	"scorecard",
 ];
-export const YOU_ITEMS: NavKey[] = ["identity", "insights", "scorecard", "settings"];
+export const YOU_ITEMS: NavKey[] = ["identity", "journal", "insights", "scorecard", "settings"];

@@ -26,6 +26,12 @@ jobs:
     env:
       EXPO_NO_TELEMETRY: "1"
       CI: "1"
+      # The official sync server baked into the release (spec §4.7): the
+      # repository variable ATOMIC_SERVER_URL. Unset, the app asks for a URL.
+      EXPO_PUBLIC_SERVER_URL: ${{ vars.ATOMIC_SERVER_URL }}
+      # Sideloaded previews, like the EAS preview profile: Stripe checkout opens
+      # in the browser. Only Play Store builds are status-only (D27).
+      EXPO_PUBLIC_BILLING_UI: external
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +62,25 @@ jobs:
       - name: Generate native Android project
         working-directory: apps/native
         run: npx expo prebuild --platform android --no-install --clean
+
+      # Runner images drop older NDKs, and the Android Gradle Plugin's own
+      # download has failed there ("Archive is not a ZIP archive"). Install
+      # React Native's NDK up front, with retries, so a bad download is retried
+      # instead of failing the build.
+      - name: Install Android NDK
+        working-directory: apps/native
+        run: |
+          RN_DIR="$(dirname "$(node -p "require.resolve('react-native/package.json')")")"
+          NDK="$(sed -n 's/^ndkVersion = "\(.*\)"$/\1/p' "$RN_DIR/gradle/libs.versions.toml")"
+          test -n "$NDK"
+          echo "Preinstalled NDKs: $(ls "$ANDROID_HOME/ndk" 2>/dev/null | tr '\n' ' ')"
+          for attempt in 1 2 3; do
+            if [ -f "$ANDROID_HOME/ndk/$NDK/source.properties" ]; then break; fi
+            rm -rf "$ANDROID_HOME/ndk/$NDK"
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK" > /dev/null || sleep 20
+          done
+          test -f "$ANDROID_HOME/ndk/$NDK/source.properties"
+          echo "NDK $NDK ready"
 
       - name: Build release (standalone) and debug (dev client) APKs
         working-directory: apps/native/android

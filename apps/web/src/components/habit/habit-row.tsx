@@ -2,13 +2,33 @@ import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
 import { useHabitLogger } from "@/lib/use-habit-logger";
 import { cn } from "@/lib/utils";
-import { type AgendaItem, type DayKey, progressLabel } from "@atomic/core";
-import { useActions, useToday } from "@atomic/core/react";
+import {
+	type AgendaItem,
+	type DayKey,
+	canExceedTarget,
+	isTrackerActive,
+	isTrackerDay,
+	knownTracker,
+	monthPaceHint,
+	progressLabel,
+	targetOn,
+	trackerActionLabel,
+} from "@atomic/core";
+import {
+	useActions,
+	useMonthGoal,
+	useSleepWakePrompt,
+	useText,
+	useToday,
+	useTrackerDayLine,
+} from "@atomic/core/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Minus, StickyNote } from "lucide-react";
+import { Minus, Plus, StickyNote } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { type MouseEvent, type PointerEvent, useRef, useState } from "react";
+import { type MouseEvent, type PointerEvent, useId, useRef, useState } from "react";
 import { IconButton } from "../ui/icon-button";
+import { Tip } from "../ui/tooltip";
+import { useDisplayHabit } from "./display-habit";
 import { HabitActionsMenu } from "./habit-actions-menu";
 import { HabitRingButton } from "./habit-ring";
 import { StreakChip } from "./streak-chip";
@@ -25,11 +45,15 @@ const LONG_PRESS_MS = 480;
 export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 	const { habit, count, progress, state, streak, log, week } = item;
 	const { t, at } = useT();
+	const text = useText();
 	const actions = useActions();
 	const navigate = useNavigate();
 	const today = useToday();
-	const { tap } = useHabitLogger();
+	const { tap, extraRep } = useHabitLogger();
+	const nameId = useId();
 	const style = useHabitStyle(habit.color);
+	/** Name and unit in the content language, for labels only. */
+	const shown = useDisplayHabit(habit);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [shake, setShake] = useState(false);
 	const [floats, setFloats] = useState<number[]>([]);
@@ -37,7 +61,24 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 	/** Set when a long-press opened the menu, so the trailing click doesn't navigate. */
 	const longPressed = useRef(false);
 	const isBreak = habit.kind === "break";
-	const counted = !isBreak && habit.target > 1;
+	const name = text.habit(habit, "name");
+	const target = targetOn(habit, day);
+	const counted = !isBreak && target > 1;
+	const trackerActive = isTrackerActive(habit);
+	const trackerDay = isTrackerDay(habit, day);
+	const dayLine = useTrackerDayLine(trackerDay ? habit : undefined, day);
+	const isToday = day === today;
+	// Mornings after a logged bedtime (Annex K §1.8.7): today's row asks for last night's
+	// wake-up time; the ring opens that night's entry (`openTracker`).
+	const wakePrompt = useSleepWakePrompt(trackerDay && isToday ? habit : undefined);
+	const trackerLine = wakePrompt ? t("tracker.sleep.addWake") : trackerDay ? dayLine : null;
+	// Pace toward this month's goal ("+3 pages/day wins October"), today only (spec §5.2).
+	// Count habits only, like the row's "+1" (D11): for a once-a-day habit "+1 time/day" would
+	// ask for doubling every day, when a few extra reps anywhere in the month do it.
+	const month = useMonthGoal(counted && isToday ? habit : undefined);
+	const pace = month?.kind === "build" ? monthPaceHint(month, shown, today, t) : null;
+	// The visible "+1" once the target is met (D11): count habits whose extra reps count.
+	const showExtra = counted && !trackerDay && count >= target && canExceedTarget(habit);
 
 	const onRingClick = (event: MouseEvent) => {
 		event.stopPropagation();
@@ -68,31 +109,44 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 		}, LONG_PRESS_MS);
 	};
 
-	const isToday = day === today;
 	const breakStatus =
 		count > 0
 			? t(isToday ? "habit.slipped" : "habit.slippedDay")
 			: t(isToday ? "habit.cleanToday" : "habit.cleanDay");
 
 	const secondary = (() => {
+		if (trackerLine) return trackerLine;
 		if (isBreak)
 			return count > 0 ? <span className="text-danger">{breakStatus}</span> : breakStatus;
 		if (log?.skipped) return t("habit.skipped");
 		if (state === "rest") return t("habit.rest");
 		if (habit.schedule.type === "weekly") {
 			const weekLabel = t("habit.weekProgress", { done: week.done, required: week.required });
-			return counted && count > 0 ? `${progressLabel(habit, count, t)} · ${weekLabel}` : weekLabel;
+			return counted && count > 0 ? `${progressLabel(shown, count, t)} · ${weekLabel}` : weekLabel;
 		}
-		if (counted && (count > 0 || !habit.twoMinute)) return progressLabel(habit, count, t);
-		if (count === 0 && habit.twoMinute) return <span className="italic">{habit.twoMinute}</span>;
-		return item.identity ? item.identity.statement : null;
+		if (counted && (count > 0 || !habit.twoMinute)) return progressLabel(shown, count, t);
+		if (count === 0 && habit.twoMinute)
+			return <span className="italic">{text.habit(habit, "twoMinute")}</span>;
+		return item.identity ? text.identity(item.identity, "statement") : null;
 	})();
 
-	const ringLabel = isBreak
-		? `${habit.name}, ${breakStatus}`
-		: counted
-			? `${habit.name}, ${progressLabel(habit, count, t)}`
-			: habit.name;
+	const tracker = trackerDay ? knownTracker(habit) : null;
+	// Annex K §4.3: a tracker's ring opens a dialog, so its name says what the day holds or
+	// what the tap does: "{name}, {dayLine ?? action}". A line that only repeats the name
+	// ("Plan tomorrow, Plan tomorrow") is left out.
+	const trackerRingLine = tracker
+		? (trackerLine ?? trackerActionLabel(tracker.type, t, tracker))
+		: null;
+	const ringLabel = tracker
+		? trackerRingLine &&
+			trackerRingLine.trim().toLocaleLowerCase() !== name.trim().toLocaleLowerCase()
+			? `${name}, ${trackerRingLine}`
+			: name
+		: isBreak
+			? `${name}, ${breakStatus}`
+			: counted
+				? `${name}, ${progressLabel(shown, count, t)}`
+				: name;
 
 	return (
 		// biome-ignore lint/a11y/useKeyWithClickEvents: the name link and ring are the keyboard targets.
@@ -123,13 +177,42 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 					habit={habit}
 					progress={progress}
 					state={state}
+					extra={item.extra}
 					label={ringLabel}
-					checkbox={!counted && !isBreak}
+					checkbox={!counted && !isBreak && !trackerActive}
 					checked={item.done}
+					aria-haspopup={trackerActive ? "dialog" : undefined}
 					shake={shake}
 					onClick={onRingClick}
 					onPointerDown={(event) => event.stopPropagation()}
 				/>
+				{showExtra ? (
+					// "+1" once the target is met (D11). A plus in an outlined disc, so it never reads
+					// like the ring's filled "+N" count of reps already logged above the target.
+					<Tip label={t("month.extraRep")} side="bottom">
+						<button
+							type="button"
+							aria-label={t("month.extraRep")}
+							aria-describedby={nameId}
+							onClick={(event) => {
+								event.stopPropagation();
+								extraRep(habit, day);
+							}}
+							onPointerDown={(event) => event.stopPropagation()}
+							className={cn(
+								"-right-2 -bottom-1.5 absolute z-10 grid size-5 place-items-center rounded-full border border-line-strong bg-surface text-ink shadow-card outline-offset-2 transition-[opacity,border-color,background-color,transform] duration-(--atomic-duration-fast) hover:border-(--habit) hover:bg-(--habit-softer) active:scale-90",
+								// A larger hit area that grows away from the ring, so the ring's centre stays the ring's.
+								"before:-top-1 before:-right-1.5 before:-bottom-1.5 before:absolute before:left-0 before:content-['']",
+								// Always visible on touch; with a mouse, on row hover or keyboard focus (and only
+								// then does it take clicks).
+								"pointer-coarse:size-6",
+								"pointer-fine:pointer-events-none pointer-fine:opacity-0 pointer-fine:focus-visible:opacity-100 pointer-fine:group-focus-within:pointer-events-auto pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:pointer-events-auto pointer-fine:group-hover:opacity-100",
+							)}
+						>
+							<Plus aria-hidden="true" className="pointer-coarse:size-3.5 size-3" strokeWidth={3} />
+						</button>
+					</Tip>
+				) : null}
 				<AnimatePresence>
 					{floats.map((id) => (
 						<motion.span
@@ -149,6 +232,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 			<div className="min-w-0 flex-1">
 				<div className="flex items-center gap-1.5">
 					<Link
+						id={nameId}
 						to="/habits/$habitId"
 						params={{ habitId: habit.id }}
 						onClick={(event) => {
@@ -163,7 +247,7 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 							item.done && !isBreak && "text-ink-muted",
 						)}
 					>
-						{habit.name}
+						{name}
 					</Link>
 					{log?.note ? (
 						<StickyNote
@@ -172,18 +256,35 @@ export function HabitRow({ item, day, dimmed }: HabitRowProps) {
 						/>
 					) : null}
 				</div>
-				{secondary ? (
+				{secondary || pace ? (
 					// Narrow phones leave little room beside the streak chip: give the two-minute
 					// version three lines before it is clamped.
-					<p className="mt-0.5 line-clamp-3 break-words text-ink-muted text-small sm:line-clamp-2">
+					<p
+						className={cn(
+							"mt-0.5 break-words text-ink-muted text-small sm:line-clamp-2",
+							pace ? "line-clamp-4" : "line-clamp-3",
+						)}
+					>
 						{secondary}
+						{secondary && pace ? (
+							// Phones put the pace on its own line; wider rows keep it inline.
+							<>
+								<br className="sm:hidden" />
+								<span aria-hidden="true" className="hidden sm:inline">
+									{" · "}
+								</span>
+								{/* Screen readers would otherwise run the two lines together ("breaths+1 min/day"). */}
+								<span className="sr-only">. </span>
+							</>
+						) : null}
+						{pace ? <span className="font-medium text-ink">{pace}</span> : null}
 					</p>
 				) : null}
 			</div>
 
-			{counted && count > 0 ? (
+			{counted && count > 0 && !trackerDay ? (
 				<IconButton
-					label={at("habit.decrementFor", { habit: habit.name })}
+					label={at("habit.decrementFor", { habit: name })}
 					size="sm"
 					className="hidden opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 md:inline-flex"
 					onClick={(event) => {

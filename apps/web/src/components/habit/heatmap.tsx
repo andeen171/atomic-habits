@@ -9,7 +9,7 @@ import {
 	parseDayKey,
 	startOfWeek,
 } from "@atomic/core";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export interface HeatCell {
 	/** 0–4 intensity, or null for days outside the habit's life (rendered faint). */
@@ -33,6 +33,8 @@ interface HeatmapProps {
 const LABEL_W = 30;
 const TOP = 18;
 const GAP = 3;
+/** Width of the fade on a scrolling grid's clipped edge. */
+const EDGE_FADE = 28;
 
 /** GitHub-style grid: columns are weeks, rows weekdays, months on top. */
 export function Heatmap({
@@ -84,19 +86,42 @@ export function Heatmap({
 		return { columns, months };
 	}, [end, weekStartsOn, weeks, cell, t]);
 
+	// Which sides of a scrolling grid hold weeks out of view: those edges fade,
+	// so a column (or month label) cut by the edge reads as "scroll for more".
+	const [hidden, setHidden] = useState({ before: false, after: false });
+	const measureEdges = useCallback(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		const before = el.scrollLeft > 1;
+		const after = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+		setHidden((prev) =>
+			prev.before === before && prev.after === after ? prev : { before, after },
+		);
+	}, []);
+
 	// Re-run when the grid width changes so the newest weeks stay in view.
 	const scrollKey = scrollable && width > 0 ? svgWidth + width : 0;
 	useLayoutEffect(() => {
 		if (scrollKey && scrollRef.current)
 			scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
-	}, [scrollKey]);
+		measureEdges();
+	}, [scrollKey, measureEdges]);
+	const fade =
+		scrollable && (hidden.before || hidden.after)
+			? `linear-gradient(to right, ${hidden.before ? "transparent" : "#000"}, #000 ${EDGE_FADE}px, #000 calc(100% - ${EDGE_FADE}px), ${hidden.after ? "transparent" : "#000"})`
+			: undefined;
 
 	const weekdayRows = orderedWeekdays(weekStartsOn);
 
 	return (
 		<div ref={ref} className={cn("relative w-full", className)}>
 			{width > 0 ? (
-				<div ref={scrollRef} className={cn(scrollable && "scrollbar-none overflow-x-auto")}>
+				<div
+					ref={scrollRef}
+					onScroll={scrollable ? measureEdges : undefined}
+					className={cn(scrollable && "scrollbar-none overflow-x-auto")}
+					style={fade ? { maskImage: fade, WebkitMaskImage: fade } : undefined}
+				>
 					<svg
 						role="img"
 						aria-label={label}

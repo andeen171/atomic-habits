@@ -12,15 +12,18 @@ import {
 } from "../src/model";
 import { type KeyValueStorage, createMemoryStorage, createPersistStorage } from "../src/storage";
 import { createAtomicStore } from "../src/store";
-import type { PullInput, PushInput, SyncRecord, SyncTransport } from "../src/sync";
+import type { PullInput, PushInput, SyncTransport, WireSyncRecord } from "../src/sync";
 import { runSync } from "../src/sync-engine";
-import { tasksForDay } from "../src/tasks";
 
 const NOW = new Date(2026, 9, 17, 10, 0).getTime();
 const TODAY = toDayKey(NOW);
 
-const makeStore = (now: () => number = () => NOW, storage = createMemoryStorage()) =>
-	createAtomicStore({ storage, now, debounceMs: 0 });
+/** A signed-in device: pending keys are recorded only while tracking (D57). */
+const makeStore = (now: () => number = () => NOW, storage = createMemoryStorage()) => {
+	const store = createAtomicStore({ storage, now, debounceMs: 0 });
+	store.getState().actions.setTracking(true);
+	return store;
+};
 
 function habit(partial: Partial<Habit> = {}): Habit {
 	return habitSchema.parse({
@@ -53,14 +56,14 @@ function logs(h: Habit, days: Record<string, number>): Map<string, HabitLog> {
 
 /** In-memory server with the real protocol semantics, including conflicts and reset. */
 function fakeServer() {
-	const docs = new Map<string, SyncRecord & { seq: number }>();
+	const docs = new Map<string, WireSyncRecord & { seq: number }>();
 	let seq = 0;
 	let pushes = 0;
 	const transport: SyncTransport = {
 		async push({ records }: PushInput) {
 			pushes++;
 			let accepted = 0;
-			const conflicts: SyncRecord[] = [];
+			const conflicts: WireSyncRecord[] = [];
 			for (const record of records) {
 				const key = `${record.collection}/${record.id}`;
 				const current = docs.get(key);
@@ -136,7 +139,8 @@ describe("store writes", () => {
 			updatedAt: 5,
 		});
 		const changed = store.getState().actions.applyRemote([
-			{ collection: "journal" as never, id: "x", updatedAt: 1, deletedAt: null, data: {} },
+			// "journal" was the unknown collection here until v2 made it a real one.
+			{ collection: "futureThings" as never, id: "x", updatedAt: 1, deletedAt: null, data: {} },
 			{
 				collection: "identities",
 				id: "i1",
@@ -145,7 +149,7 @@ describe("store writes", () => {
 				data: { ...identity, futureField: "kept" },
 			},
 		]);
-		expect(changed).toBe(1);
+		expect(changed.applied).toBe(1);
 		expect((store.getState().data.identities.i1 as Record<string, unknown>).futureField).toBe(
 			"kept",
 		);
@@ -341,27 +345,6 @@ describe("habit stats edge cases", () => {
 	});
 });
 
-describe("tasks", () => {
-	test("an overdue task checked off today stays on Today", () => {
-		const base = { createdAt: 0, updatedAt: 0 };
-		const overdueDone = taskSchema.parse({
-			...base,
-			id: "a",
-			title: "Dentist",
-			date: addDays(TODAY, -1),
-			completedAt: NOW,
-		});
-		const overdueOld = taskSchema.parse({
-			...base,
-			id: "b",
-			title: "Old",
-			date: addDays(TODAY, -3),
-			completedAt: NOW - 2 * 86_400_000,
-		});
-		expect(tasksForDay([overdueDone, overdueOld], TODAY, TODAY).map((t) => t.id)).toEqual(["a"]);
-	});
-});
-
 describe("copy and import", () => {
 	test("a why that already starts with “I get to” isn't doubled", async () => {
 		const { blueprintLines } = await import("../src/blueprint");
@@ -410,6 +393,11 @@ describe("theme contrast", () => {
 				expect(contrastRatio(fg, p.surface)).toBeGreaterThanOrEqual(4.5);
 			}
 			expect(contrastRatio(p.onAccent, p.accent)).toBeGreaterThanOrEqual(4.5);
+			// Annex H §8: the PrincipleHero and plateau surfaces.
+			for (const soft of [p.accentSoft, p.warningSoft]) {
+				expect(contrastRatio(p.text, soft)).toBeGreaterThanOrEqual(4.5);
+				expect(contrastRatio(p.textMuted, soft)).toBeGreaterThanOrEqual(4.5);
+			}
 			for (const color of HABIT_COLORS) {
 				const c = habitColor(color, scheme);
 				expect(contrastRatio(c.text, p.surface)).toBeGreaterThanOrEqual(4.5);

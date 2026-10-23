@@ -1,12 +1,13 @@
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
-import { useIdentityStats } from "@atomic/core/react";
+import { useIdentityStats, useText } from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
 
 /** Compact identity votes for the Today rail. */
 export function IdentityVotesCard({ className }: { className?: string }) {
 	const { t, at } = useT();
 	const stats = useIdentityStats();
+	const text = useText();
 	if (!stats.length) return null;
 	const max = Math.max(1, ...stats.map((s) => s.votes));
 
@@ -27,7 +28,7 @@ export function IdentityVotesCard({ className }: { className?: string }) {
 							<span className="font-emoji text-lg leading-none">{identity.emoji}</span>
 							{/* Statements wrap: the whole sentence is the point. */}
 							<span className="min-w-0 flex-1 break-words text-ink text-small">
-								{identity.statement}
+								{text.identity(identity, "statement")}
 							</span>
 							<span className="font-semibold text-ink text-small tabular-nums">
 								{t.number(votes)}

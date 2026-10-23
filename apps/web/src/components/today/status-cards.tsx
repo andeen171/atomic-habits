@@ -1,5 +1,83 @@
 import { useT } from "@/lib/messages";
+import {
+	type DayKey,
+	type Habit,
+	type Identity,
+	type LogIndex,
+	dayVotes,
+	isActiveOn,
+	journalKindUnavailable,
+	logsFor,
+} from "@atomic/core";
+import { useAtomic, useIdentities, useLogIndex, useToday } from "@atomic/core/react";
+import { Link } from "@tanstack/react-router";
+import { PenLine } from "lucide-react";
 import { motion } from "motion/react";
+import { useMemo } from "react";
+import { Button } from "../ui/button";
+
+/**
+ * The identity that got the most votes on `day` (ties: the first in the
+ * user's order), or null when no identity-linked habit counted a vote.
+ */
+function topIdentityOn(
+	day: DayKey,
+	habits: Readonly<Record<string, Habit>>,
+	identities: readonly Identity[],
+	index: LogIndex,
+): Identity | null {
+	const votes = new Map<string, number>();
+	for (const habit of Object.values(habits)) {
+		if (habit.deletedAt || habit.kind !== "build" || !habit.identityId) continue;
+		if (!isActiveOn(habit, day)) continue;
+		const count = logsFor(index, habit.id).get(day)?.count ?? 0;
+		const cast = dayVotes(habit, day, count);
+		if (cast > 0) votes.set(habit.identityId, (votes.get(habit.identityId) ?? 0) + cast);
+	}
+	let best: Identity | null = null;
+	let most = 0;
+	for (const identity of identities) {
+		const n = votes.get(identity.id) ?? 0;
+		if (n > most) {
+			best = identity;
+			most = n;
+		}
+	}
+	return best;
+}
+
+/**
+ * "Write down the proof" (Annex J §1.5): evidence for the identity that got
+ * the most votes today. With no identity at all evidence can't be written,
+ * so the link is left out; when no identity got a vote, the editor asks.
+ */
+function ProofLink() {
+	const { t } = useT();
+	const today = useToday();
+	const habits = useAtomic((s) => s.data.habits);
+	const identities = useIdentities();
+	const index = useLogIndex();
+	const identity = useMemo(
+		() => topIdentityOn(today, habits, identities, index),
+		[today, habits, identities, index],
+	);
+	const unavailable = journalKindUnavailable("evidence", {
+		habits: Object.values(habits),
+		identities,
+	});
+	if (unavailable) return null;
+	return (
+		<Button variant="secondary" size="sm" asChild className="mt-4">
+			<Link
+				to="/journal/new"
+				search={identity ? { kind: "evidence", identity: identity.id } : { kind: "evidence" }}
+			>
+				<PenLine />
+				{t("journal.proof.cta")}
+			</Link>
+		</Button>
+	);
+}
 
 export function AllDoneCard({ votes }: { votes: number }) {
 	const { t, tp } = useT();
@@ -46,6 +124,7 @@ export function AllDoneCard({ votes }: { votes: number }) {
 					{tp("today.votesToday", votes)}
 				</p>
 			) : null}
+			<ProofLink />
 		</motion.div>
 	);
 }

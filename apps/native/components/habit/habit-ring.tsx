@@ -13,6 +13,7 @@ import Animated, {
 	useSharedValue,
 	withSequence,
 	withSpring,
+	ZoomIn,
 	withTiming,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
@@ -35,6 +36,15 @@ export interface HabitRingProps {
 	showVotes?: boolean;
 	/** Increment to play a "nothing more to log" shake. */
 	shakeKey?: number;
+	/**
+	 * Reps logged above the target: draws a "+N" pill at the top right (Annex H
+	 * §1.1.5). Decorative; the accessible label already says "13/10 pages".
+	 */
+	extra?: number;
+	/** The tap opens a tracker sheet instead of logging: a plain button, never a checkbox. */
+	opensTracker?: boolean;
+	/** The day's target (`targetOn`), when it differs from today's goal (`goalHistory`). */
+	target?: number;
 	testID?: string;
 }
 
@@ -51,13 +61,16 @@ export function HabitRing({
 	accessibilityLabel,
 	showVotes = true,
 	shakeKey = 0,
+	extra = 0,
+	opensTracker = false,
+	target = habit.target,
 	testID,
 }: HabitRingProps) {
 	const { colors, habit: toneOf } = useTheme();
 	const tone = toneOf(habit.color);
 	const reduceMotion = useReduceMotion();
 	const isBreak = habit.kind === "break";
-	const done = !isBreak && count >= habit.target;
+	const done = !isBreak && count >= target;
 	const slipped = isBreak && count > 0;
 	const skipped = state === "skipped";
 	const stroke = Math.max(2.5, size / 15);
@@ -127,8 +140,11 @@ export function HabitRing({
 				onPressOut={() => {
 					scale.value = withSpring(1, motion.spring);
 				}}
-				accessibilityRole={isBreak || habit.target > 1 ? "button" : "checkbox"}
-				accessibilityState={{ checked: isBreak ? undefined : done, disabled: Boolean(disabled) }}
+				accessibilityRole={isBreak || opensTracker || target > 1 ? "button" : "checkbox"}
+				accessibilityState={{
+					checked: isBreak || opensTracker ? undefined : done,
+					disabled: Boolean(disabled),
+				}}
 				accessibilityLabel={accessibilityLabel}
 			>
 				<Animated.View style={[{ width: size, height: size }, containerStyle]}>
@@ -207,13 +223,11 @@ export function HabitRing({
 				</Animated.View>
 			</Pressable>
 			{isBreak ? <BreakBadge slipped={slipped} size={size} /> : null}
+			{!isBreak && extra > 0 ? (
+				<ExtraPill extra={extra} size={size} fill={tone.fill} on={tone.onText} />
+			) : null}
 			{showVotes && !isBreak ? (
-				<VoteFloats
-					count={count}
-					target={habit.target}
-					reduceMotion={reduceMotion}
-					color={tone.text}
-				/>
+				<VoteFloats count={count} target={target} reduceMotion={reduceMotion} color={tone.text} />
 			) : null}
 		</View>
 	);
@@ -244,6 +258,49 @@ function BreakBadge({ slipped, size }: { slipped: boolean; size: number }) {
 				strokeWidth={2.4}
 			/>
 		</View>
+	);
+}
+
+/** "+N" reps above the target, in the habit fill (decorative). */
+function ExtraPill({
+	extra,
+	size,
+	fill,
+	on,
+}: { extra: number; size: number; fill: string; on: string }) {
+	const { colors } = useTheme();
+	const t = useT();
+	const height = Math.max(16, Math.round(size * 0.38));
+	return (
+		<Animated.View
+			entering={ZoomIn.duration(180)}
+			pointerEvents="none"
+			accessibilityElementsHidden
+			importantForAccessibility="no-hide-descendants"
+			style={[
+				styles.center,
+				styles.pill,
+				{
+					minWidth: height + 2,
+					height: height + 4,
+					borderRadius: (height + 4) / 2,
+					backgroundColor: fill,
+					borderColor: colors.surface,
+				},
+			]}
+		>
+			<Text
+				variant="tiny"
+				weight="bold"
+				color={on}
+				allowFontScaling={false}
+				style={{ fontSize: Math.max(10, Math.round(height * 0.6)), lineHeight: height }}
+				tabular
+			>
+				{/* Capped like web ("+99"): the label already says the full amount. */}
+				{`+${t.number(Math.min(extra, 99))}`}
+			</Text>
+		</Animated.View>
 	);
 }
 
@@ -320,6 +377,7 @@ function VoteFloat({ votes, color, onDone }: { votes: number; color: string; onD
 const styles = StyleSheet.create({
 	center: { alignItems: "center", justifyContent: "center" },
 	badge: { position: "absolute", right: -3, bottom: -3, borderWidth: 2 },
+	pill: { position: "absolute", right: -7, top: -5, borderWidth: 2, paddingHorizontal: 4 },
 	floatLayer: {
 		position: "absolute",
 		left: -40,

@@ -13,7 +13,9 @@ export function BottomTabs() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const setCreateOpen = useUI((s) => s.setCreateSheetOpen);
 	const youActive =
-		pathname === "/you" || YOU_ITEMS.some((key) => pathname.startsWith(NAV[key].to));
+		pathname === "/you" ||
+		pathname.startsWith(NAV.account.to) ||
+		YOU_ITEMS.some((key) => pathname.startsWith(NAV[key].to));
 
 	return (
 		<nav
@@ -48,11 +50,14 @@ interface TabLinkProps {
 }
 
 function TabLink({ item, label, badge = 0, forceActive }: TabLinkProps) {
+	const { t } = useT();
 	const Icon = item.icon;
 	return (
 		<Link
 			to={item.to}
 			activeOptions={{ exact: item.exact, includeSearch: false }}
+			// The badge sits before the label in the DOM: name it "Tasks, 8 to do", not "8 Tasks".
+			aria-label={badge > 0 ? t("nav.withCount", { label, count: badge }) : undefined}
 			data-force-active={forceActive ? "" : undefined}
 			className={cn(
 				"group relative flex h-full flex-col items-center justify-center gap-1 font-medium text-[11px] text-ink-subtle transition-colors data-[status=active]:text-ink",
@@ -68,7 +73,10 @@ function TabLink({ item, label, badge = 0, forceActive }: TabLinkProps) {
 					strokeWidth={1.9}
 				/>
 				{badge > 0 ? (
-					<span className="-top-1.5 -right-2.5 absolute min-w-4 rounded-full bg-accent px-1 text-center font-semibold text-[10px] text-on-accent tabular-nums leading-4">
+					<span
+						aria-hidden="true"
+						className="-top-1.5 -right-2.5 absolute min-w-4 rounded-full bg-accent px-1 text-center font-semibold text-[10px] text-on-accent tabular-nums leading-4"
+					>
 						{badge}
 					</span>
 				) : null}

@@ -6,9 +6,10 @@ import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { type Theme, makeStyles, useTheme } from "@/lib/theme";
+import { showToast } from "@/lib/ui-store";
 import { type DayKey, type TaskPriority, addDays, startOfMonth } from "@atomic/core";
 import { useToday } from "@atomic/core/react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
 export function priorityColor(priority: TaskPriority, theme: Theme): string {
@@ -18,24 +19,31 @@ export function priorityColor(priority: TaskPriority, theme: Theme): string {
 	return theme.colors.textSubtle;
 }
 
-/** Today / Tomorrow / Someday / Pick a date. */
+/** Today / Tomorrow / Someday / Pick a date, then `trailing` (the repeat chip). */
 export function DateChips({
 	value,
 	onChange,
 	size = "md",
 	bleed = 0,
+	trailing,
+	somedayDisabled,
 }: {
 	value: DayKey | null;
 	onChange: (day: DayKey | null) => void;
 	size?: "sm" | "md";
 	/** Let the scroller run to the container edges (sheets with side padding). */
 	bleed?: number;
+	/** Extra chips after the date chips, behind a hairline (e.g. `RepeatChip`). */
+	trailing?: ReactNode;
+	/** A repeating task needs a start date: Someday stays visible but says why it can't be picked. */
+	somedayDisabled?: boolean;
 }) {
 	const t = useT();
 	const today = useToday();
 	const tomorrow = addDays(today, 1);
 	const [picking, setPicking] = useState(false);
 	const custom = value !== null && value !== today && value !== tomorrow;
+	const styles = useStyles();
 	return (
 		<>
 			<ScrollView
@@ -60,8 +68,20 @@ export function DateChips({
 				<Chip
 					size={size}
 					label={t.t("tasks.date.someday")}
-					selected={value === null}
-					onPress={() => onChange(null)}
+					selected={!somedayDisabled && value === null}
+					onPress={() => {
+						if (!somedayDisabled) {
+							onChange(null);
+							return;
+						}
+						haptics.warning();
+						showToast(t.t("repeat.needsDate"));
+					}}
+					accessibilityLabel={
+						somedayDisabled ? `${t.t("tasks.date.someday")}. ${t.t("repeat.needsDate")}` : undefined
+					}
+					style={somedayDisabled ? styles.chipDisabled : undefined}
+					testID="date-chip-someday"
 				/>
 				<Chip
 					size={size}
@@ -73,6 +93,12 @@ export function DateChips({
 					selected={custom}
 					onPress={() => setPicking(true)}
 				/>
+				{trailing ? (
+					<>
+						<View style={[styles.divider, size === "sm" && styles.dividerSm]} />
+						{trailing}
+					</>
+				) : null}
 			</ScrollView>
 			<DatePickerSheet
 				open={picking}
@@ -228,4 +254,13 @@ const useStyles = makeStyles((t) => ({
 		borderWidth: 1,
 	},
 	flagCompact: { width: 40, paddingHorizontal: 0, justifyContent: "center" },
+	chipDisabled: { opacity: 0.45 },
+	divider: {
+		width: 1,
+		height: 22,
+		alignSelf: "center",
+		marginHorizontal: 2,
+		backgroundColor: t.colors.border,
+	},
+	dividerSm: { height: 18 },
 }));

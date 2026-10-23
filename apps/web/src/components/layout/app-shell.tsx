@@ -1,5 +1,6 @@
 import { useT } from "@/lib/messages";
 import type { ReactNode } from "react";
+import { CloudBanners } from "../account/cloud-banners";
 import { BottomTabs } from "./bottom-tabs";
 import { CreateSheet } from "./create-sheet";
 import { Sidebar } from "./sidebar";
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 				tabIndex={-1}
 				className="min-h-dvh pb-[calc(var(--tabbar-height)+env(safe-area-inset-bottom)+8px)] outline-none md:pb-0 md:pl-[72px] lg:pl-(--sidebar-width)"
 			>
+				<CloudBanners />
 				{children}
 			</main>
 			<BottomTabs />

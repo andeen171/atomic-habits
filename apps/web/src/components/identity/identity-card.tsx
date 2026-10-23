@@ -1,19 +1,30 @@
 import { useT } from "@/lib/messages";
 import { useHabitStyle } from "@/lib/theme";
-import type { IdentityStats } from "@atomic/core";
-import { useActions } from "@atomic/core/react";
-import { Link } from "@tanstack/react-router";
-import { Ellipsis, Pencil, Plus, Trash } from "lucide-react";
+import type { IdentityJournalStats, IdentityStats } from "@atomic/core";
+import { useActions, useText } from "@atomic/core/react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Ellipsis, Pencil, Plus, Trash, Vote } from "lucide-react";
 import { useState } from "react";
+import { TranslatedText } from "../ai/translated-text";
+import { IdentityJournalStrip } from "../journal/identity-journal";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { AtomField } from "./atom-field";
 import { IdentityDialog } from "./identity-dialog";
 
-export function IdentityCard({ stats }: { stats: IdentityStats }) {
+export function IdentityCard({
+	stats,
+	journal,
+}: {
+	stats: IdentityStats;
+	/** Evidence count and newest entry (Annex J §1.5). */
+	journal?: IdentityJournalStats;
+}) {
 	const { t, at } = useT();
+	const text = useText();
 	const actions = useActions();
+	const navigate = useNavigate();
 	const { identity, votes, recentVotes, habits } = stats;
 	const style = useHabitStyle(identity.color);
 	const [editing, setEditing] = useState(false);
@@ -28,13 +39,17 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 				<span className="grid size-12 shrink-0 place-items-center rounded-lg bg-(--habit-soft) font-emoji text-2xl">
 					{identity.emoji}
 				</span>
-				<h2 className="min-w-0 flex-1 pt-1 font-display text-[1.625rem] text-ink leading-tight">
-					{identity.statement}
-				</h2>
+				<TranslatedText
+					collection="identities"
+					entity={identity}
+					field="statement"
+					as="h2"
+					className="min-w-0 flex-1 break-words pt-1 font-display text-[1.625rem] text-ink leading-tight"
+				/>
 				<Menu modal={false}>
 					<MenuTrigger asChild>
 						<IconButton
-							label={at("common.moreFor", { name: identity.statement })}
+							label={at("common.moreFor", { name: text.identity(identity, "statement") })}
 							size="sm"
 							tooltip={false}
 							className="-mr-1.5"
@@ -43,6 +58,17 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 						</IconButton>
 					</MenuTrigger>
 					<MenuContent>
+						<MenuItem
+							icon={<Vote />}
+							onSelect={() =>
+								void navigate({
+									to: "/journal/new",
+									search: { kind: "evidence", identity: identity.id },
+								})
+							}
+						>
+							{t("journal.emptyCta")}
+						</MenuItem>
 						<MenuItem icon={<Pencil />} onSelect={() => setEditing(true)}>
 							{t("common.edit")}
 						</MenuItem>
@@ -70,6 +96,8 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 
 			<AtomField votes={votes} recent={recentVotes} color={identity.color} />
 
+			<IdentityJournalStrip identity={identity} stats={journal} />
+
 			<div className="border-line border-t pt-4">
 				<div className="section-label mb-2">{t("identity.habits")}</div>
 				<div className="flex flex-wrap gap-1.5">
@@ -81,7 +109,7 @@ export function IdentityCard({ stats }: { stats: IdentityStats }) {
 							className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-ink text-small transition-colors hover:border-line-strong hover:bg-hover"
 						>
 							<span className="font-emoji">{habit.emoji}</span>
-							{habit.name}
+							{text.habit(habit, "name")}
 						</Link>
 					))}
 					<Link

@@ -1,0 +1,209 @@
+# Atomic Cloud on one machine (spec §4.7, Annex C §6.7). Runbook: README.md.
+#
+#   cd deploy
+#   cp .env.example .env && $EDITOR .env    # secrets, domain, providers
+#   docker compose up -d --build            # profiles come from COMPOSE_PROFILES in .env
+#
+# Services:
+#   server      always: the API (apps/server/Dockerfile, built from the repo root)
+#   llm         profile `ai`:     llama.cpp serving Qwen2.5-1.5B-Instruct (Q4_K_M), internal only
+#   caddy       profile `tls`:    HTTPS on :80/:443 with automatic certificates
+#   litestream  profile `backup`: continuous database replication to Cloudflare R2
+#
+# Run ONE server per database: rate limits, the AI semaphore and global cap,
+# the photo GC lock and the maintenance schedule live in its memory.
+#
+# Images are pinned (tag + multi-arch digest, amd64 and arm64, checked
+# 2026-10-20). Bump them deliberately: see README.md, "Upgrades".
+
+name: atomic
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: apps/server/Dockerfile
+    image: atomic-server:local
+    # An allow-list, not `env_file: .env`: the API gets only the variables it
+    # reads (apps/server/src/config.ts), never the Litestream keys (write
+    # access to the backups) or the other services' settings. A name without
+    # a value takes it from .env, and stays unset when .env doesn't have it.
+    # A new server variable must be added here (deploy.test.ts checks it).
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # The volume below; set DATABASE_URL=libsql://… in .env to use Turso instead.
+      DATABASE_URL: ${DATABASE_URL:-file:/data/atomic.db}
+      DATABASE_AUTH_TOKEN:
+      BLOB_DIR: /data/blobs
+      # Caddy replaces X-Forwarded-For with the caller's address; the server
+      # reads its right-most entry. Without the `tls` profile, put a proxy
+      # that does the same in front, or set CLIENT_IP_HEADER= in .env.
+      CLIENT_IP_HEADER: ${CLIENT_IP_HEADER-x-forwarded-for}
+      # Core
+      BETTER_AUTH_SECRET:
+      BETTER_AUTH_URL:
+      APP_WEB_URL:
+      CORS_ORIGINS:
+      PRIVACY_URL:
+      TERMS_URL:
+      METRICS_TOKEN:
+      ANDROID_LATEST_VERSION:
+      ANDROID_DOWNLOAD_URL:
+      LOG_FORMAT:
+      # Email
+      EMAIL_PROVIDER:
+      RESEND_API_KEY:
+      EMAIL_FROM:
+      EMAIL_DAILY_CAP:
+      # Google sign-in
+      GOOGLE_CLIENT_IDS:
+      GOOGLE_WEB_ORIGINS:
+      # Billing and plans
+      STRIPE_SECRET_KEY:
+      STRIPE_WEBHOOK_SECRET:
+      STRIPE_PRICE_PRO_MONTHLY:
+      STRIPE_PRICE_PRO_YEARLY:
+      STRIPE_TRIAL_DAYS:
+      BILLING_GRACE_DAYS:
+      DEFAULT_PLAN:
+      LIMIT_FREE_SYNC_MB:
+      LIMIT_PRO_SYNC_MB:
+      LIMIT_FREE_BLOB_MB:
+      LIMIT_PRO_BLOB_MB:
+      LIMIT_FREE_AI_REQUESTS:
+      LIMIT_PRO_AI_REQUESTS:
+      LIMIT_FREE_AI_TRANSLATE_CHARS:
+      LIMIT_PRO_AI_TRANSLATE_CHARS:
+      # AI beta
+      AI_BASE_URL:
+      AI_MODEL:
+      AI_API_KEY:
+      AI_JSON_MODE:
+      AI_TIMEOUT_MS:
+      AI_TRANSLATE_TIMEOUT_MS:
+      AI_MAX_CONCURRENCY:
+      AI_QUEUE_MAX:
+      AI_HOSTING:
+      AI_PROVIDER_NAME:
+      AI_REQUIRE_VERIFIED_EMAIL:
+      AI_GLOBAL_DAILY_REQUESTS:
+      # Set but empty switches AI off (kill switch), so it is passed only when present.
+      AI_FEATURES:
+      # Photo backup
+      BLOB_STORAGE:
+      BLOB_MAX_FILE_BYTES:
+      S3_ENDPOINT:
+      S3_BUCKET:
+      S3_ACCESS_KEY_ID:
+      S3_SECRET_ACCESS_KEY:
+      S3_REGION:
+    volumes:
+      - atomic-data:/data
+    # Loopback only: the internet reaches the server through Caddy.
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-3000}:3000"
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        # Quoted: a plain YAML scalar containing ": " would parse as a mapping.
+        - "fetch('http://127.0.0.1:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  llm:
+    profiles: [ai]
+    # llama.cpp's OpenAI-compatible server. AI_BASE_URL=http://llm:8080/v1 in .env.
+    image: ${LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server@sha256:9fbaa06d7f4449e2ae0d02b40e0431f7c212dcf231c9e3a7777a6afc2cc8f312}
+    command:
+      # Downloaded from Hugging Face on first start (~1.1 GB), then cached in `models`.
+      - -hf
+      - ${LLAMA_MODEL:-Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M}
+      # The name /v1/models reports (AI_MODEL in .env).
+      - --alias
+      - ${AI_MODEL:-qwen2.5-1.5b-instruct}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      # Two parallel slots of 4096 tokens each (AI_MAX_CONCURRENCY=2).
+      - -c
+      - "8192"
+      - -np
+      - "2"
+      # Caps every reply. A translation asks for up to 1024 tokens (D31 says
+      # -n 512, which would cut long batches; see apps/server/README.md).
+      - -n
+      - "1024"
+      - -t
+      - ${LLAMA_THREADS:-4}
+      - --jinja
+      - --no-webui
+      # /slots would show live prompts; no -v (verbose logs print them).
+      - --no-slots
+      - --api-key
+      - ${AI_API_KEY:-}
+    environment:
+      LLAMA_CACHE: /models
+    volumes:
+      - models:/models
+    # No ports: only the server reaches it, on this compose network.
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    profiles: [tls]
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - server
+    restart: unless-stopped
+    logging: *logging
+
+  litestream:
+    profiles: [backup]
+    image: litestream/litestream:0.5.17@sha256:4b02b9859a6b6b4087d8b8944e15f7e984bd7957cba322bbeee38b0e27b9656a
+    command: ["replicate"]
+    # The server's user (bun, uid 1000) owns /data; files Litestream creates must stay writable to it.
+    user: "1000:1000"
+    environment:
+      LITESTREAM_ENDPOINT: ${LITESTREAM_ENDPOINT:-}
+      LITESTREAM_BUCKET: ${LITESTREAM_BUCKET:-}
+      LITESTREAM_PATH: ${LITESTREAM_PATH:-atomic.db}
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:-}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:-}
+    volumes:
+      - atomic-data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    depends_on:
+      # The server creates the database (and its WAL) first.
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  atomic-data: {}
+  models: {}
+  caddy-data: {}
+  caddy-config: {}

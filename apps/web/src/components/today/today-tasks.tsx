@@ -1,21 +1,24 @@
 import { useT } from "@/lib/messages";
 import { cn } from "@/lib/utils";
-import { type DayKey, tasksForDay } from "@atomic/core";
-import { useActions, useTasks, useToday } from "@atomic/core/react";
+import type { DayKey } from "@atomic/core";
+import { useActions, useTaskAgenda, useToday } from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { TaskRow } from "../tasks/task-row";
 
-/** Tasks for the day with inline quick-add. */
+/**
+ * Tasks for the day with inline quick-add (Annex T §1.4): one-offs, the open
+ * occurrence of each series (overdue ones included today), occurrences
+ * settled that day, missed ones on past days and projected ones ahead.
+ */
 export function TodayTasks({ day, className }: { day: DayKey; className?: string }) {
 	const { t } = useT();
 	const today = useToday();
-	const tasks = useTasks();
+	const list = useTaskAgenda(day);
 	const actions = useActions();
 	const [title, setTitle] = useState("");
-	const list = useMemo(() => tasksForDay(tasks, day, today), [tasks, day, today]);
 	// A viewed past day names its date, so the label matches where the task goes.
 	const date = t.formatDayShort(day);
 	const addLabel = day === today ? t("today.addTask") : t("today.addTaskFor", { date });
@@ -43,15 +46,15 @@ export function TodayTasks({ day, className }: { day: DayKey; className?: string
 			</div>
 			<div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card transition-[border-color,box-shadow] duration-(--atomic-duration-fast) has-[input:focus-visible]:border-accent has-[input:focus-visible]:ring-3 has-[input:focus-visible]:ring-accent/15">
 				<AnimatePresence initial={false}>
-					{list.map((task, index) => (
+					{list.map((item, index) => (
 						<motion.div
-							key={task.id}
+							key={item.key}
 							initial={{ opacity: 0, height: 0 }}
 							animate={{ opacity: 1, height: "auto" }}
 							exit={{ opacity: 0, height: 0 }}
 							className={cn(index > 0 && "border-line border-t")}
 						>
-							<TaskRow task={task} hideDate={task.date === day} />
+							<TaskRow item={item} hideDate={item.date === day} />
 						</motion.div>
 					))}
 				</AnimatePresence>

@@ -7,12 +7,23 @@ import {
 	type Identity,
 	addDays,
 	dayState,
+	monthProgressLabel,
 	scheduleLabel,
+	strengthLabel,
 	weekdayOf,
 } from "@atomic/core";
-import { useAtomic, useLogIndex, useToday } from "@atomic/core/react";
+import {
+	useAtomic,
+	useLogIndex,
+	useMonthGoal,
+	useText,
+	useToday,
+	useTrackerHeadline,
+} from "@atomic/core/react";
 import { Link } from "@tanstack/react-router";
 import { Tag } from "../ui/chip";
+import { useDisplayHabit } from "./display-habit";
+import { statusTone } from "./month-goal-card";
 import { StreakChip } from "./streak-chip";
 
 interface HabitCardProps {
@@ -24,6 +35,7 @@ interface HabitCardProps {
 /** Grid card on the Habits screen. */
 export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 	const { t, at } = useT();
+	const text = useText();
 	const style = useHabitStyle(habit.color);
 	const weekStartsOn = useAtomic((s) => s.settings.weekStartsOn);
 	const strength = Math.round(stats.strength * 100);
@@ -45,7 +57,7 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 				<div className="min-w-0 flex-1">
 					{/* Names and schedules wrap: "3 vezes por semana · Manhã" must not lose its time. */}
 					<h3 className="line-clamp-2 break-words font-semibold text-ink leading-snug">
-						{habit.name}
+						{text.habit(habit, "name")}
 					</h3>
 					<p className="mt-0.5 break-words text-ink-muted text-small">
 						{habit.kind === "break"
@@ -62,14 +74,14 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 			{identity ? (
 				<Tag className="self-start">
 					<span className="font-emoji">{identity.emoji}</span>
-					<span className="truncate">{identity.statement}</span>
+					<span className="truncate">{text.identity(identity, "statement")}</span>
 				</Tag>
 			) : null}
 
 			<div className="mt-auto flex items-end justify-between gap-4">
 				<div className="min-w-0 flex-1">
 					<div className="mb-1.5 flex items-baseline justify-between text-small">
-						<span className="text-ink-muted">{t("habits.strength")}</span>
+						<span className="text-ink-muted">{strengthLabel(habit, t).label}</span>
 						<span className="font-semibold text-ink tabular-nums">{strength}%</span>
 					</div>
 					<div className="h-1.5 overflow-hidden rounded-full bg-(--habit-softer)">
@@ -87,8 +99,52 @@ export function HabitCard({ habit, stats, identity }: HabitCardProps) {
 				</div>
 			</div>
 
+			<MonthLine habit={habit} />
 			<SevenDayDots habit={habit} label={at("habits.last7")} />
 		</Link>
+	);
+}
+
+/**
+ * "This month · 214/310 pages" (break: "17 of 19 days clean") with a status
+ * dot (D8), then the tracker's headline ("R$ 320 left this month") when it
+ * has one (spec §5.2).
+ */
+function MonthLine({ habit }: { habit: Habit }) {
+	const { t } = useT();
+	const month = useMonthGoal(habit);
+	const shown = useDisplayHabit(habit);
+	const trackerHeadline = useTrackerHeadline(habit);
+	const showMonth = !!month && (month.kind === "break" || month.goal > 0);
+	// A break habit's month line already counts its clean days; the slip tracker's own
+	// headline ("Clean 21 of 21 days", today included) would repeat it with another number.
+	const headline = month?.kind === "break" && showMonth ? null : trackerHeadline;
+	if (!showMonth && !headline) return null;
+	const dot = !month
+		? ""
+		: month.kind === "build"
+			? statusTone[month.status].dot
+			: month.slipDays === 0
+				? "bg-(--habit)"
+				: "bg-ink-subtle";
+	return (
+		<div className="-mt-1 flex flex-col gap-0.5 text-ink-muted text-small">
+			{month && showMonth ? (
+				<p className="flex items-center gap-2">
+					<span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", dot)} />
+					<span className="min-w-0 truncate tabular-nums">
+						{t("month.line", {
+							label: t("month.title"),
+							value: monthProgressLabel(month, shown, t),
+						})}
+					</span>
+					{month.kind === "build" ? (
+						<span className="sr-only">, {t(`month.status.${month.status}`)}</span>
+					) : null}
+				</p>
+			) : null}
+			{headline ? <p className="truncate pl-4">{headline}</p> : null}
+		</div>
 	);
 }
 

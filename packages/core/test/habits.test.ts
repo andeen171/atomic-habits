@@ -1,12 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { breakingFreeHabits, buildAgenda, identityStats, strongestHabits } from "../src/agenda";
 import { addDays } from "../src/dates";
 import {
 	completionRate,
+	compounding,
 	dayScore,
 	dayState,
+	dayVotes,
+	goalOn,
+	habitStats,
+	isDone,
 	isDueOn,
+	normalizeSchedule,
+	progressOf,
+	sameGoal,
+	scheduledBy,
 	streakOf,
 	strengthOf,
+	targetOn,
 	votesOf,
 	weekProgress,
 } from "../src/habits";
@@ -14,7 +25,10 @@ import { type Habit, type HabitLog, habitSchema, logId } from "../src/model";
 
 const TODAY = "2026-10-17"; // Saturday
 
-function habit(partial: Partial<Habit> = {}): Habit {
+/** Fixture input: a tracker may be an input config (parsed with defaults). */
+type HabitFixture = Omit<Partial<Habit>, "tracker"> & { tracker?: Record<string, unknown> | null };
+
+function habit(partial: HabitFixture = {}): Habit {
 	return habitSchema.parse({
 		id: "h1",
 		name: "Read",
@@ -234,5 +248,211 @@ describe("stats", () => {
 		const s = streakOf(h, doneOn(h, [8, 9, 10]), TODAY);
 		expect(s.current).toBe(3);
 		expect(dayState(h, TODAY, undefined, TODAY)).toBe("inactive");
+	});
+});
+
+describe("goal history (targetOn / goalOn)", () => {
+	const raised = (partial: HabitFixture = {}) =>
+		habit({
+			target: 12,
+			goalHistory: [
+				{ until: addDays(TODAY, -10), target: 5, schedule: { type: "daily" } },
+				{
+					until: addDays(TODAY, -3),
+					target: 10,
+					schedule: { type: "weekdays", days: [1, 2, 3, 4, 5] },
+				},
+			],
+			...partial,
+		});
+
+	test("the goal in effect on a day is the entry with the smallest later `until`", () => {
+		const h = raised();
+		expect(goalOn(h, addDays(TODAY, -20))).toEqual({ target: 5, schedule: { type: "daily" } });
+		expect(goalOn(h, addDays(TODAY, -10)).target).toBe(10);
+		expect(goalOn(h, addDays(TODAY, -4)).schedule).toEqual({
+			type: "weekdays",
+			days: [1, 2, 3, 4, 5],
+		});
+		expect(goalOn(h, addDays(TODAY, -3))).toEqual({ target: 12, schedule: { type: "daily" } });
+		expect(targetOn(h, TODAY)).toBe(12);
+		expect(targetOn(habit({ target: 7 }), "2000-01-01")).toBe(7);
+		// Order of entries doesn't matter (merged documents).
+		const shuffled = raised({ goalHistory: [...raised().goalHistory].reverse() });
+		expect(targetOn(shuffled, addDays(TODAY, -20))).toBe(5);
+	});
+
+	test("a target raise does not turn past done days into partial ones", () => {
+		const h = raised();
+		const past = logs(h, {
+			[addDays(TODAY, -5)]: 10,
+			[addDays(TODAY, -2)]: 10,
+			[addDays(TODAY, -1)]: 12,
+		});
+		expect(dayState(h, addDays(TODAY, -5), past.get(addDays(TODAY, -5)), TODAY)).toBe("done");
+		expect(dayState(h, addDays(TODAY, -2), past.get(addDays(TODAY, -2)), TODAY)).toBe("missed");
+		expect(isDone(h, past.get(addDays(TODAY, -5)))).toBe(true);
+		expect(progressOf(h, past.get(addDays(TODAY, -5)))).toBe(1);
+		// Votes are capped at each day's own target: 10 + 10 + 12.
+		expect(votesOf(h, past, TODAY)).toBe(32);
+		expect(habitStats(h, past, TODAY).totalDays).toBe(2);
+	});
+
+	test("raw records: a missing or malformed history falls back to the current goal", () => {
+		const raw = (goalHistory: unknown) => ({ ...habit({ target: 7 }), goalHistory }) as Habit;
+		expect(targetOn(raw(undefined), TODAY)).toBe(7);
+		expect(targetOn(raw("oops"), TODAY)).toBe(7);
+		expect(
+			targetOn(raw([null, 3, { until: 5 }, { until: addDays(TODAY, 1), target: 0 }]), TODAY),
+		).toBe(7);
+		const mixed = raw([null, { until: addDays(TODAY, 1), target: 4, schedule: { type: "daily" } }]);
+		expect(goalOn(mixed, TODAY)).toEqual({ target: 4, schedule: { type: "daily" } });
+	});
+
+	test("sameGoal ignores weekday order; normalizeSchedule sorts and de-duplicates", () => {
+		const a = { target: 3, schedule: { type: "weekdays" as const, days: [5, 1, 3] } };
+		const b = { target: 3, schedule: { type: "weekdays" as const, days: [1, 3, 5, 5] } };
+		expect(sameGoal(a, b)).toBe(true);
+		expect(sameGoal(a, { ...b, target: 4 })).toBe(false);
+		expect(
+			sameGoal(
+				{ target: 1, schedule: { type: "weekly", times: 3 } },
+				{ target: 1, schedule: { type: "weekly", times: 4 } },
+			),
+		).toBe(false);
+		expect(normalizeSchedule(b.schedule)).toEqual({ type: "weekdays", days: [1, 3, 5] });
+		expect(scheduledBy({ type: "weekdays", days: [6] }, TODAY)).toBe(true);
+		expect(scheduledBy({ type: "weekly", times: 2 }, TODAY)).toBe(true);
+	});
+});
+
+describe("dayVotes and compounding", () => {
+	test("sum trackers vote once per day from their start; others cap at the target", () => {
+		const plain = habit({ target: 10 });
+		expect([
+			dayVotes(plain, TODAY, 0),
+			dayVotes(plain, TODAY, 4),
+			dayVotes(plain, TODAY, 30),
+		]).toEqual([0, 4, 10]);
+		const words = habit({
+			target: 300,
+			tracker: { type: "writing", measure: "words", since: addDays(TODAY, -2) },
+		});
+		expect(dayVotes(words, TODAY, 450)).toBe(1);
+		expect(dayVotes(words, addDays(TODAY, -5), 450)).toBe(300); // before the tracker start
+		// Detaching doesn't rewrite past votes.
+		expect(
+			dayVotes(
+				{ ...words, tracker: { ...(words.tracker as object), enabled: false } } as Habit,
+				TODAY,
+				450,
+			),
+		).toBe(1);
+		const sessions = habit({ target: 3, tracker: { type: "session", measure: "sessions" } });
+		expect(dayVotes(sessions, TODAY, 5)).toBe(3);
+		expect(votesOf(words, logs(words, { [TODAY]: 400, [addDays(TODAY, -1)]: 120 }), TODAY)).toBe(2);
+		// Identity totals (Annex K §8): a writing day is one vote, before its start the capped reps.
+		const writer = { ...words, identityId: "i1" };
+		const index = new Map([
+			[
+				writer.id,
+				logs(writer, { [TODAY]: 400, [addDays(TODAY, -1)]: 120, [addDays(TODAY, -4)]: 500 }),
+			],
+		]);
+		const identity = {
+			id: "i1",
+			statement: "I am a writer",
+			emoji: "✍️",
+			color: "violet" as const,
+			order: 0,
+			lang: null,
+			createdAt: 0,
+			updatedAt: 0,
+			deletedAt: null,
+		};
+		const [stats] = identityStats([identity], [writer], index, TODAY);
+		expect([stats?.votes, stats?.recentVotes]).toEqual([302, 302]);
+	});
+
+	test("compounding starts at 1× on every line", () => {
+		expect(compounding(0)).toEqual({ better: 1, same: 1, worse: 1 });
+		expect(compounding(30).better).toBeCloseTo(1.3478, 3);
+	});
+
+	test("compounding has a flat 1× line", () => {
+		const c = compounding(365);
+		expect(c.same).toBe(1);
+		expect(c.better).toBeCloseTo(37.78, 1);
+		expect(c.worse).toBeCloseTo(0.0255, 3);
+	});
+});
+
+describe("agenda v2", () => {
+	const stats = (entries: [Habit, number, number][]) =>
+		new Map(
+			entries.map(([h, strength, current]) => [
+				h.id,
+				{
+					...habitStats(h, new Map(), TODAY),
+					strength,
+					streak: { ...habitStats(h, new Map(), TODAY).streak, current },
+				},
+			]),
+		);
+
+	test("strongestHabits: live build habits by strength, streak, then name; limited", () => {
+		const a = habit({ id: "a", name: "Alpha" });
+		const b = habit({ id: "b", name: "Bravo" });
+		const c = habit({ id: "c", name: "Charlie" });
+		const d = habit({ id: "d", name: "Delta" });
+		const brk = habit({ id: "x", name: "Doom", kind: "break" });
+		const archived = habit({ id: "y", name: "Old", archivedAt: 1 });
+		const deleted = habit({ id: "z", name: "Gone", deletedAt: 1 });
+		const all = [a, b, c, d, brk, archived, deleted];
+		const map = stats([
+			[a, 0.5, 3],
+			[b, 0.9, 1],
+			[c, 0.5, 7],
+			[d, 0.5, 3],
+			[brk, 1, 30],
+			[archived, 1, 9],
+			[deleted, 1, 9],
+		]);
+		expect(strongestHabits(all, map).map((r) => r.habit.id)).toEqual(["b", "c", "a", "d"]);
+		expect(strongestHabits(all, map, 2).map((r) => r.habit.id)).toEqual(["b", "c"]);
+		expect(strongestHabits([brk], map)).toEqual([]);
+	});
+
+	test("breakingFreeHabits: live break habits by clean streak", () => {
+		const one = habit({ id: "1", name: "Sugar", kind: "break" });
+		const two = habit({ id: "2", name: "Doom", kind: "break" });
+		const three = habit({ id: "3", name: "Alcohol", kind: "break" });
+		const four = habit({ id: "4", name: "Vape", kind: "break" });
+		const build = habit({ id: "b" });
+		const map = stats([
+			[one, 0.2, 4],
+			[two, 0.1, 12],
+			[three, 0.3, 4],
+			[four, 0.9, 1],
+			[build, 1, 99],
+		]);
+		expect(breakingFreeHabits([one, two, three, four, build], map).map((r) => r.habit.id)).toEqual([
+			"2",
+			"3",
+			"1",
+		]);
+	});
+
+	test("AgendaItem.extra counts reps above the day's target", () => {
+		const water = habit({ id: "w", target: 8 });
+		const doom = habit({ id: "d", kind: "break" });
+		const index = new Map([
+			["w", logs(water, { [TODAY]: 11 })],
+			["d", logs(doom, { [TODAY]: 3 })],
+		]);
+		const agenda = buildAgenda([water, doom], {}, index, TODAY, TODAY);
+		expect(agenda.groups.anytime[0]?.extra).toBe(3);
+		expect(agenda.breaking[0]?.extra).toBe(0);
+		expect(agenda.votes).toBe(8);
 	});
 });

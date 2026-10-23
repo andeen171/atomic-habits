@@ -1,4 +1,5 @@
 import type { Habit, Translator } from "@atomic/core";
+import type { PlannedReminder } from "./reminder-sources/types";
 
 /** Reminders are a native feature; the web preview keeps the same API as no-ops. */
 export function reminderHabits(habits: Record<string, Habit>): Habit[] {
@@ -31,7 +32,25 @@ export async function requestNotificationPermission(): Promise<boolean> {
 	return false;
 }
 
-export async function syncReminders(_habits: Habit[], _enabled: boolean, _t: Translator) {}
+export interface ExtraReminders {
+	review: readonly PlannedReminder[];
+	tasks: readonly PlannedReminder[];
+}
+
+/** A habit's text as the app shows it (see `reminders.ts`). */
+export type HabitText = (habit: Habit, field: "name" | "twoMinute") => string;
+
+export function taskReminderCap(habitCount: number): number {
+	return Math.max(0, Math.min(24, 60 - habitCount - 1));
+}
+
+export async function syncReminders(
+	_habits: Habit[],
+	_enabled: boolean,
+	_t: Translator,
+	_extra?: ExtraReminders,
+	_text?: HabitText,
+) {}
 
 export function useReminderSync() {}
 

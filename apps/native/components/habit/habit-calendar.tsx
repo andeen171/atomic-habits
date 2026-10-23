@@ -1,5 +1,5 @@
 import { CalendarMonth } from "@/components/calendar-month";
-import { RotateCcw, SkipForward } from "@/components/icons";
+import { RotateCcw, SkipForward, Trophy } from "@/components/icons";
 import { Sheet } from "@/components/sheet/sheet";
 import { Button } from "@/components/ui/button";
 import { Stepper } from "@/components/ui/stepper";
@@ -7,18 +7,26 @@ import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { type AppTranslator, useT } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
-import { showToast } from "@/lib/ui-store";
+import { showToast, ui } from "@/lib/ui-store";
 import {
 	type DayKey,
 	type Habit,
+	MONTH_DAY_CAP,
+	canExceedTarget,
 	dayState,
+	isTrackerDay,
 	logsFor,
+	monthAmount,
+	monthKeyOf,
+	monthProgressLabel,
 	progressLabel,
 	startOfMonth,
+	targetOn,
 } from "@atomic/core";
-import { useActions, useLogIndex, useToday } from "@atomic/core/react";
+import { useActions, useLogIndex, useMonthGoal, useToday } from "@atomic/core/react";
 import { useState } from "react";
 import { Pressable, View, type ViewStyle } from "react-native";
+import { useDisplayHabit } from "./display-habit";
 
 /** Editable month calendar: tap toggles a day; count habits open a stepper. */
 export function HabitCalendar({ habit }: { habit: Habit }) {
@@ -34,9 +42,20 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 	const [draft, setDraft] = useState(0);
 	const editingLog = editing ? logs.get(editing) : undefined;
 	const savedCount = editingLog?.count ?? 0;
+	const shown = useDisplayHabit(habit);
+	// The shown month's goal (D8): "214/310 pages", a trophy once it is won.
+	const goal = useMonthGoal(habit, monthKeyOf(month));
+	const won = goal ? (goal.kind === "build" ? goal.won : goal.cleanMonth) : false;
+	const editingTarget = editing ? targetOn(habit, editing) : habit.target;
 
 	const onDay = (day: DayKey) => {
-		if (habit.kind === "build" && habit.target > 1) {
+		// Tracker days follow their entries (Annex K §1.3): show them instead of editing the count.
+		if (isTrackerDay(habit, day)) {
+			haptics.selection();
+			ui.openDayEntries(habit.id, day);
+			return;
+		}
+		if (habit.kind === "build" && targetOn(habit, day) > 1) {
 			setDraft(logs.get(day)?.count ?? 0);
 			setEditing(day);
 			return;
@@ -51,6 +70,49 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 				month={month}
 				onMonthChange={setMonth}
 				maxMonth={today}
+				subtitle={
+					goal && (goal.kind === "break" || goal.goal > 0) ? (
+						<View
+							style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+							accessible
+							accessibilityLabel={[
+								won
+									? goal.kind === "build"
+										? t.t("month.status.won")
+										: t.t("month.cleanMonth")
+									: null,
+								monthProgressLabel(goal, shown, t),
+							]
+								.filter(Boolean)
+								.join(": ")}
+							testID="calendar-month-goal"
+						>
+							{won ? (
+								<View
+									style={{
+										width: 20,
+										height: 20,
+										borderRadius: 10,
+										alignItems: "center",
+										justifyContent: "center",
+										backgroundColor: tone.fill,
+									}}
+								>
+									<Trophy size={12} color={tone.on} strokeWidth={2.4} />
+								</View>
+							) : null}
+							<Text
+								variant="small"
+								tone="muted"
+								tabular
+								numberOfLines={1}
+								style={{ flexShrink: 1 }}
+							>
+								{monthProgressLabel(goal, shown, t)}
+							</Text>
+						</View>
+					) : null
+				}
 				renderDay={(day, inMonth) => {
 					const log = logs.get(day);
 					const state = dayState(habit, day, log, today);
@@ -83,7 +145,12 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 					}
 					const label = [
 						t.formatDayLong(day),
-						stateLabel(state, { habit, count: log?.count ?? 0, isToday: day === today, t }),
+						stateLabel(state, {
+							habit: shown,
+							count: log?.count ?? 0,
+							isToday: day === today,
+							t,
+						}),
 					]
 						.filter(Boolean)
 						.join(", ");
@@ -136,11 +203,19 @@ export function HabitCalendar({ habit }: { habit: Habit }) {
 						max={Math.max(habit.target * 3, 20)}
 						accessibilityLabel={t.x("habit.setCount")}
 						format={(v) =>
-							habit.unit
-								? `${t.number(v)} / ${t.number(habit.target)} ${habit.unit}`
-								: `${t.number(v)} / ${t.number(habit.target)}`
+							shown.unit
+								? `${t.number(v)} / ${t.number(editingTarget)} ${shown.unit}`
+								: `${t.number(v)} / ${t.number(editingTarget)}`
 						}
 					/>
+					{/* Reps above the target count toward the month, up to the cap (D8, D11). */}
+					{draft >= editingTarget && canExceedTarget(habit) ? (
+						<Text variant="small" tone="muted" align="center">
+							{t.t("month.capHint", {
+								max: monthAmount(shown, MONTH_DAY_CAP * editingTarget, t),
+							})}
+						</Text>
+					) : null}
 					<Button
 						label={t.t("common.save")}
 						size="lg"

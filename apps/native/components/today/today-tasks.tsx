@@ -6,22 +6,26 @@ import { Text } from "@/components/ui/text";
 import { haptics } from "@/lib/haptics";
 import { useT } from "@/lib/i18n";
 import { fonts, makeStyles, useTheme } from "@/lib/theme";
-import { type DayKey, tasksForDay } from "@atomic/core";
-import { useActions, useTasks, useToday } from "@atomic/core/react";
-import { useMemo, useState } from "react";
+import type { DayKey } from "@atomic/core";
+import { useActions, useTaskAgenda, useToday } from "@atomic/core/react";
+import { useState } from "react";
 import { TextInput, View } from "react-native";
 
-/** Tasks due on the day (plus overdue ones today) with inline quick add. */
+/**
+ * Tasks for the day with inline quick add (Annex T §1.4): one-offs, the
+ * open occurrence of each series (overdue ones included today), occurrences
+ * settled that day, missed ones on past days and projected ones ahead.
+ * Inline add creates one-off tasks.
+ */
 export function TodayTasks({ day }: { day: DayKey }) {
 	const t = useT();
 	const { colors } = useTheme();
 	const styles = useStyles();
 	const actions = useActions();
 	const today = useToday();
-	const tasks = useTasks();
-	const list = useMemo(() => tasksForDay(tasks, day, today), [tasks, day, today]);
+	const list = useTaskAgenda(day);
 	const [title, setTitle] = useState("");
-	const open = list.filter((task) => !task.completedAt).length;
+	const open = list.filter((item) => item.state === "open" && item.actionable).length;
 	// New tasks land on the viewed day, so the copy names it when it isn't today.
 	const date = t.formatDayShort(day);
 	const addLabel = day === today ? t.t("today.addTask") : t.t("today.addTaskFor", { date });
@@ -49,8 +53,8 @@ export function TodayTasks({ day }: { day: DayKey }) {
 				{t.t("today.tasks")}
 			</SectionLabel>
 			<Card padding={0} style={styles.card}>
-				{list.map((task, index) => (
-					<TaskRow key={task.id} task={task} hideDate={task.date === day} first={index === 0} />
+				{list.map((item, index) => (
+					<TaskRow key={item.key} item={item} hideDate={item.date === day} first={index === 0} />
 				))}
 				<View style={[styles.add, list.length > 0 && styles.addSeparator]}>
 					<View style={styles.plus}>

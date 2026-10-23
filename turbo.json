@@ -9,8 +9,8 @@
 		},
 		"build:artifact": {
 			"dependsOn": ["^build"],
-			"inputs": ["$TURBO_DEFAULT$", ".env*"],
-			"outputs": ["dist-artifact/**"]
+			"passThroughEnv": ["ARTIFACT_OUT_DIR"],
+			"cache": false
 		},
 		"test": {
 			"dependsOn": ["^test"]

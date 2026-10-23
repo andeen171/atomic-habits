@@ -6,9 +6,13 @@ import { AppToaster } from "@/components/layout/app-toaster";
 import { ErrorScreen, NotFoundScreen } from "@/components/layout/fallback-screens";
 import { Splash } from "@/components/layout/splash";
 import { TaskDialog } from "@/components/tasks/task-dialog";
+import { EntryComposerDialog } from "@/components/trackers/entry-composer";
+import { useArtifactCloudStatus } from "@/lib/artifact-cloud";
 import { focusPage, noteNavigation } from "@/lib/focus";
 import { type AppI18n, useT } from "@/lib/messages";
+import { useMonthCelebration } from "@/lib/use-month-celebration";
 import { useGlobalShortcuts } from "@/lib/use-shortcuts";
+import { useStoreNotices } from "@/lib/use-store-notices";
 import { useAtomic, useHydrated, useLocale } from "@atomic/core/react";
 import { Navigate, Outlet, createRootRoute, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
@@ -24,7 +28,11 @@ function RootLayout() {
 	const onboarded = useAtomic((s) => s.settings.onboarded);
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const locale = useLocale();
+	const cloud = useArtifactCloudStatus();
 	useGlobalShortcuts();
+	useStoreNotices();
+	// Here, not in the shell: the timer and writing pad save entries outside it.
+	useMonthCelebration();
 
 	useEffect(() => {
 		document.documentElement.lang = locale;
@@ -32,7 +40,8 @@ function RootLayout() {
 
 	useRouteAnnouncer(pathname);
 
-	if (!hydrated) return <Splash />;
+	// The artifact build also waits (briefly) for the viewer's cloud copy.
+	if (!hydrated || cloud === "connecting") return <Splash />;
 	if (!onboarded && pathname !== "/onboarding") return <Navigate to="/onboarding" replace />;
 
 	return (
@@ -40,6 +49,7 @@ function RootLayout() {
 			<Outlet />
 			<TaskDialog />
 			<NoteDialog />
+			<EntryComposerDialog />
 			<ShortcutsDialog />
 			<FourLawsDialog />
 			<CommandPalette />
@@ -48,15 +58,26 @@ function RootLayout() {
 	);
 }
 
-const HABIT_ROUTE = /^\/habits\/([^/]+)(\/edit)?$/;
-const SCREENS = ["tasks", "identity", "insights", "scorecard", "settings", "you"] as const;
+const HABIT_ROUTE = /^\/habits\/([^/]+)(\/edit|\/timer|\/write)?$/;
+const SCREENS = [
+	"tasks",
+	"identity",
+	"journal",
+	"insights",
+	"scorecard",
+	"settings",
+	"you",
+	"account",
+] as const;
 
 function screenTitle(pathname: string, t: AppI18n["t"], habitName: string | undefined) {
 	if (pathname === "/") return t("nav.today");
 	if (pathname === "/habits") return t("nav.habits");
 	if (pathname === "/habits/new") return t("form.newTitle");
+	if (pathname === "/journal/new") return t("create.journalEntry");
+	if (pathname.startsWith("/journal/")) return t("nav.journal");
 	const habit = HABIT_ROUTE.exec(pathname);
-	if (habit) return habit[2] ? t("form.editTitle") : (habitName ?? t("nav.habits"));
+	if (habit) return habit[2] === "/edit" ? t("form.editTitle") : (habitName ?? t("nav.habits"));
 	const screen = SCREENS.find((key) => pathname === `/${key}`);
 	return screen ? t(`nav.${screen}`) : null;
 }

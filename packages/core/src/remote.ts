@@ -1,18 +1,40 @@
+import type { z } from "zod";
+import { type ServerInfo, blobsMissingSchema, serverInfoSchema } from "./account";
+import {
+	type AttachmentMime,
+	type BlobSource,
+	type BlobTransport,
+	SHA256_RE,
+	isAttachmentMime,
+} from "./attachments";
+import { V1_COLLECTIONS } from "./model";
 import type { PullInput, PullOutput, PushInput, PushOutput, SyncTransport } from "./sync";
 
 /**
- * HTTP client for a self-hosted `apps/server`.
+ * HTTP client for an Atomic server (`apps/server`; spec §4.3, Annex C §3.4).
  *
- * Auth uses Better Auth's email/password endpoints with the bearer plugin, so
- * the same code works from browsers (no third-party cookies), Tauri and React
- * Native. Sync calls hit tRPC procedures over plain HTTP (no batching, no
- * transformer): `POST /trpc/sync.push` and `GET /trpc/sync.pull?input=…`.
+ * Auth uses Better Auth's endpoints with the bearer plugin, so the same code
+ * works from browsers (no third-party cookies), Tauri and React Native. The
+ * rest are tRPC procedures over plain HTTP (no batching, no transformer):
+ * queries are `GET /trpc/<path>?input=…`, mutations `POST /trpc/<path>` with
+ * the JSON input as the body, and answers are `{ result: { data } }`.
+ *
+ * Every request carries the caller's `headers()` (`X-Atomic-Locale`,
+ * `X-Atomic-Client`; see `atomicClientHeaders`); auth calls also send
+ * `X-Atomic-Device`, which the server shows in the device list. Responses the
+ * client relies on are parsed with the core schemas: anything else raises
+ * `RemoteError("Malformed response")`.
+ *
+ * Account, billing and AI-consent calls live in `remote-account.ts`; photo
+ * backup (`blobTransport`) is here.
  */
 
 export interface RemoteUser {
 	id: string;
 	email: string;
 	name: string;
+	/** Present when the server reports it (Better Auth's user object). */
+	emailVerified?: boolean;
 }
 
 export interface RemoteSession {
@@ -20,18 +42,87 @@ export interface RemoteSession {
 	user: RemoteUser;
 }
 
+export interface RemoteErrorDetails {
+	/** tRPC's `error.data.code` ("UNAUTHORIZED", "TOO_MANY_REQUESTS", …). */
+	trpcCode?: string;
+	/** `error.data.atomic.reason` ("rate", "quota", "unverified", …). */
+	reason?: string;
+	/** Epoch ms to wait for: `error.data.atomic.retryAt`, else the `Retry-After` header. */
+	retryAt?: number;
+}
+
 export class RemoteError extends Error {
+	readonly trpcCode?: string;
+	readonly reason?: string;
+	readonly retryAt?: number;
+
 	constructor(
 		message: string,
 		readonly status: number,
+		/** Better Auth's error code ("INVALID_EMAIL_OR_PASSWORD"), or tRPC's `data.code`. */
 		readonly code?: string,
+		details: RemoteErrorDetails = {},
 	) {
 		super(message);
 		this.name = "RemoteError";
+		if (details.trpcCode !== undefined) this.trpcCode = details.trpcCode;
+		if (details.reason !== undefined) this.reason = details.reason;
+		if (details.retryAt !== undefined) this.retryAt = details.retryAt;
 	}
 }
 
-type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+export interface RemoteClientOptions {
+	/** Merged into every request: `X-Atomic-Locale`, `X-Atomic-Client` (`atomicClientHeaders`). */
+	headers?: () => Record<string, string>;
+	/** Sent with auth calls only, as `X-Atomic-Device` ("Atomic Android · Pixel 8"). */
+	device?: () => string | null | undefined;
+	/** Clock for `Retry-After` (default `Date.now`). */
+	now?: () => number;
+	/**
+	 * Abort a request that hasn't answered after this long (default 60 s; 0
+	 * turns it off), plus 1 s per 32 KB of request body, so a large push or
+	 * photo has time to go up a slow link. A timed-out request fails like a
+	 * network error, with the name `TimeoutError` (`isTimeoutError`).
+	 */
+	timeoutMs?: number;
+}
+
+/** Client kinds for `X-Atomic-Client` (Annex C §1.1). */
+export type AtomicClientKind = "web" | "desktop" | "android" | "ios";
+
+/**
+ * The headers every request carries: `X-Atomic-Locale` (the resolved app
+ * locale, for emails and server pages) and `X-Atomic-Client`
+ * (`<kind>/<appVersion>`).
+ */
+export function atomicClientHeaders(info: {
+	locale: string;
+	client: AtomicClientKind;
+	version: string;
+}): Record<string, string> {
+	return {
+		"X-Atomic-Locale": info.locale,
+		"X-Atomic-Client": `${info.client}/${info.version}`,
+	};
+}
+
+/**
+ * What a v1 server can do (its `/trpc/meta` answers 404; spec §2.7): the v1
+ * collections, schema revision 1 and no optional features.
+ */
+export function v1ServerInfo(): ServerInfo {
+	return {
+		api: 1,
+		version: "1",
+		schemaRev: 1,
+		collections: [...V1_COLLECTIONS],
+		clients: { android: null },
+		features: { email: false, google: null, billing: null, ai: null, blobs: null },
+		legal: { privacyUrl: null, termsUrl: null },
+	};
+}
 
 export function normalizeServerUrl(url: string): string {
 	let value = url.trim();
@@ -50,97 +141,329 @@ async function readJson(response: Response): Promise<unknown> {
 	}
 }
 
-function errorFrom(response: Response, body: unknown): RemoteError {
-	const b = body as {
-		message?: string;
-		code?: string;
-		error?: { message?: string; code?: string; json?: { message?: string } };
-	} | null;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/** `Retry-After` as epoch ms: seconds, or an HTTP date. */
+function retryAfter(response: Response, now: number): number | undefined {
+	const header = response.headers.get("retry-after");
+	if (!header) return undefined;
+	const seconds = Number(header);
+	if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1000;
+	const date = Date.parse(header);
+	return Number.isFinite(date) ? date : undefined;
+}
+
+/**
+ * A `RemoteError` from a failed response. Understands Better Auth bodies
+ * (`{message, code}`) and tRPC bodies (`{error: {message, code, data: {code,
+ * atomic: {reason, retryAt}}}}`).
+ */
+export function remoteErrorFrom(response: Response, body: unknown, now = Date.now()): RemoteError {
+	const b = isRecord(body) ? body : {};
+	const error = isRecord(b.error) ? b.error : null;
+	const data = error && isRecord(error.data) ? error.data : null;
+	const atomic = data && isRecord(data.atomic) ? data.atomic : null;
+	const json = error && isRecord(error.json) ? error.json : null;
 	const message =
-		b?.error?.message ??
-		b?.error?.json?.message ??
-		b?.message ??
+		str(error?.message) ??
+		str(json?.message) ??
+		str(b.message) ??
+		(typeof body === "string" && body.length < 200 && body ? body : undefined) ??
 		`Request failed (${response.status})`;
-	return new RemoteError(message, response.status, b?.error?.code ?? b?.code);
+	const trpcCode = str(data?.code);
+	const retryAt =
+		typeof atomic?.retryAt === "number" && Number.isFinite(atomic.retryAt)
+			? atomic.retryAt
+			: retryAfter(response, now);
+	return new RemoteError(message, response.status, str(b.code) ?? trpcCode ?? str(error?.code), {
+		...(trpcCode === undefined ? {} : { trpcCode }),
+		...(str(atomic?.reason) === undefined ? {} : { reason: str(atomic?.reason) }),
+		...(retryAt === undefined ? {} : { retryAt }),
+	});
+}
+
+/** Parses `data` with `schema`, or throws `RemoteError("Malformed response")`. */
+export function parseRemote<S extends z.ZodType>(
+	schema: S,
+	data: unknown,
+	status = 200,
+): z.output<S> {
+	const parsed = schema.safeParse(data);
+	if (!parsed.success) throw new RemoteError("Malformed response", status);
+	return parsed.data;
+}
+
+/** The low-level calls `remote-account.ts` (and later the AI and blob clients) build on. */
+export interface RemoteHttp {
+	baseUrl: string;
+	/** `fetch` with the client headers, the bearer token and the request timeout. */
+	request(
+		path: string,
+		init: RequestInit & { token?: string | null; auth?: boolean },
+	): Promise<Response>;
+	/** `POST /api/auth<path>`; throws `RemoteError` on a non-2xx answer. */
+	auth(
+		path: string,
+		payload: unknown,
+		token?: string | null,
+	): Promise<{ response: Response; body: unknown }>;
+	/** A tRPC query (`GET`), parsed with `schema`. */
+	query<S extends z.ZodType>(
+		path: string,
+		token: string | null,
+		schema: S,
+		input?: unknown,
+		signal?: AbortSignal,
+	): Promise<z.output<S>>;
+	/** A tRPC mutation (`POST`), parsed with `schema`. */
+	mutation<S extends z.ZodType>(
+		path: string,
+		token: string | null,
+		schema: S,
+		input?: unknown,
+		signal?: AbortSignal,
+	): Promise<z.output<S>>;
 }
 
 export interface RemoteClient {
 	baseUrl: string;
+	http: RemoteHttp;
 	health(): Promise<boolean>;
+	/**
+	 * `GET /trpc/meta` (spec §2.7): the server's capabilities. `null` when the
+	 * server answers 404 (a v1 server; see `v1ServerInfo`).
+	 */
+	meta(): Promise<ServerInfo | null>;
 	signUp(input: { name: string; email: string; password: string }): Promise<RemoteSession>;
 	signIn(input: { email: string; password: string }): Promise<RemoteSession>;
+	/** Google ID-token sign-in (D29): `POST /api/auth/sign-in/social`. */
+	signInWithGoogle(idToken: string, nonce?: string): Promise<RemoteSession>;
 	getUser(token: string): Promise<RemoteUser | null>;
+	/** Ends the session on the server; never throws (signing out locally always works). */
 	signOut(token: string): Promise<void>;
 	transport(token: string): SyncTransport;
+	/**
+	 * Photo backup over the wire (spec §2.4.5, §4.3): `POST /trpc/blobs.missing`,
+	 * `PUT /blobs/<sha>` with the raw bytes, `GET /blobs/<sha>`. A refused PUT
+	 * throws `RemoteError` with the server's `code` (`QUOTA_EXCEEDED`,
+	 * `TOO_LARGE`, `UNSUPPORTED_TYPE`, …). A `{uri}` source is read with
+	 * `fetch(uri)` (React Native reads `file://` that way); native may pass its
+	 * own transport to the sync controller instead.
+	 */
+	blobTransport(token: string): BlobTransport;
 }
 
-export function createRemoteClient(serverUrl: string, fetchImpl?: FetchLike): RemoteClient {
+const DEFAULT_TIMEOUT_MS = 60_000;
+/** Request body bytes the timeout allows per extra millisecond (32 KB/s, a weak uplink). */
+const BODY_BYTES_PER_MS = 32;
+
+/** A request the remote client gave up on (`RemoteClientOptions.timeoutMs`). */
+export class RequestTimeoutError extends Error {
+	constructor(ms: number) {
+		super(`No answer after ${Math.round(ms / 1000)} s`);
+		this.name = "TimeoutError";
+	}
+}
+
+/** A request that timed out (ours, or a fetch aborted by its own timeout signal). */
+export function isTimeoutError(error: unknown): boolean {
+	const name = (error as { name?: unknown } | null)?.name;
+	return name === "TimeoutError" || name === "AbortError";
+}
+
+/** About the size of a request body (characters for text: JSON is mostly ASCII). */
+function bodyBytes(body: unknown): number {
+	if (typeof body === "string") return body.length;
+	if (body instanceof Uint8Array) return body.byteLength;
+	return 0;
+}
+
+/** The bytes of a blob source: as given, or read from its URI. */
+async function sourceBytes(source: BlobSource): Promise<Uint8Array> {
+	if ("bytes" in source) return source.bytes;
+	const response = await globalThis.fetch(source.uri);
+	if (!response.ok) throw new Error(`Could not read ${source.uri} (${response.status})`);
+	return new Uint8Array(await response.arrayBuffer());
+}
+
+/** `{token, user}` from an auth answer (token from `set-auth-token` first). */
+export function sessionFrom(response: Response, body: unknown): RemoteSession {
+	const b = isRecord(body) ? body : {};
+	const user = isRecord(b.user) ? b.user : null;
+	const token = response.headers.get("set-auth-token") ?? str(b.token) ?? null;
+	if (!token || !user || typeof user.id !== "string")
+		throw new RemoteError("No session returned", response.status);
+	return { token, user: userFrom(user) };
+}
+
+function userFrom(user: Record<string, unknown>): RemoteUser {
+	return {
+		id: String(user.id),
+		email: str(user.email) ?? "",
+		name: str(user.name) ?? "",
+		...(typeof user.emailVerified === "boolean" ? { emailVerified: user.emailVerified } : {}),
+	};
+}
+
+export function createRemoteClient(
+	serverUrl: string,
+	fetchImpl?: FetchLike,
+	options: RemoteClientOptions = {},
+): RemoteClient {
 	const baseUrl = normalizeServerUrl(serverUrl);
 	const doFetch: FetchLike = fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
+	const now = options.now ?? Date.now;
+	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-	const authHeaders = (token?: string): Record<string, string> => ({
-		"Content-Type": "application/json",
-		...(token ? { Authorization: `Bearer ${token}` } : {}),
-	});
-
-	const sessionFrom = (response: Response, body: unknown): RemoteSession => {
-		const b = body as { token?: string | null; user?: RemoteUser } | null;
-		const token = response.headers.get("set-auth-token") ?? b?.token ?? null;
-		if (!token || !b?.user) throw new RemoteError("No session returned", response.status);
-		return { token, user: { id: b.user.id, email: b.user.email, name: b.user.name } };
+	const headersFor = (token: string | null | undefined, auth: boolean, body: boolean) => {
+		const headers: Record<string, string> = { ...(options.headers?.() ?? {}) };
+		if (body) headers["Content-Type"] = "application/json";
+		if (token) headers.Authorization = `Bearer ${token}`;
+		if (auth) {
+			const device = options.device?.();
+			if (device) headers["X-Atomic-Device"] = device;
+		}
+		return headers;
 	};
 
-	const authPost = async (path: string, payload: unknown, token?: string) => {
-		const response = await doFetch(`${baseUrl}/api/auth${path}`, {
+	const request: RemoteHttp["request"] = async (path, init) => {
+		const { token, auth = false, signal, headers, ...rest } = init;
+		const merged = {
+			...headersFor(token, auth, rest.body !== undefined),
+			...((headers as Record<string, string> | undefined) ?? {}),
+		};
+		// Hermes and old browsers may lack AbortController: then no timeout.
+		const Controller = (globalThis as { AbortController?: typeof AbortController }).AbortController;
+		if (!Controller || timeoutMs <= 0) {
+			return doFetch(`${baseUrl}${path}`, {
+				...rest,
+				headers: merged,
+				...(signal ? { signal } : {}),
+			});
+		}
+		const controller = new Controller();
+		const abort = () => controller.abort();
+		const limit = timeoutMs + Math.ceil(bodyBytes(rest.body) / BODY_BYTES_PER_MS);
+		let timedOut = false;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			abort();
+		}, limit);
+		if (signal) {
+			if (signal.aborted) controller.abort();
+			else signal.addEventListener("abort", abort);
+		}
+		try {
+			return await doFetch(`${baseUrl}${path}`, {
+				...rest,
+				headers: merged,
+				signal: controller.signal,
+			});
+		} catch (error) {
+			if (timedOut) throw new RequestTimeoutError(limit);
+			throw error;
+		} finally {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", abort);
+		}
+	};
+
+	const auth: RemoteHttp["auth"] = async (path, payload, token) => {
+		const response = await request(`/api/auth${path}`, {
 			method: "POST",
-			headers: authHeaders(token),
-			body: JSON.stringify(payload),
+			token: token ?? null,
+			auth: true,
+			body: JSON.stringify(payload ?? {}),
 		});
 		const body = await readJson(response);
-		if (!response.ok) throw errorFrom(response, body);
+		if (!response.ok) throw remoteErrorFrom(response, body, now());
 		return { response, body };
 	};
 
-	const unwrap = async <T>(response: Response): Promise<T> => {
+	const unwrap = async (response: Response): Promise<unknown> => {
 		const body = await readJson(response);
-		if (!response.ok) throw errorFrom(response, body);
-		const result = (body as { result?: { data?: T } } | null)?.result;
+		if (!response.ok) throw remoteErrorFrom(response, body, now());
+		const result = isRecord(body) && isRecord(body.result) ? body.result : null;
 		if (!result || !("data" in result))
 			throw new RemoteError("Malformed response", response.status);
-		return result.data as T;
+		return result.data;
 	};
+
+	const query: RemoteHttp["query"] = async (path, token, schema, input, signal) => {
+		const search = input === undefined ? "" : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+		const response = await request(`/trpc/${path}${search}`, {
+			method: "GET",
+			token,
+			...(signal ? { signal } : {}),
+		});
+		return parseRemote(schema, await unwrap(response), response.status);
+	};
+
+	const mutation: RemoteHttp["mutation"] = async (path, token, schema, input, signal) => {
+		const response = await request(`/trpc/${path}`, {
+			method: "POST",
+			token,
+			// tRPC refuses a POST without a JSON content type (415), even with no
+			// input; like its own client, send the header and no body then.
+			...(input === undefined
+				? { headers: { "Content-Type": "application/json" } }
+				: { body: JSON.stringify(input) }),
+			...(signal ? { signal } : {}),
+		});
+		return parseRemote(schema, await unwrap(response), response.status);
+	};
+
+	const http: RemoteHttp = { baseUrl, request, auth, query, mutation };
 
 	return {
 		baseUrl,
+		http,
 		async health() {
 			try {
-				const response = await doFetch(`${baseUrl}/`, { method: "GET" });
+				const response = await request("/", { method: "GET" });
 				return response.ok;
 			} catch {
 				return false;
 			}
 		},
+		async meta() {
+			const response = await request("/trpc/meta", { method: "GET" });
+			if (response.status === 404) return null;
+			return parseRemote(serverInfoSchema, await unwrap(response), response.status);
+		},
 		async signUp(input) {
-			const { response, body } = await authPost("/sign-up/email", input);
+			const { response, body } = await auth("/sign-up/email", input);
 			return sessionFrom(response, body);
 		},
 		async signIn(input) {
-			const { response, body } = await authPost("/sign-in/email", input);
+			const { response, body } = await auth("/sign-in/email", input);
+			return sessionFrom(response, body);
+		},
+		async signInWithGoogle(idToken, nonce) {
+			const { response, body } = await auth("/sign-in/social", {
+				provider: "google",
+				idToken: nonce ? { token: idToken, nonce } : { token: idToken },
+			});
 			return sessionFrom(response, body);
 		},
 		async getUser(token) {
-			const response = await doFetch(`${baseUrl}/api/auth/get-session`, {
+			const response = await request("/api/auth/get-session", {
 				method: "GET",
-				headers: authHeaders(token),
+				token,
+				auth: true,
 			});
 			if (response.status === 401) return null;
-			const body = (await readJson(response)) as { user?: RemoteUser } | null;
-			if (!response.ok) throw errorFrom(response, body);
-			return body?.user ? { id: body.user.id, email: body.user.email, name: body.user.name } : null;
+			const body = await readJson(response);
+			if (!response.ok) throw remoteErrorFrom(response, body, now());
+			const user = isRecord(body) && isRecord(body.user) ? body.user : null;
+			return user && typeof user.id === "string" ? userFrom(user) : null;
 		},
 		async signOut(token) {
 			try {
-				await authPost("/sign-out", {}, token);
+				await auth("/sign-out", {}, token);
 			} catch {
 				// Signing out locally always succeeds.
 			}
@@ -148,20 +471,59 @@ export function createRemoteClient(serverUrl: string, fetchImpl?: FetchLike): Re
 		transport(token) {
 			return {
 				async push(input: PushInput) {
-					const response = await doFetch(`${baseUrl}/trpc/sync.push`, {
+					const response = await request("/trpc/sync.push", {
 						method: "POST",
-						headers: authHeaders(token),
+						token,
 						body: JSON.stringify(input),
 					});
-					return unwrap<PushOutput>(response);
+					return (await unwrap(response)) as PushOutput;
 				},
 				async pull(input: PullInput) {
 					const query = encodeURIComponent(JSON.stringify(input));
-					const response = await doFetch(`${baseUrl}/trpc/sync.pull?input=${query}`, {
+					const response = await request(`/trpc/sync.pull?input=${query}`, {
 						method: "GET",
-						headers: authHeaders(token),
+						token,
 					});
-					return unwrap<PullOutput>(response);
+					return (await unwrap(response)) as PullOutput;
+				},
+			};
+		},
+		blobTransport(token) {
+			const fail = async (response: Response) =>
+				remoteErrorFrom(response, await readJson(response), now());
+			/** The blob's path; never anything but a hash (it carries the bearer token). */
+			const blobPath = (sha: string) => {
+				if (!SHA256_RE.test(sha)) throw new RemoteError("Not a SHA-256 hash", 400, "INVALID_HASH");
+				return `/blobs/${sha}`;
+			};
+			return {
+				async missing(hashes) {
+					if (!hashes.length) return [];
+					const { missing } = await mutation("blobs.missing", token, blobsMissingSchema, {
+						hashes,
+					});
+					return missing;
+				},
+				async upload(sha, source, mime) {
+					const path = blobPath(sha);
+					const bytes = await sourceBytes(source);
+					const response = await request(path, {
+						method: "PUT",
+						token,
+						body: bytes as Uint8Array<ArrayBuffer>,
+						headers: { "Content-Type": mime },
+					});
+					if (!response.ok) throw await fail(response);
+					// Drain the small JSON answer (`{sha256, size, mime, created}`).
+					await response.text().catch(() => "");
+				},
+				async download(sha) {
+					const response = await request(blobPath(sha), { method: "GET", token });
+					if (!response.ok) throw await fail(response);
+					const type = (response.headers.get("content-type") ?? "").split(";")[0]?.trim();
+					if (!isAttachmentMime(type)) throw new RemoteError("Malformed response", response.status);
+					const bytes = new Uint8Array(await response.arrayBuffer());
+					return { source: { bytes }, mime: type as AttachmentMime };
 				},
 			};
 		},

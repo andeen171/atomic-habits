@@ -24,10 +24,18 @@ export interface CalendarMonthProps {
 	renderDay: (day: DayKey, inMonth: boolean) => ReactNode;
 	/** Disable the "next" arrow past this month. */
 	maxMonth?: DayKey;
+	/** A line under the month's name (the habit calendar's month goal). */
+	subtitle?: ReactNode;
 }
 
 /** Month grid (`monthGrid`) with a header and weekday labels. */
-export function CalendarMonth({ month, onMonthChange, renderDay, maxMonth }: CalendarMonthProps) {
+export function CalendarMonth({
+	month,
+	onMonthChange,
+	renderDay,
+	maxMonth,
+	subtitle,
+}: CalendarMonthProps) {
 	const t = useT();
 	const { colors } = useTheme();
 	const styles = useStyles();
@@ -37,7 +45,12 @@ export function CalendarMonth({ month, onMonthChange, renderDay, maxMonth }: Cal
 	return (
 		<View>
 			<View style={styles.header}>
-				<Text variant="h3">{capitalize(t.formatMonth(month))}</Text>
+				<View style={styles.title}>
+					<Text variant="h3" accessibilityRole="header">
+						{capitalize(t.formatMonth(month))}
+					</Text>
+					{subtitle}
+				</View>
 				<View style={styles.arrows}>
 					<IconButton
 						icon={ChevronLeft}
@@ -92,8 +105,10 @@ const useStyles = makeStyles(() => ({
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "space-between",
+		gap: 12,
 		marginBottom: 12,
 	},
+	title: { flex: 1, minWidth: 0, gap: 2 },
 	arrows: { flexDirection: "row", gap: 8 },
 	week: { flexDirection: "row", marginBottom: 4 },
 	cell: { flex: 1, alignItems: "center" },

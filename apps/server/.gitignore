@@ -47,6 +47,9 @@ lerna-debug.log*
 # local db
 *.db*
 
+# local photo backup store (BLOB_DIR=./blobs): user content, never committed
+/blobs/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

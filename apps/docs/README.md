@@ -13,5 +13,11 @@ Astro Starlight site for Atomic, deployed at https://atomic-habits-docs.vercel.a
 | `bun run build` | Static build to `dist/` |
 | `bun run preview` | Serve the built site |
 
-The **Development** section (`src/content/docs/development/`) is the guide to the codebase: start
-with the review guide.
+The **Guides** section (`src/content/docs/guides/`) is for people using Atomic (getting started,
+the method, the journal, trackers, account and sync, self-hosting); **Reference** holds the
+architecture, the backup format and the privacy page. The **Development** section
+(`src/content/docs/development/`) is the guide to the codebase: start with the review guide, which
+walks through the v2 changes request by request.
+
+Every page exists in English and in Portuguese with the same file name. Internal links are
+absolute and include the locale prefix for Portuguese (`/pt-br/guides/journal/`).
