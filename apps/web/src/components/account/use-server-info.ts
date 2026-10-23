@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 export type ServerInfoState =
 	| { status: "idle"; info: null }
-	| { status: "loading"; info: ServerInfo | null }
+	| { status: "loading"; info: null }
 	| { status: "ready"; info: ServerInfo }
 	| { status: "error"; info: null };
 
@@ -47,7 +47,8 @@ export function useServerInfo(url: string | null, debounceMs = 400): ServerInfoS
 			return;
 		}
 		let live = true;
-		setState((prev) => ({ status: "loading", info: prev.info }));
+		// Nothing from the previous address: its Google client is not this server's.
+		setState({ status: "loading", info: null });
 		const timer = window.setTimeout(() => {
 			syncController
 				.loadServerInfo(url)
